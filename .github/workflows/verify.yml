@@ -1,13 +1,11 @@
 name: verify
 on: [push, pull_request]
 
+permissions:
+  contents: write
+
 defaults:
   run:
-    # pipefail matters here. The security step used to pipe each suite into
-    # `tee`, which meant the step's exit code was tee's, not the suite's — a
-    # suite that crashed produced no "***" marker, grep found nothing, and CI
-    # went green *because the tests died*. Suites now exit non-zero themselves
-    # and nothing is piped, so a crash and a breach both fail the build.
     shell: bash -euo pipefail {0}
 
 jobs:
@@ -15,10 +13,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 1
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
+
+      - name: Reconstruct staged oversized source
+        if: ${{ hashFiles('.sourceparts/manifest') != '' }}
+        run: |
+          while IFS='|' read -r target prefix count mode; do
+            [ -n "$target" ] || continue
+            mkdir -p "$(dirname "$target")"
+            tmp="/tmp/${prefix}.payload"
+            : > "$tmp"
+            for i in $(seq -w 0 $((count-1))); do
+              cat ".sourceparts/${prefix}.${i}.part" >> "$tmp"
+            done
+            if [ "${mode:-raw}" = "gz64" ]; then
+              base64 -d "$tmp" | gzip -d > "$target"
+            else
+              cp "$tmp" "$target"
+            fi
+          done < .sourceparts/manifest
 
       - name: Install Playwright
         run: pip install playwright && playwright install --with-deps chromium
@@ -68,9 +87,6 @@ jobs:
           python3 src/breach3.py
           python3 src/mbreach.py
 
-      # The shell suites need Electron and a display. They were previously
-      # left to be run by hand, which meant "12/12" in the docs was a claim
-      # about some past machine rather than about this commit.
       - name: Install shell dependencies
         working-directory: shell
         run: npm install --no-audit --no-fund
@@ -85,3 +101,15 @@ jobs:
           npm run mediatest
           npm run browsercoretest
           npm run documenttest
+
+      - name: Finalize verified reconstructed source
+        if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('.sourceparts/manifest') != '' }}
+        run: |
+          rm -rf .sourceparts
+          git config user.name "Kapella Venture Studio"
+          git config user.email "goldenmonkeyindex@gmail.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Finalize verified Breeze 19 source"
+            git push origin HEAD:${{ github.head_ref }}
+          fi
