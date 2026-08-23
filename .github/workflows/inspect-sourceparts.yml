@@ -19,51 +19,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo '--- assetsbundle ---'
-          cat .sourceparts/assetsbundle.*.part > /tmp/assetsbundle.b64
-          base64 -d /tmp/assetsbundle.b64 > /tmp/assetsbundle.gz
-          gzip -dc /tmp/assetsbundle.gz > /tmp/assetsbundle.raw
-          file /tmp/assetsbundle.raw || true
-          wc -c /tmp/assetsbundle.raw
           python3 - <<'PY'
           from pathlib import Path
-          import tarfile, zipfile
-          p=Path('/tmp/assetsbundle.raw')
-          b=p.read_bytes()
-          print('head repr:', repr(b[:300]))
-          if tarfile.is_tarfile(p):
-              with tarfile.open(p) as t:
-                  print('tar entries:', t.getnames())
-          elif zipfile.is_zipfile(p):
-              with zipfile.ZipFile(p) as z:
-                  print('zip entries:', z.namelist())
-          else:
-              try:
-                  s=b.decode('utf-8')
-                  print('utf8 head:', repr(s[:1200]))
-              except Exception as e:
-                  print('not utf8:', e)
-          PY
-          echo '--- assetsfix ---'
-          base64 -d .sourceparts/assetsfix.00.part > /tmp/assetsfix.gz
-          gzip -dc /tmp/assetsfix.gz > /tmp/assetsfix.raw
-          file /tmp/assetsfix.raw || true
-          wc -c /tmp/assetsfix.raw
-          python3 - <<'PY'
-          from pathlib import Path
-          import tarfile, zipfile
-          p=Path('/tmp/assetsfix.raw')
-          b=p.read_bytes()
-          print('head repr:', repr(b[:300]))
-          if tarfile.is_tarfile(p):
-              with tarfile.open(p) as t:
-                  print('tar entries:', t.getnames())
-          elif zipfile.is_zipfile(p):
-              with zipfile.ZipFile(p) as z:
-                  print('zip entries:', z.namelist())
-          else:
-              try:
-                  print('utf8 head:', repr(b.decode('utf-8')[:1200]))
-              except Exception as e:
-                  print('not utf8:', e)
+          import base64, gzip, tarfile, zipfile
+
+          def decode_parts(label, paths):
+              text=''.join(Path(p).read_text() for p in paths)
+              compact=''.join(text.split())
+              bad=[(i,ch) for i,ch in enumerate(compact) if ch not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=']
+              print(label, 'chars=', len(compact), 'mod4=', len(compact)%4, 'bad=', bad[:5])
+              compact += '=' * ((-len(compact)) % 4)
+              raw=base64.b64decode(compact, validate=True)
+              print(label, 'decoded=', len(raw), 'head=', repr(raw[:24]))
+              out=gzip.decompress(raw)
+              p=Path('/tmp/'+label+'.raw'); p.write_bytes(out)
+              print(label, 'gunzipped=', len(out), 'head=', repr(out[:300]))
+              if tarfile.is_tarfile(p):
+                  with tarfile.open(p) as t: print(label, 'tar=', t.getnames())
+              elif zipfile.is_zipfile(p):
+                  with zipfile.ZipFile(p) as z: print(label, 'zip=', z.namelist())
+              else:
+                  try: print(label, 'utf8=', repr(out.decode('utf-8')[:2000]))
+                  except Exception as e: print(label, 'binary=', e)
+
+          bundle=sorted(str(p) for p in Path('.sourceparts').glob('assetsbundle.*.part'))
+          decode_parts('assetsbundle', bundle)
+          decode_parts('assetsfix', ['.sourceparts/assetsfix.00.part'])
           PY
