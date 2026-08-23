@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en" data-platform="touch" data-theme="light" data-comfort="comfort" data-view="home" data-private="0"
+      data-kind="page" data-sheet="" data-accent="blue">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#F0F3F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B1626" media="(prefers-color-scheme: dark)">
+<title>Breeze</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650;700&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
+<style>
+__TOKENS__
+
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html{background:var(--bg0);}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none;}
+body{
+  background:var(--bg0);color:var(--tx1);
+  font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  font-size:15px;line-height:1.45;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  font-synthesis-weight:none;
+}
+button,input{font:inherit;color:inherit;background:none;border:0;cursor:pointer;}
+input{cursor:text;}
+a{color:inherit;text-decoration:none;}
+::-webkit-scrollbar{width:0;height:0;}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--tx3);}
+
+/* ═══════════════════════════ APP SHELL ════════════════════════════════════
+   One column, fixed bottom control bar, scrolling stage between. Nothing is
+   positioned against the top edge except content, because the top of a phone
+   is the hardest place for a thumb to reach.                               */
+.app{position:fixed;inset:0;display:flex;flex-direction:column;
+  /* Paint the backdrop on a real element. Relying on body's background
+     propagating to the canvas leaves the door open to a UA repaint. */
+  background:var(--bg0);}
+
+.stage{flex:1;min-height:0;position:relative;
+  padding-left:var(--safeL);padding-right:var(--safeR);}
+.view{position:absolute;inset:0;display:none;flex-direction:column;overflow-y:auto;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;}
+[data-view="home"]   .view[data-v="home"],
+[data-view="browse"] .view[data-v="browse"],
+[data-view="search"] .view[data-v="search"],
+[data-view="read"]   .view[data-v="read"],
+[data-view="tabs"]   .view[data-v="tabs"]{display:flex;}
+.view.enter{animation:windIn .40s var(--spring) both;}
+@keyframes windIn{
+  from{opacity:0;transform:translate3d(0,10px,0);filter:blur(5px);}
+  to{opacity:1;transform:none;filter:blur(0);}
+}
+@media (prefers-reduced-motion:reduce){
+  .view.enter{animation:none;}
+  *{animation-duration:.01ms!important;transition-duration:.01ms!important;}
+}
+
+/* ═══════════════════════════ BOTTOM BAR ═══════════════════════════════════
+   The single most-used surface, so it owns the thumb zone. 44px minimum tap
+   targets throughout, with the address pill sized to the remaining width.  */
+.bar{flex:0 0 auto;position:relative;z-index:30;background:var(--bg1);
+  box-shadow:var(--shBar);
+  padding:7px calc(10px + var(--safeR)) calc(7px + var(--safeB)) calc(10px + var(--safeL));
+  display:flex;align-items:center;gap:7px;}
+.bar::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;
+  background:var(--anchor);pointer-events:none;}
+[data-view="tabs"] .bar{background:var(--bg0);}
+
+.tap{flex:0 0 auto;width:44px;height:44px;border-radius:var(--r-md);display:grid;
+  place-items:center;color:var(--tx2);
+  transition:background-color .15s var(--ease),color .15s var(--ease),transform .12s var(--ease);}
+.tap:active{background:var(--bg2);transform:scale(.93);}
+.tap[disabled]{opacity:.3;pointer-events:none;}
+.tap.on{color:var(--accentTx);background:var(--accentSoft);}
+
+/* the address pill — shield, host, and a reader affordance in one target */
+.pill{flex:1;min-width:0;height:44px;border-radius:999px;background:var(--bg2);
+  display:flex;align-items:center;gap:8px;padding:0 6px 0 12px;
+  box-shadow:inset 0 0 0 1px var(--line2);
+  transition:background-color .15s var(--ease);}
+.pill:active{background:var(--bg3);}
+.pill .sh{flex:0 0 auto;display:flex;align-items:center;gap:4px;font-size:11px;
+  font-weight:650;color:var(--ok);font-variant-numeric:tabular-nums;}
+.pill .host{flex:1;min-width:0;font-size:14px;font-weight:500;text-align:left;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pill .host em{font-style:normal;color:var(--tx3);font-weight:450;}
+.pill .rd{flex:0 0 auto;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;
+  color:var(--tx3);}
+.pill .rd.on{background:var(--accent);color:var(--onAccent);}
+
+.tabCount{position:relative;}
+.tabCount b{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums;}
+.tabCount svg{opacity:.9;}
+
+/* ═══════════════════════════ HOME ════════════════════════════════════════ */
+.sky{position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(120% 62% at 50% -8%, rgba(34,211,238,.17), transparent 62%),
+    radial-gradient(90% 46% at 8% 4%, rgba(126,243,214,.11), transparent 60%),
+    radial-gradient(120% 60% at 92% 100%, rgba(37,99,235,.10), transparent 66%);}
+[data-theme="dark"] .sky{
+  background:
+    radial-gradient(120% 62% at 50% -8%, rgba(34,211,238,.15), transparent 62%),
+    radial-gradient(90% 46% at 8% 4%, rgba(126,243,214,.07), transparent 60%),
+    radial-gradient(120% 60% at 92% 100%, rgba(37,99,235,.16), transparent 66%);}
+.homeIn{position:relative;z-index:1;flex:1;display:flex;flex-direction:column;
+  padding:calc(var(--safeT) + 14px) 18px 26px;}
+.homeTop{display:flex;align-items:center;gap:8px;margin-bottom:26px;}
+.wsPill{display:flex;align-items:center;gap:8px;height:34px;padding:0 13px;border-radius:999px;
+  background:var(--bg1);box-shadow:inset 0 1px 0 var(--anchor),0 0 0 1px var(--line),var(--sh1);
+  font-size:12.5px;font-weight:500;max-width:62%;}
+.wsPill .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:0 0 auto;}
+.wsPill .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.homeTop .sp{flex:1;}
+.homeTop .tap{width:36px;height:36px;}
+
+/* Touch minimum without a visual change. The home bar deliberately draws a
+   36px icon button and a 34px workspace pill; both are below the 44px touch
+   minimum. The ::after overlay belongs to the control, so a tap anywhere in
+   the 44px box still hits the control. Not one pixel of the design moves.
+   The two home-bar taps sit 8px apart, so their expanded boxes abut exactly
+   and never overlap — do not widen the overlay past 44px. */
+.homeTop .tap{position:relative;}
+.homeTop .tap::after{content:"";position:absolute;left:50%;top:50%;
+  transform:translate(-50%,-50%);width:44px;height:44px;}
+.wsPill{position:relative;}
+.wsPill::after{content:"";position:absolute;left:0;top:50%;
+  transform:translateY(-50%);width:100%;height:44px;}
+
+.mast{text-align:center;padding:8vh 0 5vh;}
+.mast img{width:62px;height:62px;object-fit:contain;margin-bottom:12px;}
+.mast h1{font-size:30px;font-weight:700;letter-spacing:-.03em;line-height:1;}
+.mast .sub{font-size:10px;font-weight:600;letter-spacing:.34em;color:var(--accentTx);
+  margin-top:7px;padding-left:.34em;}
+
+.bigSearch{display:flex;align-items:center;gap:11px;height:52px;padding:0 17px;
+  background:var(--bg1);border-radius:15px;
+  box-shadow:inset 0 1px 0 var(--anchor),0 0 0 1px var(--line),var(--sh2);
+  margin-bottom:22px;}
+/* align-self:stretch makes the input's own box fill the 52px field, so a tap
+   above or below the text line still lands on the input rather than the
+   container. Single-line inputs centre their text, so nothing moves. */
+.bigSearch input{flex:1;min-width:0;font-size:15.5px;outline:0;background:none;
+  align-self:stretch;}
+.bigSearch input::placeholder{color:var(--tx3);}
+
+.quick{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:30px;}
+@media (min-width:430px){ .quick{grid-template-columns:repeat(5,1fr);} }
+.qLink{display:flex;flex-direction:column;align-items:center;gap:7px;padding:6px 0;
+  border-radius:var(--r-md);transition:background-color .15s var(--ease);}
+.qLink:active{background:var(--bg2);}
+.qLink .t{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;
+  font-size:16px;font-weight:700;color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),var(--sh1);}
+.qLink .n{font-size:11px;color:var(--tx2);max-width:100%;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;}
+
+.contHead{display:flex;align-items:center;gap:11px;margin-bottom:11px;}
+.contHead::after{content:"";flex:1;height:1px;background:var(--line);}
+.cards{display:flex;gap:11px;overflow-x:auto;scroll-snap-type:x mandatory;
+  margin:0 -18px;padding:2px 18px 6px;}
+.cards::-webkit-scrollbar{display:none;}
+.card{flex:0 0 78%;max-width:280px;scroll-snap-align:start;text-align:left;
+  background:var(--card);border-radius:var(--r-lg);padding:14px;
+  box-shadow:inset 0 1px 0 var(--anchor),0 0 0 1px var(--line),var(--sh1);}
+@media (min-width:430px){ .card{flex-basis:62%;} }
+.card .k{display:flex;align-items:center;gap:6px;margin-bottom:9px;color:var(--tx3);}
+.card .t{font-size:14.5px;font-weight:600;line-height:1.3;margin-bottom:5px;}
+.card .s{font-size:12px;color:var(--tx3);margin-bottom:11px;}
+.card .go{font-size:12.5px;font-weight:600;color:var(--accentTx);}
+
+/* ═══════════════════════════ BROWSE / READER ═════════════════════════════ */
+.paper{flex:1;background:var(--paper);color:var(--paperTx);}
+.siteNav{display:flex;align-items:center;gap:14px;padding:calc(var(--safeT) + 13px) 18px 13px;
+  border-bottom:1px solid var(--paperLine);font-size:13px;color:var(--paperTx2);
+  overflow-x:auto;white-space:nowrap;}
+.siteNav::-webkit-scrollbar{display:none;}
+.siteNav .lg{font-family:Newsreader,Georgia,serif;font-size:17px;font-weight:500;
+  color:var(--paperTx);flex:0 0 auto;}
+.art{padding:22px 20px 40px;max-width:660px;margin:0 auto;}
+.artK{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--accentTx);margin-bottom:11px;}
+.artT{font-family:Newsreader,Georgia,serif;font-size:30px;line-height:1.14;
+  letter-spacing:-.018em;font-weight:500;margin-bottom:12px;}
+.artBy{font-size:12.5px;color:var(--paperTx2);margin-bottom:20px;}
+.artHero{height:180px;border-radius:var(--r-lg);margin-bottom:24px;
+  background:linear-gradient(135deg,rgba(126,243,214,.11),rgba(34,211,238,.17) 45%,rgba(37,99,235,.10));}
+.art p{font-family:Newsreader,Georgia,serif;font-size:18.5px;line-height:1.68;
+  margin-bottom:19px;}
+.art p.lead{font-size:20px;line-height:1.6;}
+.art mark{background:color-mix(in srgb,var(--accent) 17%,transparent);color:inherit;
+  border-radius:3px;padding:1px 2px;}
+.art a{color:var(--accentTx);text-decoration:underline;text-underline-offset:2px;
+  text-decoration-thickness:1px;}
+.pull{margin:26px 0;padding:16px 18px;border-left:3px solid var(--accent);
+  background:var(--bg2);border-radius:0 var(--r-md) var(--r-md) 0;}
+.pull p{font-size:17px;line-height:1.5;margin:0;font-style:italic;}
+
+/* progress hairline sits directly above the bar, where the thumb already is */
+.prog{position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--line2);z-index:29;}
+.prog i{display:block;height:100%;width:34%;background:var(--accent);
+  transition:width .2s linear;}
+
+/* ═══════════════════════════ SEARCH RESULTS ══════════════════════════════ */
+.srIn{padding:calc(var(--safeT) + 16px) 16px 34px;}
+.srHead{padding-bottom:13px;border-bottom:1px solid var(--line);}
+.srQ{font-size:20px;font-weight:650;letter-spacing:-.015em;line-height:1.25;
+  margin-bottom:6px;word-break:break-word;}
+.srMeta{font-size:12px;color:var(--tx3);}
+.srMeta b{color:var(--tx2);font-weight:600;}
+.srClean{display:inline-flex;align-items:center;gap:5px;margin-top:9px;font-size:11px;
+  font-weight:600;color:var(--accentTx);}
+.srFilters{display:flex;gap:6px;overflow-x:auto;margin:0 -16px;padding:13px 16px 4px;}
+.srFilters::-webkit-scrollbar{display:none;}
+.srChip{flex:0 0 auto;height:32px;padding:0 14px;border-radius:999px;
+  box-shadow:inset 0 0 0 1px var(--line);color:var(--tx2);font-size:13px;font-weight:500;
+  display:inline-flex;align-items:center;gap:7px;
+  transition:background-color .15s var(--ease),color .15s var(--ease);}
+.srChip .n{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums;}
+.srChip[aria-pressed="true"]{background:var(--accent);color:var(--onAccent);
+  box-shadow:none;}
+.sr{display:block;width:100%;text-align:left;padding:15px 0 14px;
+  border-bottom:1px solid var(--line2);}
+.sr:active{background:var(--bg2);}
+.srTop{display:flex;align-items:center;gap:7px;margin-bottom:6px;flex-wrap:wrap;}
+.srFav{width:17px;height:17px;border-radius:5px;flex:0 0 auto;display:grid;place-items:center;
+  font-size:8.5px;font-weight:800;color:#fff;}
+.srDom{font-size:11.5px;color:var(--tx3);min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.srDom b{color:var(--tx2);font-weight:600;}
+.srKind{flex:0 0 auto;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  padding:2px 6px;border-radius:999px;background:var(--bg3);color:var(--tx3);}
+.srMine{flex:0 0 auto;font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;
+  background:var(--accentSoft);color:var(--accentTx);}
+.srTitle{font-size:16.5px;font-weight:600;line-height:1.32;letter-spacing:-.01em;
+  color:var(--accentTx);margin-bottom:5px;}
+.sr[data-seen="1"] .srTitle{color:color-mix(in srgb,var(--accentTx) 60%,var(--tx3));}
+.srSnip{font-size:13.5px;line-height:1.52;color:var(--tx2);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.srSnip mark{background:color-mix(in srgb,var(--accent) 17%,transparent);
+  color:var(--tx1);border-radius:3px;padding:0 1px;}
+.srSig{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px;}
+.sig{display:inline-flex;align-items:center;gap:4px;height:23px;padding:0 8px;border-radius:7px;
+  font-size:11px;font-weight:550;background:var(--bg2);color:var(--tx2);
+  font-variant-numeric:tabular-nums;}
+.sig.good{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok);}
+.sig.warn{background:color-mix(in srgb,var(--warn) 17%,transparent);color:var(--warn);}
+.srFoot{margin-top:22px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:11.5px;line-height:1.6;color:var(--tx3);}
+.srFoot b{color:var(--tx2);font-weight:600;}
+
+/* ═══════════════════════════ TAB SWITCHER ════════════════════════════════
+   Cards, not a list: on a phone the site's own colour and mark identify a tab
+   far faster than a truncated title ever will.                             */
+.tabsIn{padding:calc(var(--safeT) + 12px) 14px 20px;}
+.wsStrip{display:flex;gap:7px;overflow-x:auto;margin:0 -14px 15px;padding:0 14px 3px;}
+.wsStrip::-webkit-scrollbar{display:none;}
+.wsTab{flex:0 0 auto;height:34px;padding:0 13px;border-radius:999px;display:flex;
+  align-items:center;gap:7px;font-size:12.5px;font-weight:500;color:var(--tx2);
+  box-shadow:inset 0 0 0 1px var(--line);
+  transition:background-color .15s var(--ease),color .15s var(--ease);}
+.wsTab .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;}
+.wsTab .lk{display:grid;place-items:center;opacity:.75;}
+.wsTab[aria-selected="true"]{background:var(--bg1);color:var(--tx1);
+  box-shadow:inset 0 1px 0 var(--anchor),0 0 0 1px var(--line),var(--sh1);}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px;}
+@media (min-width:520px){ .grid{grid-template-columns:repeat(3,1fr);} }
+@media (min-width:760px){ .grid{grid-template-columns:repeat(4,1fr);} }
+.tcard{position:relative;text-align:left;border-radius:var(--r-lg);overflow:hidden;
+  background:var(--bg1);box-shadow:inset 0 1px 0 var(--anchor),0 0 0 1px var(--line),var(--sh1);
+  transition:transform .14s var(--ease);}
+.tcard:active{transform:scale(.965);}
+.tcard[aria-selected="true"]{box-shadow:inset 0 1px 0 var(--anchor),0 0 0 2px var(--accent),var(--sh2);}
+.tcard[data-asleep="1"]{opacity:.55;}
+.tShot{height:104px;position:relative;overflow:hidden;
+  background:linear-gradient(150deg,rgb(var(--site)/.16),rgb(var(--site)/.05));}
+.tShot .ln{position:absolute;left:11px;right:11px;height:5px;border-radius:3px;
+  background:rgb(var(--site)/.22);}
+.tShot .ln:nth-child(1){top:16px;width:58%;height:7px;}
+.tShot .ln:nth-child(2){top:32px;}
+.tShot .ln:nth-child(3){top:44px;right:34%;}
+.tShot .ln:nth-child(4){top:60px;}
+.tShot .ln:nth-child(5){top:72px;right:26%;}
+.tMeta{display:flex;align-items:center;gap:7px;padding:9px 10px 10px;}
+.tFav{width:19px;height:19px;border-radius:6px;flex:0 0 auto;overflow:hidden;
+  box-shadow:0 0 0 1px var(--line2);}
+.tFav svg{display:block;width:100%;height:100%;}
+.tNm{flex:1;min-width:0;font-size:12px;font-weight:500;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tX{position:absolute;top:7px;right:7px;width:26px;height:26px;border-radius:50%;
+  display:grid;place-items:center;background:var(--bg1);color:var(--tx2);
+  box-shadow:0 0 0 1px var(--line),var(--sh1);}
+.tZ{position:absolute;top:9px;left:9px;font-size:9px;font-weight:700;letter-spacing:.05em;
+  padding:2px 7px;border-radius:999px;background:var(--bg1);color:var(--tx3);
+  box-shadow:0 0 0 1px var(--line);}
+.tabsFoot{display:flex;align-items:center;gap:8px;margin-top:16px;padding:12px 13px;
+  border-radius:var(--r-md);background:var(--bg2);font-size:11.5px;color:var(--tx3);}
+.tabsFoot b{color:var(--tx2);font-weight:600;}
+
+/* ═══════════════════════════ SHEETS ══════════════════════════════════════
+   Everything secondary is a bottom sheet, because the top of the screen is
+   out of reach and a modal that starts at the thumb is a modal you can close
+   without shifting grip. Drag handle, scrim, swipe-down to dismiss.        */
+.scrim{position:fixed;inset:0;z-index:50;background:rgba(6,17,31,.34);
+  opacity:0;pointer-events:none;transition:opacity .26s var(--ease);
+  backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);}
+[data-sheet]:not([data-sheet=""]) .scrim{opacity:1;pointer-events:auto;}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;
+  background:var(--bg1);border-radius:var(--r-xl) var(--r-xl) 0 0;
+  box-shadow:var(--shSheet);
+  padding:0 calc(16px + var(--safeR)) calc(14px + var(--safeB)) calc(16px + var(--safeL));
+  max-height:82vh;display:flex;flex-direction:column;
+  transform:translate3d(0,105%,0);transition:transform .34s var(--spring);
+  will-change:transform;}
+.sheet::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;
+  background:var(--anchor);border-radius:var(--r-xl) var(--r-xl) 0 0;}
+[data-sheet="menu"]  #shMenu,
+[data-sheet="queue"] #shQueue,
+[data-sheet="priv"]  #shPriv,
+[data-sheet="ws"]    #shWs,
+[data-sheet="set"]   #shSet,
+[data-sheet="hist"]  #shHist,
+[data-sheet="book"]  #shBook{transform:translate3d(0,0,0);}
+.grab{flex:0 0 auto;width:38px;height:4px;border-radius:2px;background:var(--bg3);
+  margin:9px auto 4px;}
+.shHead{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:6px 0 12px;}
+.shHead h2{flex:1;font-size:17px;font-weight:650;letter-spacing:-.015em;}
+.shBody{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  padding-bottom:6px;}
+
+/* menu grid — big targets, one glance */
+.mGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;padding-bottom:14px;}
+.mBtn{display:flex;flex-direction:column;align-items:center;gap:7px;padding:13px 4px;
+  border-radius:var(--r-md);background:var(--bg2);font-size:10.5px;font-weight:500;
+  color:var(--tx2);text-align:center;line-height:1.25;
+  transition:background-color .15s var(--ease);}
+.mBtn:active{background:var(--bg3);}
+.mBtn svg{color:var(--accentTx);}
+.mBtn .lb{width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+.row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  padding:13px 2px;border-bottom:1px solid var(--line2);}
+.row:last-child{border-bottom:0;}
+.row .ic{flex:0 0 auto;width:32px;height:32px;border-radius:9px;display:grid;place-items:center;
+  background:var(--bg2);color:var(--tx2);}
+.row .mn{flex:1;min-width:0;}
+.row .mn .t{display:block;font-size:14px;font-weight:500;line-height:1.3;}
+.row .mn .s{display:block;font-size:11.5px;color:var(--tx3);margin-top:2px;}
+.row .rt{flex:0 0 auto;font-size:11.5px;color:var(--tx3);font-variant-numeric:tabular-nums;}
+
+/* segmented control, sized for thumbs not cursors */
+.segs{display:flex;gap:3px;padding:3px;border-radius:11px;background:var(--bg2);}
+.seg{flex:1;height:36px;border-radius:8px;font-size:12.5px;font-weight:550;color:var(--tx3);
+  transition:background-color .16s var(--ease),color .16s var(--ease);}
+.seg[aria-pressed="true"]{background:var(--bg1);color:var(--tx1);
+  box-shadow:inset 0 1px 0 var(--anchor),var(--sh1);}
+.setBlk{padding:14px 0;border-bottom:1px solid var(--line2);}
+.setBlk:last-child{border-bottom:0;}
+.setLab{display:flex;align-items:baseline;gap:8px;margin-bottom:9px;}
+.setLab .t{font-size:14px;font-weight:550;}
+.setLab .d{font-size:11.5px;color:var(--tx3);}
+.lumRow{display:flex;align-items:center;gap:10px;margin-top:10px;}
+.lumBar{flex:0 0 84px;height:5px;border-radius:3px;background:var(--bg3);overflow:hidden;}
+.lumBar i{display:block;height:100%;border-radius:3px;background:var(--accent);
+  transition:width .28s var(--ease);}
+.lumTx{font-size:11px;color:var(--tx3);}
+.lumTx b{color:var(--tx2);font-weight:600;font-variant-numeric:tabular-nums;}
+.swatches{display:flex;gap:10px;}
+.sw{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;
+  box-shadow:0 0 0 1px var(--line);color:transparent;
+  transition:transform .14s var(--ease);}
+.sw:active{transform:scale(.9);}
+.sw[aria-pressed="true"]{box-shadow:0 0 0 2px var(--bg1),0 0 0 4px var(--accent);}
+.sw[aria-pressed="true"] svg{color:currentColor;}
+
+/* privacy sheet */
+.privTop{display:flex;align-items:center;gap:12px;padding:4px 0 14px;
+  border-bottom:1px solid var(--line2);}
+.privScore{flex:0 0 auto;width:52px;height:52px;border-radius:16px;display:grid;place-items:center;
+  font-size:19px;font-weight:700;background:color-mix(in srgb,var(--ok) 16%,transparent);
+  color:var(--ok);}
+.privTop .mn .t{font-size:14.5px;font-weight:600;}
+.privTop .mn .s{font-size:12px;color:var(--tx3);margin-top:2px;}
+.fixBtn{width:100%;height:46px;border-radius:var(--r-md);margin-top:11px;
+  font-size:14px;font-weight:600;background:var(--accent);color:var(--onAccent);
+  transition:transform .12s var(--ease);}
+.fixBtn:active{transform:scale(.98);}
+.fixBtn.ghost{background:var(--bg2);color:var(--tx1);}
+.fixCost{font-size:11px;color:var(--tx3);text-align:center;margin-top:6px;}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:calc(var(--bar) + var(--safeB) + 22px);
+  transform:translate(-50%,14px);z-index:70;
+  max-width:min(88vw,360px);padding:11px 17px;border-radius:999px;
+  background:#0A0F18;color:#fff;font-size:13px;font-weight:500;text-align:center;
+  opacity:0;pointer-events:none;transition:opacity .22s var(--ease),transform .22s var(--spring);
+  box-shadow:0 10px 34px -10px rgba(0,0,0,.5);}
+[data-theme="dark"] .toast{background:#F0F3F7;color:#0A0F18;}
+.toast[data-on="1"]{opacity:1;transform:translate(-50%,0);}
+
+
+/* ── about, mobile ── */
+.aboutBlk{padding-top:18px;}
+.aboutHero{display:flex;align-items:center;gap:13px;padding-bottom:14px;}
+.aboutMark{width:46px;height:46px;object-fit:contain;flex:0 0 auto;}
+.aboutName h3{font-size:19px;font-weight:600;letter-spacing:-.022em;line-height:1.15;}
+.aboutName h3 em{font-style:normal;font-weight:700;
+  background:linear-gradient(96deg,var(--accent),color-mix(in srgb,var(--accent) 40%,#7EF3D6));
+  -webkit-background-clip:text;background-clip:text;color:transparent;}
+.aboutVer{font-size:12px;color:var(--tx3);margin-top:3px;}
+.aboutFacts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding-bottom:16px;}
+.fact{padding:10px;border-radius:var(--r-md);background:var(--bg2);}
+.fact .k{display:block;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--tx3);margin-bottom:4px;}
+.fact .v{display:block;font-size:13.5px;font-weight:650;}
+.madeBy{padding-top:15px;border-top:1px solid var(--line2);}
+.kap{display:flex;align-items:center;gap:12px;margin-top:10px;}
+.kMark{width:34px;height:34px;object-fit:contain;flex:0 0 auto;}
+.kText{display:flex;flex-direction:column;gap:4px;min-width:0;}
+.kWord{height:15px;width:auto;object-fit:contain;object-position:left center;align-self:flex-start;}
+.kSub{font-size:11px;color:var(--tx3);}
+
+/* landscape / small-height phones: reclaim the masthead */
+@media (max-height:560px){
+  .mast{padding:3vh 0 3vh;}
+  .mast img{width:44px;height:44px;margin-bottom:8px;}
+  .mast h1{font-size:24px;}
+  .sheet{max-height:92vh;}
+}
+/* Mobile private browsing is intentionally NOT the desktop treatment. On a
+   phone it becomes a thumb-first mode: a quiet private home card, a lock in
+   the bottom bar, and no persisted Continue/quick surfaces. */
+.mPrivate{display:none;margin:14px 0 18px;padding:15px 16px;border:1px solid rgba(124,58,237,.18);border-radius:var(--r-lg);background:rgba(124,58,237,.06);text-align:left}
+.mPrivate .mh{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin-bottom:6px;color:#6D28D9}.mPrivate p{font-size:11.5px;line-height:1.55;color:var(--tx3);margin:0}
+[data-private="1"] .mPrivate{display:block}
+[data-private="1"] #quick,[data-private="1"] .contHead,[data-private="1"] #cards{display:none}
+[data-private="1"] .sky{background:radial-gradient(circle at 50% 22%,rgba(124,58,237,.10),transparent 46%)}
+[data-private="1"] .wsPill .dot{background:#7C3AED!important}
+[data-theme="dark"] .mPrivate .mh{color:#C4B5FD}
+
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="stage">
+
+    <!-- ═══════════ HOME ═══════════ -->
+    <section class="view" data-v="home">
+      <div class="sky"></div>
+      <div class="homeIn">
+        <div class="homeTop">
+          <button class="wsPill" id="wsBtn">
+            <span class="dot"></span><span class="nm wsName">Design Research</span>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="opacity:.5"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <span class="sp"></span>
+          <button class="tap" data-theme-toggle aria-label="Theme">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+          </button>
+          <button class="tap" data-sheet-open="set" aria-label="Settings">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.5 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 14.5a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 7.5a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+          </button>
+        </div>
+
+        <div class="mast">
+          <img src="data:image/png;base64,__LOGO__" alt="">
+          <h1>Breeze</h1>
+          <div class="sub">BROWSER</div>
+        </div>
+
+        <button class="bigSearch" id="homeSearch">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" style="color:var(--tx3);flex:0 0 auto"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/></svg>
+          <input id="homeInput" placeholder="Search or enter address" enterkeyhint="search"
+                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        </button>
+
+        <div class="mPrivate" id="mPrivate"><div class="mh"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 11h14v10H5z"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Private browsing</div><p>This tab lives in memory only. Mobile Breeze won’t restore it, save it to history, or remember site permissions. Downloads you choose to save remain on your device.</p></div>
+        <div class="quick" id="quick"></div>
+
+        <div class="contHead"><span class="eyebrow">Pick up where you left off</span></div>
+        <div class="cards" id="cards"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════ BROWSE ═══════════ -->
+    <section class="view" data-v="browse">
+      <div class="paper">
+        <nav class="siteNav">
+          <span class="lg">Signal &amp; Noise</span>
+          <span>Essays</span><span>Interviews</span><span>Archive</span>
+        </nav>
+        <article class="art">
+          <div class="artK">Essay · 12 min</div>
+          <h1 class="artT">What happens after the click</h1>
+          <div class="artBy">Alice Chen · March 2026</div>
+          <div class="artHero"></div>
+          <p class="lead">A browser is the doorway people walk through after clicking a link. For thirty years the doorway has behaved the same way regardless of what waits on the other side: open a tab, render the document, stop.</p>
+          <p><mark>The cost of that indifference shows up as tab sprawl, downloads that vanish into folders, and bookmark lists nobody revisits.</mark> The work of keeping context falls entirely to the person doing the browsing — a burden <a>documented at length</a> but rarely designed against.</p>
+          <div class="pull"><p>Reading this in a browser that understood it was an article would already be a different experience.</p></div>
+          <p>What would it mean to treat a product page, a research paper, a video, and a pull request as genuinely different kinds of arrival? Not with a chat box bolted to the side, but with the surface itself knowing what it is holding.</p>
+          <p>The answer is not more chrome. On a phone especially, the answer is less: the page gets the screen, and everything the browser wants to say waits at the bottom until you ask for it.</p>
+        </article>
+      </div>
+      <div class="prog"><i id="progBar"></i></div>
+    </section>
+
+    <!-- ═══════════ SEARCH ═══════════ -->
+    <section class="view" data-v="search">
+      <div class="srIn">
+        <div class="srHead">
+          <div class="srQ" id="srQ">offline-first architecture</div>
+          <div class="srMeta"><b id="srCount">9</b> results ·
+            <b id="srBlocked">14</b> trackers blocked before they loaded</div>
+          <div class="srClean">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3l7.5 3.2v5.1c0 4.4-3.1 8.3-7.5 9.4-4.4-1.1-7.5-5-7.5-9.4V6.2z"/></svg>
+            No sponsored results
+          </div>
+        </div>
+        <div class="srFilters" id="srFilters"></div>
+        <div id="srList"></div>
+        <div class="srFoot">Breeze strips tracking parameters off every link and
+          measures each destination before you commit.
+          <b>Your query is never attached to an account.</b></div>
+      </div>
+    </section>
+
+    <!-- ═══════════ TAB SWITCHER ═══════════ -->
+    <section class="view" data-v="tabs">
+      <div class="tabsIn">
+        <div class="wsStrip" id="wsStrip"></div>
+        <div class="grid" id="tabGrid"></div>
+        <div class="tabsFoot">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+          <span><b>2 tabs</b> asleep · <b>418 MB</b> reclaimed</span>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ═══════════ BOTTOM BAR ═══════════ -->
+  <nav class="bar" id="bar"></nav>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<!-- ═══════════ SHEETS ═══════════ -->
+<div class="sheet" id="shMenu">
+  <div class="grab"></div>
+  <div class="shHead"><h2>This page</h2>
+    <button class="tap" data-sheet-close aria-label="Close"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="shBody">
+    <div class="mGrid" id="mGrid"></div>
+    <div id="menuRows"></div>
+  </div>
+</div>
+
+<div class="sheet" id="shQueue">
+  <div class="grab"></div>
+  <div class="shHead"><h2>Reading queue</h2>
+    <span class="rt" id="qTime">4 h 32 min</span>
+    <button class="tap" data-sheet-close aria-label="Close"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="shBody" id="queueList"></div>
+</div>
+
+<div class="sheet" id="shHist">
+  <div class="grab"></div>
+  <div class="shHead"><h3>History</h3><button class="tap" data-sheet-close aria-label="Close"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="shBody" id="mobileHistory"></div>
+</div>
+
+<div class="sheet" id="shBook">
+  <div class="grab"></div>
+  <div class="shHead"><h3>Saved</h3><button class="tap" data-sheet-close aria-label="Close"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="shBody" id="mobileBookmarks"></div>
+</div>
+
+<div class="sheet" id="shPriv">
+  <div class="grab"></div>
+  <div class="shHead"><h2>Privacy &amp; session</h2>
+    <button class="tap" data-sheet-close aria-label="Close"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="shBody">
+    <div class="privTop">
+      <div class="privScore">A</div>
+      <div class="mn">
+        <div class="t">14 trackers blocked</div>
+        <div class="s">signalandnoise.com · connection encrypted</div>
+      </div>
+    </div>
+    <div id="privRows"></div>
+    <div style="padding-top:14px">
+      <div class="eyebrow" style="margin-bottom:9px">If the page is stuck</div>
+      <button class="fixBtn ghost" data-fix="reload">Reload past cache</button>
+      <div class="fixCost">Keeps everything</div>
+      <button class="fixBtn" data-fix="rebuild">Rebuild page state</button>
+      <div class="fixCost">Keeps you signed in · clears the stale worker</div>
+      <button class="fixBtn ghost" data-fix="reset">Full site reset</button>
+      <div class="fixCost">Signs you out of this site</div>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="shWs">
+  <div class="grab"></div>
+  <div class="shHead"><h2>Workspaces</h2>
+    <button class="tap" data-sheet-close aria-label="Close"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="shBody" id="wsList"></div>
+</div>
+
+<div class="sheet" id="shSet">
+  <div class="grab"></div>
+  <div class="shHead"><h2>Appearance</h2>
+    <button class="tap" data-sheet-close aria-label="Close"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="shBody">
+    <div class="setBlk">
+      <div class="setLab"><span class="t">Theme</span></div>
+      <div class="segs" data-seg="theme">
+        <button class="seg" data-v="light" aria-pressed="true">Light</button>
+        <button class="seg" data-v="dark" aria-pressed="false">Dark</button>
+        <button class="seg" data-v="auto" aria-pressed="false">Auto</button>
+      </div>
+    </div>
+    <div class="setBlk">
+      <div class="setLab"><span class="t">Daylight brightness</span></div>
+      <div class="setLab" style="margin-bottom:9px"><span class="d">Pages are held below peak white so long reading feels like ink on paper.</span></div>
+      <div class="segs" data-seg="comfort">
+        <button class="seg" data-v="bright" aria-pressed="false">Bright</button>
+        <button class="seg" data-v="comfort" aria-pressed="true">Comfort</button>
+        <button class="seg" data-v="dim" aria-pressed="false">Dim</button>
+      </div>
+      <div class="lumRow">
+        <span class="lumBar"><i id="lumFill" style="width:85%"></i></span>
+        <span class="lumTx"><b id="lumVal">85%</b> of peak white · APCA Lc <b id="lumLc">104</b></span>
+      </div>
+    </div>
+    <div class="setBlk">
+      <div class="setLab"><span class="t">Accent</span><span class="d" id="accName">Breeze Blue</span></div>
+      <div class="swatches" data-accents>
+        <button class="sw" data-a="blue" aria-pressed="true" style="background:#2563EB;color:#fff" aria-label="Breeze Blue"><svg width="15" height="15" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></button>
+        <button class="sw" data-a="cyan" aria-pressed="false" style="background:#22D3EE;color:#06111F" aria-label="Sky Cyan"><svg width="15" height="15" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></button>
+        <button class="sw" data-a="teal" aria-pressed="false" style="background:#0891B2;color:#fff" aria-label="Ocean Teal"><svg width="15" height="15" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></button>
+        <button class="sw" data-a="mint" aria-pressed="false" style="background:#7EF3D6;color:#06111F" aria-label="Aqua Mint"><svg width="15" height="15" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></button>
+      </div>
+    </div>
+    <div class="setBlk aboutBlk">
+      <div class="aboutHero">
+        <img class="aboutMark" id="logoAbout" alt="">
+        <div class="aboutName">
+          <h3>Breeze <em id="relName">McCloskey</em></h3>
+          <div class="aboutVer" id="aboutVer">Version 1.0</div>
+        </div>
+      </div>
+      <div class="aboutFacts">
+        <div class="fact"><span class="k">Engine</span><span class="v">Chromium</span></div>
+        <div class="fact"><span class="k">Security</span><span class="v">0 of 41</span></div>
+        <div class="fact"><span class="k">Updates</span><span class="v">Signing pending</span></div>
+      </div>
+      <div class="madeBy">
+        <span class="eyebrow">Made by</span>
+        <div class="kap">
+          <img class="kMark" id="kapMark" alt="">
+          <div class="kText">
+            <img class="kWord" id="kapWord" alt="Kapella">
+            <span class="kSub">Venture Technology Studio</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+__CORE__
+
+/* ═══════════════════════════ BREEZE MOBILE ════════════════════════════════
+   Same engine ideas as desktop, rebuilt for one hand: bottom-anchored
+   controls, sheets instead of popovers, cards instead of lists. Every value
+   that could originate outside this file is escaped before it becomes
+   markup — browser chrome runs above the pages it shows.                   */
+/* ───────── toast ───────── */
+/* ───────── data ───────── */
+const TABS = [
+  {k:'signal',  t:'What happens after the click', u:'signalandnoise.com', active:true},
+  {k:'figma',   t:'UI mockups — Breeze',          u:'figma.com'},
+  {k:'arxiv',   t:'Offline-first patterns',       u:'arxiv.org', asleep:true},
+  {k:'github',  t:'breeze / pull requests',       u:'github.com'},
+  {k:'youtube', t:'Designing quiet interfaces',   u:'youtube.com'},
+  {k:'x',       t:'Home / X',                     u:'x.com'},
+  {k:'netflix', t:'My List — Netflix',            u:'netflix.com', asleep:true},
+  {k:'dribbble',t:'Browser UI inspiration',       u:'dribbble.com'}
+];
+const CARDS = [
+  {k:'Reading queue', t:'What happens after the click', s:'12 min · 8 more queued', go:'Start reading'},
+  {k:'Workspace',     t:'Design Research', s:'5 tabs · 12 bookmarks · 4 PDFs', go:'Resume'},
+  {k:'Download',      t:'Design_System_v2.pdf', s:'figma.com · 2 hours ago', go:'Open'},
+  {k:'Snapshot',      t:'Yesterday, 6:40 PM', s:'8 tabs · 3 notes saved', go:'Restore'}
+];
+/* ───────── tiny DOM helpers ───────── */
+/* ───────── site mark (letter fallback, tinted) ───────── */
+/* ═══════════════════════ VIEW SWITCHING ═══════════════════════════════════ */
+/* ═══════════════════════ HISTORY ══════════════════════════════════════════
+   A browser without back and forward is not a browser. The stack is real:
+   entries are pushed on navigation, the forward tail is truncated when you
+   branch, and both buttons reflect actual availability rather than being
+   permanently lit.                                                         */
+const QUICK_HOST = {figma:'figma.com', github:'github.com', signal:'signalandnoise.com',
+  arxiv:'arxiv.org', x:'x.com', dribbble:'dribbble.com', youtube:'youtube.com',
+  netflix:'netflix.com'};
+let CURRENT_HOST = 'signalandnoise.com';
+let PATH_LABEL  = '/after-the-click';
+/* Called by anything that genuinely navigates. Re-entering the same place
+   does not create a duplicate entry — that is what makes repeated back
+   presses feel broken in other browsers. */
+function applyHistory(){
+  const e = HISTORY[hIndex];
+  CURRENT_HOST = e.host || CURRENT_HOST;
+  PATH_LABEL   = e.path != null ? e.path : PATH_LABEL;
+  setView(e.view, true);
+  root.dataset.kind = e.kind || 'page';
+  renderBar();
+}
+/* Every navigation goes through here so nothing can slip past the history
+   stack — that is how back buttons quietly stop working. */
+function openSite(host, path, kind){
+  CURRENT_HOST = host; PATH_LABEL = path || '';
+  root.dataset.kind = kind || 'page';
+  // Push explicitly rather than letting setView infer it. Going from one site
+  // to another is a navigation even though the VIEW does not change, and
+  // relying on the view-change check silently loses those entries.
+  pushHistory({view:'browse', kind:root.dataset.kind, host, path:PATH_LABEL, label:host});
+  setView('browse', true);
+  renderBar();
+}
+
+
+function setView(v, fromHistory){
+  if (!fromHistory && v !== root.dataset.view){
+    pushHistory({view:v, kind:root.dataset.kind || 'page',
+                 host:CURRENT_HOST, path:PATH_LABEL, label:v});
+  }
+  if (root.dataset.view === v) return;
+  root.dataset.view = v;
+  const node = $('.view[data-v="' + v + '"]');
+  if (node){
+    node.scrollTop = 0;
+    if (!REDUCED){ node.classList.remove('enter'); void node.offsetWidth; node.classList.add('enter'); }
+  }
+  renderBar();
+}
+
+/* ═══════════════════════ BOTTOM BAR ═══════════════════════════════════════
+   Rebuilt per view so the thumb always gets the four things that matter HERE
+   rather than a fixed row with two dead buttons.                           */
+function renderBar(){
+  const bar = $('#bar'); const v = root.dataset.view;
+  const frag = document.createDocumentFragment();
+  const tap = (icon, label, fn, opts = {}) => {
+    const b = el('button', 'tap' + (opts.on ? ' on' : ''));
+    b.setAttribute('aria-label', label);
+    if (opts.disabled) b.disabled = true;
+    b.appendChild(svgIcon(icon, opts.w || 20, opts.sw));
+    b.onclick = fn;
+    return b;
+  };
+  const tabsBtn = () => {
+    const b = el('button', 'tap tabCount');
+    b.setAttribute('aria-label', 'Tabs');
+    const box = document.createElementNS(NS, 'svg');
+    box.setAttribute('width', 21); box.setAttribute('height', 21);
+    box.setAttribute('viewBox', '0 0 24 24'); box.setAttribute('fill', 'none');
+    box.setAttribute('stroke', 'currentColor'); box.setAttribute('stroke-width', 1.8);
+    const r = document.createElementNS(NS, 'rect');
+    r.setAttribute('x', 3.5); r.setAttribute('y', 4.5); r.setAttribute('width', 17);
+    r.setAttribute('height', 15); r.setAttribute('rx', 3.5);
+    box.appendChild(r);
+    b.append(box, el('b', null, String(TABS.length)));
+    b.onclick = () => setView(root.dataset.view === 'tabs' ? 'browse' : 'tabs');
+    return b;
+  };
+
+  if (v === 'tabs'){
+    frag.append(
+      tap(ICON.home, 'Home', () => setView('home')),
+      (() => { const s = el('span'); s.style.flex = '1'; return s; })(),
+      tap(ICON.plus, 'New tab', () => { setView('home'); setTimeout(() => $('#homeInput').focus(), 220); }, {w:22}),
+      tap(ICON.lock, 'Workspaces', () => openSheet('ws')),
+      tabsBtn()
+    );
+  } else if (v === 'home'){
+    frag.append(
+      root.dataset.private === '1' ? tap(ICON.lock, 'Leave private browsing', () => setPrivate(false), {w:19})
+        : (canBack() ? tap(ICON.back, 'Back', goBack, {w:19})
+                : tap(ICON.book, 'Reading queue', () => openSheet('queue'))),
+      (() => { const s = el('span'); s.style.flex = '1'; return s; })(),
+      tap(ICON.find, 'Search', () => $('#homeInput').focus(), {w:21}),
+      tabsBtn(),
+      tap(ICON.menu, 'Menu', () => openSheet('menu'))
+    );
+  } else {
+    // browse / search: the address pill owns the width
+    frag.appendChild(tap(ICON.back, 'Back', goBack, {w:19, disabled:!canBack()}));
+    // Forward only appears when there is somewhere to go. On a 360px bar a
+    // permanently greyed button costs 44px that the address pill needs more.
+    if (canFwd()) frag.appendChild(tap(ICON.fwd, 'Forward', goForward, {w:19}));
+
+    const pill = el('button', 'pill');
+    pill.setAttribute('aria-label', 'Address and privacy');
+    const sh = el('span', 'sh');
+    sh.append(svgIcon(ICON.shield, 12, 2.1), el('span', null, '14'));
+    sh.onclick = e => { e.stopPropagation(); openSheet('priv'); };
+    const host = el('span', 'host');
+    if (v === 'search'){
+      host.appendChild(document.createTextNode('breeze://search'));
+    } else {
+      host.appendChild(document.createTextNode(CURRENT_HOST));
+      host.appendChild(Object.assign(document.createElement('em'), {textContent:PATH_LABEL}));
+    }
+    const rd = el('span', 'rd' + (root.dataset.reader === '1' ? ' on' : ''));
+    rd.appendChild(svgIcon(ICON.book, 15, 2));
+    rd.onclick = e => {
+      e.stopPropagation();
+      root.dataset.reader = root.dataset.reader === '1' ? '0' : '1';
+      renderBar();
+      toast(root.dataset.reader === '1' ? 'Reading mode on' : 'Reading mode off');
+    };
+    pill.append(sh, host, rd);
+    pill.onclick = () => { setView('home'); setTimeout(() => $('#homeInput').focus(), 220); };
+    frag.appendChild(pill);
+
+    frag.append(tabsBtn(), tap(ICON.menu, 'Menu', () => openSheet('menu')));
+  }
+  bar.replaceChildren(frag);
+}
+
+/* ═══════════════════════ SHEETS ═══════════════════════════════════════════ */
+function openSheet(k){ root.dataset.sheet = k; }
+function closeSheet(){ root.dataset.sheet = ''; }
+$('#scrim').onclick = closeSheet;
+$$('[data-sheet-open]').forEach(b => b.onclick = () => openSheet(b.dataset.sheetOpen));
+$$('[data-sheet-close]').forEach(b => b.onclick = closeSheet);
+
+/* swipe the sheet down to dismiss — the gesture people already expect */
+$$('.sheet').forEach(sh => {
+  let y0 = null, dy = 0;
+  sh.addEventListener('touchstart', e => {
+    if (sh.querySelector('.shBody').scrollTop > 0 &&
+        !e.target.closest('.grab, .shHead')) return;
+    y0 = e.touches[0].clientY; dy = 0; sh.style.transition = 'none';
+  }, {passive:true});
+  sh.addEventListener('touchmove', e => {
+    if (y0 == null) return;
+    dy = Math.max(0, e.touches[0].clientY - y0);
+    sh.style.transform = 'translate3d(0,' + dy + 'px,0)';
+  }, {passive:true});
+  sh.addEventListener('touchend', () => {
+    if (y0 == null) return;
+    sh.style.transition = ''; sh.style.transform = '';
+    if (dy > 90) closeSheet();
+    y0 = null;
+  });
+});
+
+/* ═══════════════════════ HOME ═════════════════════════════════════════════ */
+function renderQuick(){
+  const f = document.createDocumentFragment();
+  QUICK.forEach(([k, n]) => {
+    const b = el('button', 'qLink');
+    const t = el('span', 't', site(k).ini);
+    t.style.background = 'rgb(' + site(k).tint + ')';
+    b.append(t, el('span', 'n', n));
+    b.onclick = () => { openSite(QUICK_HOST[k] || (k + '.com'), '/'); toast('Opening ' + n); };
+    f.appendChild(b);
+  });
+  $('#quick').replaceChildren(f);
+}
+function renderCards(){
+  const f = document.createDocumentFragment();
+  CARDS.forEach(c => {
+    const b = el('button', 'card');
+    const k = el('div', 'k');
+    k.append(svgIcon(ICON.book, 12, 2), Object.assign(el('span'), {
+      textContent: c.k, className: 'eyebrow'}));
+    b.append(k, el('div', 't', c.t), el('div', 's', c.s),
+             el('div', 'go', c.go + ' \u2192'));
+    b.onclick = () => { setView('browse'); toast(c.go + ' \u2014 ' + c.t); };
+    f.appendChild(b);
+  });
+  $('#cards').replaceChildren(f);
+}
+
+/* ═══════════════════════ TAB SWITCHER ═════════════════════════════════════ */
+function renderWsStrip(){
+  const f = document.createDocumentFragment();
+  WORKSPACES.forEach((w, i) => {
+    const b = el('button', 'wsTab');
+    b.setAttribute('aria-selected', String(i === 0));
+    const d = el('span', 'dot'); d.style.background = w.c;
+    b.append(d, el('span', null, w.n));
+    if (w.sealed){ const l = el('span', 'lk'); l.appendChild(svgIcon(ICON.lock, 10, 2.6)); b.appendChild(l); }
+    b.onclick = () => switchWs(w);
+    f.appendChild(b);
+  });
+  $('#wsStrip').replaceChildren(f);
+}
+function renderTabGrid(){
+  const f = document.createDocumentFragment();
+  TABS.forEach((t, i) => {
+    const c = el('button', 'tcard');
+    c.setAttribute('aria-selected', String(!!t.active));
+    if (t.asleep) c.dataset.asleep = '1';
+    c.style.setProperty('--site', site(t.k).tint);
+
+    const shot = el('div', 'tShot');
+    for (let n = 0; n < 5; n++) shot.appendChild(el('span', 'ln'));
+    if (t.asleep) shot.appendChild(el('span', 'tZ', 'Zz'));
+
+    const x = el('button', 'tX'); x.setAttribute('aria-label', 'Close tab');
+    x.appendChild(svgIcon(ICON.x, 12, 2.4));
+    x.onclick = e => { e.stopPropagation(); TABS.splice(i, 1); renderTabGrid(); renderBar(); toast('Tab closed'); };
+    shot.appendChild(x);
+
+    const meta = el('div', 'tMeta');
+    const fav = el('span', 'tFav'); fav.appendChild(markNode(t.k));
+    meta.append(fav, el('span', 'tNm', t.t));
+
+    c.append(shot, meta);
+    c.onclick = () => {
+      TABS.forEach(o => o.active = false); t.active = true; t.asleep = false;
+      openSite(t.u, '/'); toast('Opened ' + t.u);
+    };
+    f.appendChild(c);
+  });
+  $('#tabGrid').replaceChildren(f);
+}
+
+/* ═══════════════════════ WORKSPACES ═══════════════════════════════════════
+   Breeze has no second "profile" concept. Identity is an attribute of the
+   workspace: sealed ones carry their own cookie jar, so two accounts on one
+   site coexist without a second window or a second app.                    */
+function renderWsList(){
+  const f = document.createDocumentFragment();
+  WORKSPACES.forEach((w, i) => {
+    const r = el('button', 'row');
+    const ic = el('span', 'ic');
+    if (w.sealed){ ic.appendChild(svgIcon(ICON.lock, 15, 2.2)); ic.style.color = w.c; }
+    else { const d = el('span'); d.style.cssText =
+      'width:11px;height:11px;border-radius:50%;background:' + w.c; ic.appendChild(d); }
+    const mn = el('span', 'mn');
+    mn.append(el('span', 't', w.n),
+              el('span', 's', w.sealed ? 'Sealed \u00b7 own cookies & storage'
+                                       : 'terry@kapella.studio'));
+    r.append(ic, mn, el('span', 'rt', i === 0 ? 'Current' : ''));
+    r.onclick = () => switchWs(w);
+    f.appendChild(r);
+  });
+  const add = el('button', 'row');
+  const ic = el('span', 'ic'); ic.appendChild(svgIcon(ICON.plus, 15, 2.2));
+  const mn = el('span', 'mn');
+  mn.append(el('span', 't', 'New sealed workspace'),
+            el('span', 's', 'Starts signed out, with a clean cookie jar'));
+  add.append(ic, mn);
+  add.onclick = () => { closeSheet(); toast('New sealed workspace created'); };
+  f.appendChild(add);
+  $('#wsList').replaceChildren(f);
+}
+function switchWs(w){
+  root.dataset.accent = w.a;
+  $$('.wsName').forEach(n => n.textContent = w.n);
+  WORKSPACES.forEach(x => x.current = x === w);
+  const acc = $('#accName');
+  renderWsStrip(); renderWsList();
+  $$('#wsStrip .wsTab').forEach((b, i) =>
+    b.setAttribute('aria-selected', String(WORKSPACES[i] === w)));
+  $$('[data-accents] .sw').forEach(s =>
+    s.setAttribute('aria-pressed', String(s.dataset.a === w.a)));
+  if (acc) acc.textContent = ACC_NAME[w.a] || '';
+  closeSheet();
+  toast('Switched to ' + w.n + (w.sealed ? ' \u00b7 sealed session' : ''));
+}
+
+/* ═══════════════════════ QUEUE ════════════════════════════════════════════ */
+function renderQueue(){
+  const f = document.createDocumentFragment();
+  QUEUE.forEach(q => {
+    const r = el('button', 'row');
+    const ic = el('span', 'ic'); ic.appendChild(svgIcon(ICON.book, 15, 2));
+    const mn = el('span', 'mn');
+    mn.append(el('span', 't', q.t), el('span', 's', q.s));
+    r.append(ic, mn, el('span', 'rt', q.r));
+    r.onclick = () => { closeSheet(); openSite(q.s, '/'); toast('Reading \u2014 ' + q.t); };
+    f.appendChild(r);
+  });
+  $('#queueList').replaceChildren(f);
+}
+
+function setPrivate(on){
+  if(on && root.dataset.private!=='1') mPrivateHistoryBase=HISTORY.length;
+  if(!on && root.dataset.private==='1' && mPrivateHistoryBase!=null){
+    HISTORY.splice(mPrivateHistoryBase); hIndex=Math.max(0,HISTORY.length-1); mPrivateHistoryBase=null;
+  }
+  root.dataset.private = on ? '1' : '0';
+  CURRENT_HOST=''; PATH_LABEL=''; root.dataset.reader='0'; setView('home');
+  closeSheet(); renderBar(); renderMenu(); renderMobileHistory(); renderMobileBookmarks();
+  const name=$('.wsName'); if(name) name.textContent=on?'Private':'Design Research';
+  toast(on ? 'Private browsing · memory only' : 'Private browsing ended');
+}
+
+const M_SAVED = [];
+let mPrivateHistoryBase = null;
+function saveCurrentMobile(){
+  if(!CURRENT_HOST){ toast('Open a page first'); return; }
+  if(!M_SAVED.some(x=>x.host===CURRENT_HOST&&x.path===PATH_LABEL)) M_SAVED.unshift({host:CURRENT_HOST,path:PATH_LABEL||'/',savedAt:Date.now()});
+  renderMobileBookmarks(); toast('Saved for later');
+}
+function renderMobileBookmarks(){
+  const host=$('#mobileBookmarks'); if(!host)return; const f=document.createDocumentFragment();
+  if(!M_SAVED.length){ const e=el('div'); e.style.cssText='padding:26px 10px;text-align:center;color:var(--tx3);font-size:12px'; e.textContent='Pages you save will appear here.'; f.append(e); }
+  M_SAVED.forEach(x=>{ const r=el('button','row'); const i=el('span','ic'); i.appendChild(svgIcon(ICON.star,15,2)); const mn=el('span','mn'); mn.append(el('span','t',x.host),el('span','s',x.path||'/')); r.append(i,mn,el('span','rt','Open')); r.onclick=()=>{closeSheet();openSite(x.host,x.path);}; f.append(r); });
+  host.replaceChildren(f);
+}
+function renderMobileHistory(){
+  const host=$('#mobileHistory'); if(!host)return; const f=document.createDocumentFragment();
+  if(root.dataset.private==='1'){ const e=el('div'); e.style.cssText='padding:26px 12px;text-align:center;color:var(--tx3);font-size:12px;line-height:1.55'; e.textContent='Private browsing keeps only the back/forward stack in memory. Nothing from this session is added to saved history.'; f.append(e); host.replaceChildren(f); return; }
+  const rows=HISTORY.slice().reverse().filter(x=>x&&x.host);
+  if(!rows.length){ const e=el('div'); e.style.cssText='padding:26px 10px;text-align:center;color:var(--tx3);font-size:12px'; e.textContent='Pages you visit will appear here.'; f.append(e); }
+  rows.slice(0,50).forEach(x=>{ const r=el('button','row'); const i=el('span','ic'); i.appendChild(svgIcon(ICON.refresh,15,2)); const mn=el('span','mn'); mn.append(el('span','t',x.label||x.host),el('span','s',x.host)); r.append(i,mn,el('span','rt','Open')); r.onclick=()=>{closeSheet();openSite(x.host,x.path||'/',x.kind||'page');}; f.append(r); });
+  host.replaceChildren(f);
+}
+
+/* ═══════════════════════ MENU SHEET ═══════════════════════════════════════ */
+const MENU_GRID = [
+  [ICON.star,  'Bookmark',   'Bookmarked'],
+  [ICON.book,  'Queue',      'Added to your reading queue'],
+  [ICON.share, 'Share',      'Share sheet'],
+  [ICON.find,  'Find',       'Find on page'],
+  [ICON.down,  'Downloads',  'Downloads'],
+  [ICON.star,  'Saved',      'Saved pages'],
+  [ICON.hist || ICON.refresh, 'History', 'History'],
+  [ICON.desk,  'Desktop',    'Requested desktop site']
+];
+const MENU_ROWS = [
+  [ICON.refresh, 'Reload past cache', 'Keeps everything you are signed into'],
+  [ICON.split,   'Open in split',     'Two pages, one screen \u2014 landscape only'],
+  [ICON.lock,    'Private browsing', 'Memory-only tabs · nothing restored'],
+  [ICON.shield,  'Privacy on this page', '14 trackers blocked']
+];
+function renderMenu(){
+  const g = document.createDocumentFragment();
+  MENU_GRID.forEach(([ic, lb, msg]) => {
+    const b = el('button', 'mBtn');
+    b.append(svgIcon(ic, 19, 1.9), el('span', 'lb', lb));
+    b.onclick = () => {
+      if (lb === 'Bookmark'){ saveCurrentMobile(); closeSheet(); return; }
+      if (lb === 'Saved'){ renderMobileBookmarks(); openSheet('book'); return; }
+      if (lb === 'History'){ renderMobileHistory(); openSheet('hist'); return; }
+      closeSheet(); toast(msg);
+    };
+    g.appendChild(b);
+  });
+  $('#mGrid').replaceChildren(g);
+
+  const r = document.createDocumentFragment();
+  MENU_ROWS.forEach(([ic, t, s]) => {
+    const row = el('button', 'row');
+    const i = el('span', 'ic'); i.appendChild(svgIcon(ic, 15, 2));
+    const mn = el('span', 'mn'); mn.append(el('span', 't', t), el('span', 's', s));
+    row.append(i, mn);
+    row.onclick = () => {
+      if (t.startsWith('Privacy')){ openSheet('priv'); return; }
+      if (t === 'Private browsing'){ setPrivate(root.dataset.private !== '1'); return; }
+      closeSheet(); toast(t);
+    };
+    r.appendChild(row);
+  });
+  $('#menuRows').replaceChildren(r);
+}
+
+/* ═══════════════════════ PRIVACY / SESSION ════════════════════════════════ */
+const PRIV = [
+  ['Trackers blocked',   '14'],
+  ['Third-party cookies','Blocked'],
+  ['Fingerprinting',     'Randomised'],
+  ['Signed in as',       'terry@kapella.studio'],
+  ['Background worker',  'Stale since 6:12 PM'],
+  ['Stalled requests',   '2']
+];
+const FIXES = {
+  reload:  'Reloaded past cache \u2014 nothing else touched',
+  rebuild: 'Page state rebuilt \u2014 you are still signed in',
+  reset:   'Site reset \u2014 you have been signed out of this site'
+};
+function renderPriv(){
+  const f = document.createDocumentFragment();
+  PRIV.forEach(([t, v]) => {
+    const r = el('div', 'row');
+    const mn = el('span', 'mn'); mn.appendChild(el('span', 't', t));
+    r.append(mn, el('span', 'rt', v));
+    f.appendChild(r);
+  });
+  $('#privRows').replaceChildren(f);
+}
+$$('[data-fix]').forEach(b => b.onclick = () => { closeSheet(); toast(FIXES[b.dataset.fix]); });
+
+/* ═══════════════════════ SEARCH ═══════════════════════════════════════════ */
+let srFilter = 'All';
+function renderSrFilters(){
+  const kinds = ['All', ...new Set(SR_DATA.map(r => r.kind))];
+  const f = document.createDocumentFragment();
+  kinds.forEach(k => {
+    const n = k === 'All' ? SR_DATA.length : SR_DATA.filter(r => r.kind === k).length;
+    const c = el('button', 'srChip');
+    c.setAttribute('aria-pressed', String(k === srFilter));
+    c.append(el('span', null, k), el('span', 'n', String(n)));
+    c.onclick = () => { srFilter = k; renderSrFilters(); renderSearch(); };
+    f.appendChild(c);
+  });
+  $('#srFilters').replaceChildren(f);
+}
+function renderSearch(){
+  const rows = SR_DATA.filter(r => srFilter === 'All' || r.kind === srFilter);
+  const f = document.createDocumentFragment();
+  rows.forEach(r => {
+    const b = el('button', 'sr');
+    if (r.seen) b.dataset.seen = '1';
+    const top = el('div', 'srTop');
+    const fav = el('span', 'srFav', site(r.k).ini);
+    fav.style.background = 'rgb(' + site(r.k).tint + ')';
+    const dom = el('span', 'srDom');
+    dom.appendChild(el('b', null, r.dom));
+    top.append(fav, dom, el('span', 'srKind', r.kind));
+    if (r.queued)     top.appendChild(el('span', 'srMine', 'In your queue'));
+    if (r.bookmarked) top.appendChild(el('span', 'srMine', 'Bookmarked'));
+    if (r.seen)       top.appendChild(el('span', 'srKind', 'Visited'));
+
+    const sig = el('div', 'srSig');
+    sig.append(
+      sigNode(r.read, null, ICON.clock),
+      sigNode(r.tr === 0 ? 'No trackers' : r.tr + ' trackers',
+              r.tr === 0 ? 'good' : (r.tr > 20 ? 'warn' : null), ICON.shield),
+      sigNode(r.kb, /MB/.test(r.kb) && parseFloat(r.kb) > 2 ? 'warn' : null, ICON.weight));
+
+    b.append(top, el('div', 'srTitle', r.title), snippetNode(r.snip), sig);
+    b.onclick = () => { openSite(r.dom, '/'); toast('Opening ' + r.dom); };
+    f.appendChild(b);
+  });
+  $('#srList').replaceChildren(f);
+  $('#srCount').textContent = String(rows.length);
+}
+function runSearch(q){
+  const query = String(q || '').trim();
+  if (!query) return;
+  $('#srQ').textContent = query;            // textContent, never innerHTML
+  srFilter = 'All';
+  renderSrFilters(); renderSearch();
+  setView('search');
+}
+$('#homeInput').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const q = e.target.value.trim();
+  if (!q) return;
+  e.target.blur();
+  if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(q) || /^https?:\/\//i.test(q)){
+    openSite(q.replace(/^https?:\/\//i, '').split('/')[0], '/'); toast('Opening ' + q);
+  } else runSearch(q);
+});
+$('#homeSearch').onclick = e => { if (e.target.tagName !== 'INPUT') $('#homeInput').focus(); };
+
+/* ═══════════════════════ APPEARANCE ═══════════════════════════════════════ */
+let themePref = 'light';
+function setSeg(group, v){
+  const g = document.querySelector('[data-seg="' + group + '"]');
+  if (g) [...g.children].forEach(c => c.setAttribute('aria-pressed', String(c.dataset.v === v)));
+  if (group === 'theme'){ themePref = v; root.dataset.theme = v === 'auto' ? byClock() : v; }
+  if (group === 'comfort') root.dataset.comfort = v;
+  setTimeout(paintAbout, 0);
+  paintLuminance('.paper');
+}
+$$('[data-seg]').forEach(g => g.onclick = e => {
+  const b = e.target.closest('.seg');
+  if (b) setSeg(g.dataset.seg, b.dataset.v);
+});
+$$('[data-theme-toggle]').forEach(b => b.onclick = () =>
+  setSeg('theme', root.dataset.theme === 'dark' ? 'light' : 'dark'));
+$$('[data-accents] .sw').forEach(s => s.onclick = () => {
+  root.dataset.accent = s.dataset.a;
+  $$('[data-accents] .sw').forEach(o => o.setAttribute('aria-pressed', String(o === s)));
+  $('#accName').textContent = ACC_NAME[s.dataset.a];
+});
+
+/* ═══════════════════════ READING PROGRESS ═════════════════════════════════ */
+const browseView = $('.view[data-v="browse"]');
+browseView.addEventListener('scroll', () => {
+  const max = browseView.scrollHeight - browseView.clientHeight;
+  const pct = max > 0 ? Math.min(100, (browseView.scrollTop / max) * 100) : 0;
+  $('#progBar').style.width = pct.toFixed(1) + '%';
+}, {passive:true});
+
+/* ═══════════════════════ BOOT ═════════════════════════════════════════════ */
+renderQuick(); renderCards(); renderWsStrip(); renderTabGrid(); renderWsList();
+renderQueue(); renderMenu(); renderPriv(); renderMobileHistory(); renderMobileBookmarks();
+renderSrFilters(); renderSearch();
+
+/* ── About (mobile) ── */
+const KAPELLA_MARK = 'data:image/png;base64,__KMARK__';
+const KAPELLA_WORD_LIGHT = 'data:image/png;base64,__KWORD_L__';
+const KAPELLA_WORD_DARK  = 'data:image/png;base64,__KWORD_D__';
+function paintAbout(){
+  const rel = $('#relName'); if (rel) rel.textContent = VERSION.name;
+  const v = $('#aboutVer'); if (v) v.textContent = 'Version ' + VERSION.number;
+  const lg = $('#logoAbout'); if (lg) lg.src = document.querySelector('.mast img').src;
+  const km = $('#kapMark'); if (km) km.src = KAPELLA_MARK;
+  const kw = $('#kapWord');
+  if (kw) kw.src = root.dataset.theme === 'dark' ? KAPELLA_WORD_DARK : KAPELLA_WORD_LIGHT;
+}
+paintAbout();
+
+renderBar(); paintLuminance('.paper');
+</script>
+
+</body>
+</html>

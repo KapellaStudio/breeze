@@ -1,0 +1,28 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; worker-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'">
+<title>Breeze PDF</title><link rel="stylesheet" href="pdf-viewer.css"></head>
+<body data-theme="paper" data-mode="page">
+<header class="topbar">
+  <div class="brand"><span class="mark">B</span><div><b id="fileName">Document</b><small id="metaLine">Opening locally…</small></div></div>
+  <div class="centerTools">
+    <button id="prev" title="Previous page">←</button><label class="pageCtl"><input id="pageNo" value="1" inputmode="numeric"><span id="pageCount">/ —</span></label><button id="next" title="Next page">→</button>
+    <i></i><button id="zoomOut" title="Zoom out">−</button><span id="zoomLabel">100%</span><button id="zoomIn" title="Zoom in">+</button><button id="fit" title="Fit width">Fit</button>
+  </div>
+  <div class="rightTools"><button class="seg active" id="pageMode">Page</button><button class="seg" id="comfortMode">Comfort</button><button id="toolsBtn">Tools</button></div>
+</header>
+<div class="searchbar" id="searchbar"><input id="searchInput" placeholder="Find in document"><span id="searchStatus"></span><button id="searchPrev">↑</button><button id="searchNext">↓</button><button id="searchClose">×</button></div>
+<main>
+  <aside class="rail" id="rail"><div class="railHead"><b>Pages</b><button id="findBtn" title="Find">⌕</button></div><div id="thumbs" class="thumbs"></div></aside>
+  <section class="stage" id="stage">
+    <div class="canvasWrap" id="canvasWrap"><canvas id="pdfCanvas"></canvas><div class="rendering" id="rendering">Rendering…</div></div>
+    <article class="comfort" id="comfort"><div class="comfortHead"><div><span class="eyebrow">Breeze Comfort Reading</span><h1 id="comfortTitle">Readable text, without changing the file</h1><p>Reflow is local and best for text-heavy pages. Switch to Page for exact layout, forms, diagrams and signatures.</p></div><div class="comfortTools"><button id="textMinus">A−</button><button id="textPlus">A+</button><button id="lineBtn">Line</button><button id="widthBtn">Width</button><button id="focusBtn">Focus</button><select id="theme"><option value="paper">Paper</option><option value="sepia">Warm</option><option value="night">Night</option></select></div></div><div id="reflowText" class="reflowText"></div></article>
+  </section>
+  <aside class="tools" id="tools"><div class="toolsHead"><div><span class="eyebrow">Local document tools</span><h2>Work with this PDF</h2></div><button id="toolsClose">×</button></div>
+    <div class="privacy"><b>On this computer</b><span>No upload. No remote conversion. The PDF path never enters this renderer.</span></div>
+    <section><label>Pages <input id="pageSpec" placeholder="1-3,5,8"></label><small>Used by Extract and Rotate. Leave blank for all pages when rotating.</small><div class="grid"><button data-action="extract">Extract pages</button><button data-action="rotate90">Rotate 90°</button><button data-action="rotate180">Rotate 180°</button><button data-action="rotate270">Rotate 270°</button></div></section>
+    <section><label>Split ranges <input id="splitSpec" placeholder="1-3;4-8;9-12"></label><small>Each semicolon-separated range becomes a separate PDF.</small><button class="wide" data-action="split">Split into files</button></section>
+    <section><small>Merge keeps this PDF first, then appends the files you choose.</small><button class="wide" data-action="merge">Merge with other PDFs</button></section>
+    <div class="docMeta" id="docMeta"></div><div class="toolStatus" id="toolStatus"></div>
+  </aside>
+</main>
+<script type="module" src="pdf-viewer.js"></script></body></html>

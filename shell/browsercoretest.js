@@ -1,0 +1,60 @@
+'use strict';
+const fs=require('node:fs'); const os=require('node:os'); const path=require('node:path');
+const ext=require('./extensions'); const state=require('./state'); const perms=require('./permissions'); const lib=require('./library');
+const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'breeze-core-'));
+let pass=0, fail=0;
+function ok(name,cond){ console.log((cond?'PASS':'FAIL')+'  '+name); cond?pass++:fail++; }
+function fixture(name,manifest){ const d=path.join(tmp,name); fs.mkdirSync(d,{recursive:true}); fs.writeFileSync(path.join(d,'manifest.json'),JSON.stringify(manifest)); return d; }
+const mv2={manifest_version:2,name:'Breeze Test',version:'1.0.0',permissions:['storage'],background:{scripts:['bg.js']}};
+const mv3={manifest_version:3,name:'Wallet Test',version:'1.0.0',background:{service_worker:'worker.js'},permissions:['storage']};
+const partial={manifest_version:2,name:'History Tool',version:'1.0.0',permissions:['history']};
+let r=ext.analyzeManifest(mv2); ok('MV2 compatible manifest accepted',r.status==='compatible');
+r=ext.analyzeManifest(mv3); ok('MV3 service-worker extension blocked honestly',r.status==='blocked' && r.reasons.some(x=>/service worker/i.test(x)));
+r=ext.analyzeManifest(partial); ok('uncertified permission marked partial',r.status==='partial');
+ext.init(path.join(tmp,'user'));
+r=ext.importDirectory(fixture('good',mv2)); ok('compatible unpacked extension imports',r.installed===true && !!r.extension.localId);
+ok('extension registry lists imported extension',ext.list().length===1 && ext.list()[0].name==='Breeze Test');
+r=ext.importDirectory(fixture('wallet',mv3)); ok('blocked extension is not copied into registry',r.installed===false && ext.list().length===1);
+state.init(path.join(tmp,'state-user')); fs.mkdirSync(path.join(tmp,'state-user'),{recursive:true});
+const snap={version:1,tabs:[{url:'https://example.com',workspaceId:'default',sealed:false,active:true}]}; state.write(snap);
+ok('session snapshot round-trips locally',state.read()?.tabs?.[0]?.url==='https://example.com');
+
+perms.init(path.join(tmp,'perm-user'),()=>{}); fs.mkdirSync(path.join(tmp,'perm-user'),{recursive:true});
+ok('permission broker rejects insecure remote origins',perms.cleanOrigin('http://example.com')===null);
+ok('permission broker allows HTTPS origins',perms.cleanOrigin('https://meet.example.com/room')==='https://meet.example.com');
+ok('unknown permissions fail closed',perms.decision('https://example.com','unknown')==='block');
+ok('camera/mic permission requires a prompt by default',perms.decision('https://meet.example.com','media')==='ask');
+
+lib.init(path.join(tmp,'library-user')); fs.mkdirSync(path.join(tmp,'library-user'),{recursive:true});
+lib.recordVisit({url:'https://example.com/a',title:'Example',workspace:'default',privateMode:false});
+lib.recordVisit({url:'https://private.example/secret',title:'Secret',workspace:'private',privateMode:true});
+ok('private navigation is never written to history',lib.listHistory().length===1 && !lib.listHistory().some(x=>/private\.example/.test(x.url)));
+const bm=lib.addBookmark({url:'https://example.com/a',title:'Example',workspace:'default'});
+ok('bookmarks persist as explicit user intent',!!bm.id && lib.isBookmarked('https://example.com/a'));
+lib.removeBookmark(bm.id); ok('bookmark removal is durable',!lib.isBookmarked('https://example.com/a'));
+
+const main=fs.readFileSync(path.join(__dirname,'main.js'),'utf8');
+const preload=fs.readFileSync(path.join(__dirname,'preload.js'),'utf8');
+const pack=fs.readFileSync(path.join(__dirname,'electron-builder.yml'),'utf8');
+ok('real downloads wired to will-download',/will-download/.test(fs.readFileSync(path.join(__dirname,'downloads.js'),'utf8')));
+ok('download paths are not exposed by preload',!/(savePath|\.path\b)/.test(preload.split('/* downloads')[1]?.split('/* window controls')[0]||''));
+ok('extension install uses named IPC only',/extension:installUnpacked/.test(main) && /installUnpacked/.test(preload));
+ok('new browser modules are packaged',/extensions\.js/.test(pack)&&/downloads\.js/.test(pack)&&/state\.js/.test(pack)&&/permissions\.js/.test(pack)&&/library\.js/.test(pack)&&/display\.js/.test(pack)&&/documents\.js/.test(pack)&&/pdf-preload\.js/.test(pack)&&/pdf-viewer\.js/.test(pack));
+ok('private session uses non-persistent partition',/breeze-private-/.test(main)&&/fromPartition\(partition,\{cache:false\}\)/.test(main));
+ok('private tabs are omitted from restart state',/filter\(\(\[,t\]\) => !t\.private\)/.test(main));
+ok('preload exposes named private-tab IPC only',/newPrivateTab/.test(preload)&&/tab:createPrivate/.test(main));
+ok('normal closed tabs can be reopened',/tab:reopenClosed/.test(main)&&/reopenClosedTab/.test(preload));
+ok('private tabs never enter recently closed recovery',/if \(!t\.private\)\{/.test(main)&&/recentlyClosed\.push/.test(main));
+ok('local PDFs use a trusted named file-picker IPC',/document:openPdf/.test(main)&&/openPdf:/.test(preload)&&/showOpenDialog/.test(main));
+ok('local PDF filesystem paths never cross into chrome state',/url: t\.localPdfPath \? '' : liveUrl/.test(main)&&!/localPdfPath/.test(preload));
+ok('local PDF uses dedicated sandboxed viewer preload',/pdf-preload\.js/.test(main)&&/pdf:load/.test(main)&&!/__BREEZE_SHELL__/.test(fs.readFileSync(path.join(__dirname,'pdf-preload.js'),'utf8')));
+ok('PDF.js patched release is pinned',/"pdfjs-dist"\s*:\s*"6\.2\.108"/.test(fs.readFileSync(path.join(__dirname,'package.json'),'utf8')));
+ok('PDF viewer disables document scripting and eval',/enableScripting:false/.test(fs.readFileSync(path.join(__dirname,'ui','pdf-viewer.js'),'utf8'))&&/isEvalSupported:false/.test(fs.readFileSync(path.join(__dirname,'ui','pdf-viewer.js'),'utf8')));
+ok('PDF tools use named IPC and no renderer path methods',/pdf:extract/.test(main)&&/pdf:split/.test(main)&&/pdf:merge/.test(main)&&/pdf:rotate/.test(main)&&!/filePath/.test(fs.readFileSync(path.join(__dirname,'pdf-preload.js'),'utf8')));
+ok('omnibox still refuses arbitrary file URLs',/no file:/.test(main)||/file: scheme refused/.test(main));
+const displaySrc=fs.readFileSync(path.join(__dirname,'display.js'),'utf8');
+ok('screen sharing requires user gesture and secure origin',/userGesture/.test(displaySrc)&&/https:/.test(displaySrc));
+ok('screen sharing uses dedicated named response IPC',/display:respond/.test(main)&&/respondDisplayShare/.test(preload));
+ok('screen sharing never auto-grants the first source',!/callback\(\{video:sources\[0\]/.test(displaySrc));
+fs.rmSync(tmp,{recursive:true,force:true});
+console.log(`\nBrowser core: ${pass}/${pass+fail}`); process.exit(fail?1:0);

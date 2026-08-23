@@ -1,161 +1,165 @@
 # Breeze
 
-**Start with [`HANDOFF.md`](HANDOFF.md)** — full project context, decisions and
-what remains. [`DEPLOY.md`](DEPLOY.md) is the deployment runbook.
+Breeze is Kapella's privacy-focused browser project. This repository is the
+canonical Breeze 19 source and release repository.
 
----
+Start with [`HANDOFF.md`](HANDOFF.md) for product context and decisions,
+[`DEPLOY.md`](DEPLOY.md) for release operations, and
+[`RELEASE_STATUS.md`](RELEASE_STATUS.md) for the current launch state.
 
-# Breeze — source layout
+## Source rule
 
-## The rule
-
-**Never edit `breeze-desktop.html` or `breeze-mobile.html` in the output folder.**
-They are generated. Edit `src/`, then run the build.
+Do not hand-edit the generated root `breeze-desktop.html` or
+`breeze-mobile.html`. Edit `src/`, then build:
 
 ```bash
 python3 build.py
 ```
 
-Output: two standalone HTML files that open by double-click. No server, no
-bundler, no `node_modules`.
+The build produces standalone desktop/mobile HTML, writes the Electron UI copy,
+and refreshes the Netlify preview copy. There is no frontend bundler.
 
----
+## Source layout
 
-## What lives where
-
-```
+```text
 src/
-  breeze-tokens.css     ← THE palette. Colours, comfort scale, radii, shadows,
-                          easing, density. Both shells inline this. Editing a
-                          colour here changes both apps.
-  breeze-core.js        ← Shared logic and content: esc(), DOM builders, the
-                          SITE registry, SR_DATA / QUEUE / WORKSPACES / QUICK,
-                          luminance measurement, toast.
-  breeze-desktop.html   ← Desktop layout + desktop-only interaction
-                          (sidebar, popovers, hover, split view, panels).
-  breeze-mobile.html    ← Mobile layout + mobile-only interaction
-                          (bottom bar, sheets, swipe, card tab switcher).
-  logo.b64              ← Breeze mark, base64.
+  breeze-tokens.css       shared design tokens and platform touch overrides
+  breeze-core.js          shared safe DOM/data helpers and product data
+  breeze-desktop.html     desktop interaction shell
+  breeze-mobile.html      separate mobile interaction shell
+  breeze-shell-adapter.js narrow bridge between UI and Electron preload API
+  breeze-mark.svg         canonical Breeze vector mark
+  regress.py / mob.py     desktop and mobile UI regressions
+  breach*.py / mbreach.py browser-chrome security regressions
 
-build.py                ← Inlines tokens + core + logo. Runs the drift guards.
+shell/
+  main.js                 Electron main process / Chromium browser runtime
+  preload.js              narrow renderer bridge
+  security.js             navigation and privilege boundary helpers
+  downloads.js            download provenance and local history
+  permissions.js          per-origin permission broker
+  extensions.js           managed unpacked-extension compatibility tier
+  media.js                local Breeze Flow media conversion
+  documents.js            local PDF operations
+  ui/pdf-viewer.*         sandboxed Breeze PDF Workspace
+  *test.js                Electron/browser-core/media/document tests
+
+netlify/functions/        release lookup, download routing and waitlist seam
+supabase/                 privacy-minimal schema + Breeze Ops Edge Function
+site/                     public download/waitlist site
+build.py                  deterministic UI/branding build + drift guards
+release.py                installer checksum/release metadata helper
+.github/workflows/        CI and cross-platform installer/release workflows
 ```
 
-### Why two shells and not one responsive file
+## Desktop and mobile are intentionally separate
 
-These are not one layout at two widths. Desktop uses popovers, a sidebar, hover
-states and a right panel. Mobile uses bottom sheets, a thumb-zone bar,
-swipe-to-dismiss and a card grid. Merging them means one file carrying both
-interaction models with half of it dead on any device — and the real product
-ships as a desktop binary and a native mobile app anyway.
+Desktop uses side tabs, hover/popover interactions, split views and right-side
+panels. Mobile uses bottom navigation, sheets, thumb-zone controls and touch-safe
+private browsing. Shared palette/data belong in the shared core; platform
+interaction models do not get compressed into one responsive shell.
 
-What they genuinely *share* — the palette and the data — now lives in exactly
-one place each.
-
----
-
-## Drift guards
-
-`build.py` fails the build if either shell:
-
-1. **Redeclares a symbol the core owns** (`esc`, `el`, `toast`, `SR_DATA`, …).
-2. **Defines a design token outside `breeze-tokens.css`.**
-
-Both are tested and confirmed to fail correctly. Component-scoped custom
-properties set per-instance at runtime (`--site`, `--tintA`, `--tintB`) are
-allowlisted in `build.py` — those belong with the component that owns them and
-are not part of the palette.
-
-This exists because **twelve tokens drifted apart within a single session**
-before the split, and the accidental drift (`--bg2`, `--line`, `--tx3`) was
-indistinguishable from the deliberate drift (larger touch radii). Now deliberate
-differences are declared in one visible block.
-
-### Where platform differences go
-
-`breeze-tokens.css`, in the `[data-platform="touch"]` block, each with a reason
-written next to it. Mobile sets `data-platform="touch"` on `<html>`. Currently:
-larger corner radii for touch, safe-area insets, and upward-throwing shadows for
-bottom-anchored chrome.
-
----
-
-## Verification
-
-Run from `src/`. Nothing ships without all of these clean.
-
-```bash
-python3 regress.py    # 32-step desktop pass at 1440 / 1180 / 1024px
-python3 mob.py        # mobile at 360 / 375 / 393 / 412 / 430px
-python3 breach.py     # 9 chrome-XSS vectors, desktop
-python3 breach2.py    # 10 URL / pollution / break-out / DoS vectors
-python3 mbreach.py    # 10 vectors, mobile
-```
-
-**Current status:** zero step failures, zero page errors, zero horizontal
-overflow, zero sub-44px tap targets, **0 of 29 attack vectors**.
-
----
+See [`MOBILE_ARCHITECTURE.md`](MOBILE_ARCHITECTURE.md).
 
 ## Runtime architecture
 
-The desktop product already runs in **Electron with bundled Chromium**. The
-HTML/CSS shells remain intentionally simple and share `breeze-tokens.css` and
-`breeze-core.js`, while privileged browser behavior lives behind narrow Electron
-preloads/main-process modules. Do not move the desktop product to Tauri: its
-platform webviews would break Breeze's cross-platform Chromium-engine promise.
+The desktop product runs in Electron with bundled Chromium. Breeze chrome lives
+in the BrowserWindow; real sites live in separate Chromium `WebContentsView`
+instances. Privileged behavior is kept behind named preload/main-process APIs.
 
-Full Chrome Web Store / Manifest V3 parity is a separate **Breeze Chromium Core**
-engine milestone documented in `CHROMIUM_CORE.md`; do not confuse Electron's
-compatible unpacked-extension tier with full Chrome-extension support.
+Breeze 18/19 includes real local history/bookmarks, restart recovery, download
+provenance, per-origin permissions, memory-only Private sessions, explicit screen
+source selection, trusted local-file PDF opening and a dedicated sandboxed PDF
+Workspace with Comfort Reading and local extract/split/merge/rotate actions.
 
+Do not move the desktop runtime to Tauri: platform webviews would break the
+cross-platform Chromium-engine contract.
+
+Full Chrome Web Store / modern Manifest V3 parity remains a separate Breeze
+Chromium Core milestone. The Electron unpacked-extension tier must not be
+marketed as full MetaMask/Phantom/Chrome-extension compatibility. See
+[`CHROMIUM_CORE.md`](CHROMIUM_CORE.md).
 
 ## Breeze Flow
 
-Flow is Breeze's local-first utility workspace. Current desktop tools include image conversion/resizing, text/developer utilities, and broad local audio/video conversion including MOV, MP4, MKV, WebM, AVI, WMV and common audio formats. Desktop drag/drop stays behind the isolated Electron bridge. See HANDOFF.md §16 for the current security boundary and verification contract.
+Breeze Flow is local-first utility software built into the browser. Current
+desktop capabilities include image conversion/resizing, text/developer tools,
+SHA-256/UUID utilities, and local audio/video conversion across MOV, MP4, MKV,
+WebM, AVI, WMV and common audio formats. Media paths remain behind opaque tokens;
+Flow does not upload user files to Netlify, Supabase or a conversion API.
 
-### Breeze 17 browser-core additions
+## PDF Workspace
 
-The desktop shell now has real download provenance, local tab restore,
-per-origin permission prompts, and a managed unpacked-extension compatibility
-tier. Full Manifest V3 / Chrome Web Store-class compatibility is intentionally
-reserved for the planned Breeze Chromium core; the Electron build does not
-pretend complex MV3 wallets work when they do not.
+Breeze replaces the raw Chromium PDF surface with a dedicated sandboxed document
+renderer. It supports faithful page rendering, thumbnails, search, zoom/fit,
+Comfort Reading, paragraph focus, and local document manipulation. Filesystem
+paths remain in the Electron main process. PDF.js is pinned to 6.2.108 with the
+viewer scripting/eval surface disabled.
 
-## Breeze 18 browser-core pass
+See [`PDF_WORKSPACE.md`](PDF_WORKSPACE.md).
 
-Private browsing now uses memory-only Electron sessions and is excluded from
-restart recovery, automatic history, remembered permissions, extension loading,
-recently-closed recovery and persisted download metadata. Normal history,
-bookmarks and reopen-closed tabs are real local browser services. Screen sharing
-uses an explicit source picker instead of auto-granting a display.
+## Verification
 
-Desktop can also open a local PDF through a trusted file picker (`Cmd/Ctrl+O`)
-without exposing its filesystem path to the chrome renderer. Breeze 19 replaces the raw Chromium PDF surface with a dedicated sandboxed
-Breeze document renderer. It has faithful page rendering, thumbnail navigation,
-search, zoom/fit, and a reflowed Comfort Reading mode with type size, line
-spacing, reading width, themes and paragraph focus. Local extract/split/merge/
-rotate actions run in the main process; the viewer never receives a filesystem
-path. PDF.js is pinned to 6.2.108 with scripting/eval disabled.
+Nothing ships without the repository verification workflow. The principal local
+checks are:
 
-Mobile remains a separate interaction shell. See `MOBILE_ARCHITECTURE.md` for
-the contract: bottom navigation, sheets, touch-safe private browsing and staged
-mobile functionality instead of a compressed desktop UI.
+```bash
+python3 build.py
+python3 src/regress.py
+python3 src/mob.py
+python3 src/sitecheck.py
+python3 src/flowcheck.py
+python3 src/backendcheck.py
+python3 src/privatecheck.py
+python3 src/breach.py
+python3 src/breach2.py
+python3 src/breach3.py
+python3 src/mbreach.py
+```
 
+CI additionally installs the Electron shell dependencies and runs smoke,
+shell-breach, integration, search, media, browser-core and PDF document tests.
+The browser-chrome security gate currently covers **41 attack vectors** across
+desktop and mobile.
 
-## Breeze 19 — document workspace + release candidate
+## Branding
 
-Local PDFs now open in a dedicated, sandboxed Breeze renderer rather than the
-stock Chromium PDF viewer. `shell/pdf-preload.js` exposes only named document
-actions and `shell/documents.js` owns filesystem access and PDF manipulation.
-The viewer has both faithful page rendering and **Comfort Reading**, a reflowed
-reading mode intended for long documents and low-vision comfort.
+`src/breeze-mark.svg` is the canonical Breeze vector mark and is inlined by the
+build. Kapella dark/light wordmarks used by the browser/site are stored as
+tracked base64 PNG source and checked byte-for-byte in CI. Do not reintroduce a
+fallback or redraw a separate Breeze mark in this repository.
 
-Document operations are local-only: extract pages, split into ranges, merge
-additional PDFs and rotate pages. No document is uploaded to Netlify, Supabase
-or a conversion service. See [`PDF_WORKSPACE.md`](PDF_WORKSPACE.md).
+## Backend/privacy contract
 
-The live backend is also provisioned: the Breeze Supabase project exists, RLS
-is active, the public installer bucket exists, and the narrow `breeze-ops` Edge
-Function is deployed. The `kapella-breeze` Netlify project exists and its
-non-secret Supabase configuration is set. Netlify never receives a Supabase
-admin/service-role key.
+The live Breeze Supabase project stores release metadata, aggregate download
+counts and launch waitlist email only. It stores no per-user browsing history,
+page telemetry, device fingerprint or IP analytics.
+
+RLS is enabled on every public table. The publishable key can read only
+`is_published = true` release rows. `waitlist` and `download_counts` have no
+public policy.
+
+Netlify never receives a Supabase service-role/admin key. Privileged writes pass
+through the narrow `breeze-ops` Edge Function using a Breeze-specific secret
+whose source representation is SHA-256 digest only.
+
+## Packaging and publication
+
+The Electron package version is **1.3.0**. `.github/workflows/package.yml` builds
+Linux, Windows and macOS installers from the canonical `main` branch, retains the
+CI artifacts and checksums, and publishes the canonical merge as
+`v1.3.0-rc.1` GitHub prerelease.
+
+Windows/macOS are still unsigned/unnotarised until platform signing credentials
+are configured, so they must remain clearly labelled prerelease builds. No
+Supabase release row should be published until the real artifact URL, byte size
+and SHA-256 are known.
+
+## Current release state
+
+The source-transfer phase is complete: the repository tracks the real desktop,
+mobile, Electron main-process and adapter source directly. The remaining launch
+work is release engineering—merge the green canonical tree, deploy the repo-backed
+Netlify site/functions, publish CI-built installer artifacts/checksums, register
+real artifact metadata, and finish Windows/macOS signing for an unqualified
+stable public desktop launch.

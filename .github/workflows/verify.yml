@@ -1,0 +1,130 @@
+name: verify
+on: [push, pull_request]
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Reconstruct staged oversized source
+        if: ${{ hashFiles('.sourceparts/manifest') != '' }}
+        run: |
+          while IFS='|' read -r target mode expected parts; do
+            [ -n "$target" ] || continue
+            echo "Reconstructing $target"
+            mkdir -p "$(dirname "$target")"
+            tmp="/tmp/$(basename "$target").payload"
+            : > "$tmp"
+            IFS=',' read -ra chunk_list <<< "$parts"
+            for part in "${chunk_list[@]}"; do
+              cat ".sourceparts/$part" >> "$tmp"
+            done
+            case "${mode:-raw}" in
+              gz64) base64 -d "$tmp" | gzip -d > "$target" ;;
+              raw) cp "$tmp" "$target" ;;
+              *) echo "Unknown reconstruction mode: $mode" >&2; exit 1 ;;
+            esac
+            actual="$(sha256sum "$target" | awk '{print $1}')"
+            test "$actual" = "$expected" || { echo "SHA-256 mismatch for $target" >&2; exit 1; }
+          done < .sourceparts/manifest
+
+      - name: Release brand integrity
+        run: |
+          test -s src/breeze-mark.svg
+          test -s site/kapella-word-dark.png.b64
+          test -s site/kapella-word-light.png.b64
+          test "$(tr -d '\n\r' < site/kapella-word-dark.png.b64 | sha256sum | awk '{print $1}')" = "c61c419cf5c0c1bdb067e91893f2b41739fc48db4c24bfa8540f7d670b3f4b04"
+          test "$(tr -d '\n\r' < site/kapella-word-light.png.b64 | sha256sum | awk '{print $1}')" = "be357931787cf008ab5f19ca3a95b93088bc5749888d7fa54bae9c3d684be774"
+          grep -q '<title id="title">Breeze Browser mark</title>' src/breeze-mark.svg
+          if grep -q '_FALLBACK_PNG' build.py; then echo 'Release build still contains fallback branding' >&2; exit 1; fi
+
+      - name: Install Playwright
+        run: pip install playwright && playwright install --with-deps chromium
+
+      - name: Build
+        run: python3 build.py
+
+      - name: Syntax check both shells
+        run: |
+          python3 - <<'PY'
+          import re
+          for f in ['breeze-desktop.html','breeze-mobile.html']:
+              s = open(f).read()
+              open('/tmp/'+f+'.js','w').write(re.findall(r'<script>(.*?)</script>', s, re.S)[-1])
+          PY
+          node --check /tmp/breeze-desktop.html.js
+          node --check /tmp/breeze-mobile.html.js
+
+      - name: Syntax check shell and functions
+        run: |
+          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js; do
+            node --check "$f"
+          done
+
+      - name: Regression — desktop 1440/1180/1024
+        run: python3 src/regress.py
+
+      - name: Regression — mobile 360-430, overflow and 44px touch targets
+        run: python3 src/mob.py
+
+      - name: Download site — both pre-launch and published states
+        run: python3 src/sitecheck.py
+
+      - name: Breeze Flow — product contract
+        run: python3 src/flowcheck.py
+
+      - name: Backend — least-privilege contract
+        run: python3 src/backendcheck.py
+
+      - name: Private browsing + mobile architecture contract
+        run: python3 src/privatecheck.py
+
+      - name: Security — all 41 vectors must fail to exploit
+        run: |
+          python3 src/breach.py
+          python3 src/breach2.py
+          python3 src/breach3.py
+          python3 src/mbreach.py
+
+      - name: Install shell dependencies
+        working-directory: shell
+        run: npm install --no-audit --no-fund
+
+      - name: Shell — smoke, breach, integration, search
+        working-directory: shell
+        run: |
+          xvfb-run -a npx electron . --smoke-test --no-sandbox
+          xvfb-run -a npx electron shellbreach.js --no-sandbox
+          xvfb-run -a npx electron integration.js --no-sandbox
+          xvfb-run -a npx electron searchtest.js --no-sandbox
+          npm run mediatest
+          npm run browsercoretest
+          npm run documenttest
+
+      - name: Finalize verified reconstructed source
+        if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('.sourceparts/manifest') != '' }}
+        run: |
+          rm -rf .sourceparts
+          rm -f .github/workflows/inspect-sourceparts.yml .github/workflows/reconstruct-source.yml
+          git config user.name "Kapella Venture Studio"
+          git config user.email "goldenmonkeyindex@gmail.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Finalize verified Breeze 19 source"
+            git push origin HEAD:${{ github.head_ref }}
+          fi

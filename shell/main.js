@@ -1,0 +1,640 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   BREEZE — MAIN PROCESS
+   Real Chromium, real tabs, real navigation.
+
+   ARCHITECTURE
+   The BrowserWindow hosts only Breeze's own chrome (breeze-desktop.html).
+   Every web page lives in its own WebContentsView, positioned below the
+   toolbar and beside the sidebar. That separation is the whole security
+   story: page content never shares a renderer with the UI that has
+   privileged IPC, so a compromised page cannot reach the shell API.
+
+   SEALED WORKSPACES map exactly onto Electron sessions. A sealed workspace
+   gets session.fromPartition('persist:ws-<id>') — a genuinely separate cookie
+   jar, cache and storage. This is the one feature where the concept we
+   designed and the platform primitive line up perfectly.
+   ═══════════════════════════════════════════════════════════════════════════ */
+'use strict';
+const { app, BrowserWindow, WebContentsView, session, shell, ipcMain, dialog, safeStorage } = require('electron');
+const path = require('path');
+const { pathToFileURL } = require('url');
+const { hardenSession, installGuards } = require('./security');
+const search = require('./search');
+const media = require('./media');
+const extensions = require('./extensions');
+const downloads = require('./downloads');
+const browserState = require('./state');
+const permissionBroker = require('./permissions');
+const library = require('./library');
+const displayShare = require('./display');
+const documents = require('./documents');
+
+const SMOKE = process.argv.includes('--smoke-test');
+
+/* Chrome geometry — must match breeze-desktop.html's layout. The renderer
+   reports its real measurements on boot, so these are only a first paint. */
+const CHROME = { top: 48, side: 188, panel: 0 };
+
+/* ── tracker blocking ──────────────────────────────────────────────────────
+   A starter list. Production should consume EasyList/EasyPrivacy, but the
+   mechanism is what matters: blocked BEFORE the request leaves, not hidden
+   after it lands. Counted per tab so the shield badge tells the truth. */
+/* Tracking parameters stripped from every navigation. Advertised in Settings,
+   so it must actually happen. */
+const STRIP_PARAMS = [
+  'utm_source','utm_medium','utm_campaign','utm_term','utm_content','utm_id',
+  'fbclid','gclid','dclid','msclkid','twclid','igshid','mc_eid','mc_cid',
+  'ref_src','ref_url','_ga','_gl','yclid','wickedid','vero_id','oly_enc_id'
+];
+
+let win = null;
+const tabs = new Map();          // id -> {view, session, workspace, blocked}
+let activeTabId = null;
+let nextTabId = 1;
+let internalView = false;          // home / reader / extensions / Flow live in Breeze chrome
+let privateGeneration = 1;          // rotates after the final private tab closes
+const recentlyClosed = [];          // normal tabs only; private tabs never enter recovery
+
+/* ── sessions ─────────────────────────────────────────────────────────────── */
+const sessions = new Map();
+const sessionContexts = new Map();
+function downloadContextForWebContents(wcId){
+  const tid = tabIdForWebContents(wcId);
+  const t = tid != null ? tabs.get(tid) : null;
+  return t ? { url:t.view.webContents.getURL(), workspace:t.workspace, private:!!t.private } : {};
+}
+function sessionEntries(){ return [...sessionContexts.values()].filter(x => !x.private); }
+function sessionFor(workspaceId, sealed, privateMode = false){
+  const safeWs = String(workspaceId || 'default').replace(/[^a-z0-9_-]/gi,'-').slice(0,80) || 'default';
+  const key = privateMode
+    ? `private:${privateGeneration}:${sealed?'sealed:':''}${safeWs}`
+    : (sealed ? 'persist:ws-' + safeWs : 'persist:breeze-main');
+  if (sessions.has(key)) return sessions.get(key);
+  const partition = privateMode
+    ? `breeze-private-${privateGeneration}-${sealed?'sealed-':''}${safeWs}`
+    : key;
+  const ses = privateMode ? session.fromPartition(partition,{cache:false}) : session.fromPartition(partition);
+  hardenSession(ses, wcId => { const t = tabs.get(tabIdForWebContents(wcId)); if (t) t.blocked++; }, permissionBroker, {private:privateMode});
+  downloads.wireSession(ses, downloadContextForWebContents);
+  displayShare.attach(ses, send);
+  sessionContexts.set(key, { ses, workspaceId:safeWs, private:privateMode });
+  sessions.set(key, ses);
+  // Extensions are off in private browsing by default. Full per-extension
+  // incognito permission arrives with the Chromium Core extension layer.
+  if (!privateMode) extensions.loadIntoSession(ses, safeWs).catch(() => {});
+  return ses;
+}
+
+async function purgePrivateSessions(){
+  const doomed=[...sessionContexts.entries()].filter(([,x])=>x.private);
+  for(const [key,x] of doomed){
+    try{ permissionBroker.clearPrivate(x.ses); }catch{}
+    try{ await x.ses.clearData(); }catch{}
+    try{ await x.ses.clearAuthCache(); }catch{}
+    try{ await x.ses.clearCache(); }catch{}
+    try{ await x.ses.closeAllConnections(); }catch{}
+    sessionContexts.delete(key); sessions.delete(key);
+  }
+  downloads.endPrivateSession();
+  privateGeneration++;
+}
+
+function tabIdForWebContents(id){
+  for (const [tid, t] of tabs) if (t.view.webContents.id === id) return tid;
+  return null;
+}
+
+/* ── url handling ─────────────────────────────────────────────────────────── */
+function cleanUrl(raw){
+  let u;
+  try { u = new URL(raw); } catch { return raw; }
+  if (!['http:','https:'].includes(u.protocol)) return null;   // no file:, no javascript:
+  STRIP_PARAMS.forEach(p => u.searchParams.delete(p));
+  return u.toString();
+}
+
+/* The engine table lives in search.js now — one definition, used by both the
+   omnibox fallback here and the native results path. */
+const ENGINES = search.REDIRECT;
+
+/* Looks like a host? go there. Otherwise search. An omnibox that searches when
+   you typed an address is the most irritating thing a browser can do. */
+function resolveInput(input){
+  const s = String(input || '').trim();
+  if (!s) return null;
+  // Anything carrying an explicit scheme is judged on that scheme FIRST.
+  // Falling through to "just search for it" would be safe by luck, not by
+  // design — and in an Electron app a file:// navigation from the omnibox is
+  // a local-file read. Refuse loudly instead.
+  const scheme = s.match(/^([a-z][a-z0-9+.\-]*):/i);
+  if (scheme && !/^https?$/i.test(scheme[1])) return null;
+  if (/^https?:\/\//i.test(s)) return cleanUrl(s);
+  if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(s) && !s.includes(' ')) return cleanUrl('https://' + s);
+  // A bare query from the omnibox always resolves to a real engine URL, even
+  // when the user has picked a native provider. Native results are rendered by
+  // the chrome, not navigated to, so the omnibox still needs somewhere to go
+  // if the chrome hands us a query directly.
+  return search.redirectUrl(s);
+}
+
+/* ── tab lifecycle ────────────────────────────────────────────────────────── */
+function createTab({ url, workspaceId = 'default', sealed = false, privateMode = false, localPdfPath = null } = {}){
+  const ses = sessionFor(workspaceId, sealed, privateMode);
+  const trustedPdfPath = localPdfPath ? documents.cleanPdfPath(String(localPdfPath)).full : null;
+  const pdfToken = trustedPdfPath ? documents.token() : null;
+  const view = new WebContentsView({
+    webPreferences: {
+      session: ses,
+      preload: trustedPdfPath ? path.join(__dirname,'pdf-preload.js') : undefined,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      spellcheck: !trustedPdfPath,
+      plugins: false
+    }
+  });
+  const id = nextTabId++;
+  tabs.set(id, { view, session: ses, workspace: workspaceId, sealed, private:!!privateMode, blocked: 0,
+    kind: trustedPdfPath ? 'pdf' : 'page', localPdfPath: trustedPdfPath, pdfToken, fileName: trustedPdfPath ? path.basename(trustedPdfPath) : null });
+
+  const wc = view.webContents;
+
+  // Never let a page open an uncontrolled window. Same-tab or a new Breeze tab.
+  wc.setWindowOpenHandler(({ url: target }) => {
+    const clean = cleanUrl(target);
+    if (clean) createTab({ url: clean, workspaceId, sealed, privateMode });
+    return { action: 'deny' };
+  });
+
+  // Block navigation to non-http schemes outright; hand real external
+  // protocols to the OS only after an explicit user gesture would be needed.
+  wc.on('will-navigate', (e, target) => {
+    if (trustedPdfPath && target.startsWith(pathToFileURL(path.join(__dirname,'ui','pdf-viewer.html')).toString())) return;
+    if (!cleanUrl(target)){ e.preventDefault(); }
+  });
+
+  const push = () => send('tab:update', tabState(id));
+  const remember = () => library.recordVisit({url:wc.getURL(),title:wc.getTitle(),workspace:workspaceId,privateMode:!!privateMode});
+  wc.on('page-title-updated', () => { push(); remember(); });
+  wc.on('did-navigate', () => { push(); remember(); scheduleStateSave(); });
+  wc.on('did-navigate-in-page', () => { push(); scheduleStateSave(); });
+  wc.on('did-start-loading', () => send('tab:loading', { id, loading: true }));
+  wc.on('did-stop-loading',  () => { send('tab:loading', { id, loading: false }); push(); });
+  wc.on('page-favicon-updated', (e, icons) => send('tab:favicon', { id, icon: icons[0] || null }));
+  wc.on('did-fail-load', (e, code, desc, failedUrl) => {
+    if (code === -3) return;                       // aborted, not an error
+    send('tab:error', { id, code, desc, url: failedUrl });
+  });
+
+  win.contentView.addChildView(view);
+  setActiveTab(id);
+  if (trustedPdfPath) wc.loadFile(path.join(__dirname,'ui','pdf-viewer.html'),{query:{token:pdfToken}});
+  else if (url) wc.loadURL(url);
+  layout();
+  scheduleStateSave();
+  return id;
+}
+
+function tabState(id){
+  const t = tabs.get(id); if (!t) return null;
+  const wc = t.view.webContents;
+  const liveUrl=wc.getURL();
+  const inferredPdf=t.kind==='pdf' || /\.pdf(?:$|[?#])/i.test(liveUrl);
+  if(inferredPdf) t.kind='pdf';
+  return {
+    id, url: t.localPdfPath ? '' : liveUrl, title: t.fileName || wc.getTitle() || '', kind:t.kind||'page', fileName:t.fileName||null,
+    canGoBack: wc.navigationHistory.canGoBack(),
+    canGoForward: wc.navigationHistory.canGoForward(),
+    blocked: t.blocked, workspace: t.workspace, sealed: t.sealed, private:!!t.private,
+    active: id === activeTabId
+  };
+}
+
+function setActiveTab(id){
+  if (!tabs.has(id)) return;
+  activeTabId = id;
+  for (const [tid, t] of tabs) t.view.setVisible(!internalView && tid === id);
+  layout();
+  send('tab:update', tabState(id));
+  scheduleStateSave();
+}
+
+function closeTab(id){
+  const t = tabs.get(id); if (!t) return;
+  if (!t.private){
+    const url=cleanUrl(t.view.webContents.getURL());
+    if (url){
+      recentlyClosed.push({url,workspaceId:t.workspace,sealed:!!t.sealed,closedAt:Date.now()});
+      if (recentlyClosed.length > 20) recentlyClosed.shift();
+    }
+  }
+  win.contentView.removeChildView(t.view);
+  t.view.webContents.close();
+  tabs.delete(id);
+  if (activeTabId === id){
+    const next = [...tabs.keys()].pop();
+    if (next) setActiveTab(next); else activeTabId = null;
+  }
+  send('tab:closed', { id });
+  scheduleStateSave();
+  if (t.private && ![...tabs.values()].some(x => x.private)) purgePrivateSessions().catch(()=>{});
+}
+
+/* ── layout ───────────────────────────────────────────────────────────────
+   The chrome tells us its real geometry; we position content in the gap it
+   leaves. Recomputed on resize and whenever the sidebar or a panel toggles. */
+function layout(){
+  if (!win) return;
+  const [w, h] = win.getContentSize();
+  const x = CHROME.side, y = CHROME.top;
+  const width  = Math.max(0, w - CHROME.side - CHROME.panel);
+  const height = Math.max(0, h - CHROME.top);
+  for (const [id, t] of tabs){
+    const live = !internalView && id === activeTabId;
+    t.view.setVisible(live);
+    t.view.setBounds(live ? { x, y, width, height } : { x: 0, y: 0, width: 0, height: 0 });
+  }
+}
+
+const send = (channel, payload) => {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+};
+
+let stateTimer = null;
+function stateSnapshot(){
+  return {
+    version:1, activeTabId, savedAt:Date.now(),
+    tabs:[...tabs.entries()].filter(([,t]) => !t.private).map(([id,t]) => ({
+      id, url:cleanUrl(t.view.webContents.getURL()), workspaceId:t.workspace, sealed:!!t.sealed,
+      active:id===activeTabId
+    })).filter(t => t.url)
+  };
+}
+function scheduleStateSave(){
+  clearTimeout(stateTimer);
+  stateTimer = setTimeout(() => { try { browserState.write(stateSnapshot()); } catch {} }, 250);
+}
+function restoreSavedTabs(){
+  const st = browserState.read();
+  const saved = Array.isArray(st?.tabs) ? st.tabs.filter(t => cleanUrl(t.url)) : [];
+  if (!saved.length){ createTab({}); return; }
+  let active = null;
+  for (const t of saved){
+    const id=createTab({ url:t.url, workspaceId:String(t.workspaceId||'default'), sealed:!!t.sealed });
+    if (t.active) active=id;
+  }
+  if (active != null) setActiveTab(active);
+}
+
+/* ── window ───────────────────────────────────────────────────────────────── */
+function createWindow(){
+  win = new BrowserWindow({
+    width: 1440, height: 900, minWidth: 900, minHeight: 600,
+    show: false,
+    backgroundColor: '#DFE4EA',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    frame: process.platform === 'darwin',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,      // the shell API is the ONLY bridge
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
+    }
+  });
+
+  const chromePath = path.join(__dirname, 'ui', 'breeze-desktop.html');
+  win.loadFile(chromePath);
+
+  win.once('ready-to-show', () => {
+    win.show();
+    if (SMOKE) runSmokeTest();
+  });
+  win.on('resize', layout);
+  win.on('maximize',   () => send('win:state', { maximized: true  }));
+  win.on('unmaximize', () => send('win:state', { maximized: false }));
+  win.on('closed', () => { win = null; });
+
+}
+
+/* ── IPC ──────────────────────────────────────────────────────────────────
+   Every handler validates its input. The renderer is trusted more than a web
+   page, but "more" is not "completely" — a chrome XSS would speak through
+   exactly this surface, which is why breach.py exists. */
+function reg(channel, fn){ ipcMain.handle(channel, (e, ...a) => {
+  if (e.sender !== win?.webContents) return null;      // only our chrome may call
+  try { return fn(...a); } catch (err) { return { error: String(err.message || err) }; }
+}); }
+
+/* Dedicated PDF renderer IPC. Unlike `reg`, this accepts only the sandboxed
+   WebContentsView that owns the matching opaque token. It has no access to
+   general browser IPC and never receives a filesystem path. */
+function pdfContext(sender, token){
+  const id=tabIdForWebContents(sender?.id); const t=id!=null?tabs.get(id):null;
+  return t && t.localPdfPath && t.pdfToken===String(token||'') ? {id,t} : null;
+}
+function pdfReg(channel, fn){ ipcMain.handle(channel, async (e, token, ...args) => {
+  const ctx=pdfContext(e.sender,token); if(!ctx) return {error:'invalid document context'};
+  try{return await fn(ctx,...args);}catch(err){return {error:String(err?.message||err)};}
+}); }
+pdfReg('pdf:load', async ({t}) => ({data:await documents.bytesForViewer(t.localPdfPath)}));
+pdfReg('pdf:info', async ({t}) => documents.info(t.localPdfPath));
+pdfReg('pdf:extract', async ({t},pages) => {
+  const stem=path.basename(t.localPdfPath,'.pdf');
+  const save=await dialog.showSaveDialog(win,{title:'Extract PDF pages',defaultPath:path.join(path.dirname(t.localPdfPath),`${stem}-extract.pdf`),filters:[{name:'PDF document',extensions:['pdf']}]});
+  if(save.canceled||!save.filePath)return {canceled:true}; return documents.extract(t.localPdfPath,pages,save.filePath);
+});
+pdfReg('pdf:rotate', async ({t},pages,angle) => {
+  const stem=path.basename(t.localPdfPath,'.pdf');
+  const save=await dialog.showSaveDialog(win,{title:'Save rotated PDF',defaultPath:path.join(path.dirname(t.localPdfPath),`${stem}-rotated.pdf`),filters:[{name:'PDF document',extensions:['pdf']}]});
+  if(save.canceled||!save.filePath)return {canceled:true}; return documents.rotate(t.localPdfPath,pages,angle,save.filePath);
+});
+pdfReg('pdf:split', async ({t},ranges) => {
+  const picked=await dialog.showOpenDialog(win,{title:'Choose folder for split PDFs',properties:['openDirectory','createDirectory']});
+  if(picked.canceled||!picked.filePaths[0])return {canceled:true}; return documents.split(t.localPdfPath,ranges,picked.filePaths[0]);
+});
+pdfReg('pdf:merge', async ({t}) => {
+  const picked=await dialog.showOpenDialog(win,{title:'Choose PDFs to append',properties:['openFile','multiSelections'],filters:[{name:'PDF documents',extensions:['pdf']}]});
+  if(picked.canceled||!picked.filePaths.length)return {canceled:true};
+  const stem=path.basename(t.localPdfPath,'.pdf'); const save=await dialog.showSaveDialog(win,{title:'Save merged PDF',defaultPath:path.join(path.dirname(t.localPdfPath),`${stem}-merged.pdf`),filters:[{name:'PDF document',extensions:['pdf']}]});
+  if(save.canceled||!save.filePath)return {canceled:true}; return documents.merge([t.localPdfPath,...picked.filePaths],save.filePath);
+});
+
+reg('tab:create', (opts = {}) => createTab({
+  url: opts.url ? (resolveInput(opts.url) || undefined) : undefined,
+  workspaceId: String(opts.workspaceId || 'default'),
+  sealed: !!opts.sealed,
+  privateMode: false
+}));
+reg('tab:createPrivate', (opts = {}) => createTab({
+  url: opts.url ? (resolveInput(opts.url) || undefined) : undefined,
+  workspaceId: String(opts.workspaceId || 'private'),
+  sealed: true,
+  privateMode: true
+}));
+reg('tab:reopenClosed', () => {
+  const last=recentlyClosed.pop();
+  if(!last) return {error:'no closed tab'};
+  return {ok:true,id:createTab({url:last.url,workspaceId:last.workspaceId,sealed:!!last.sealed})};
+});
+reg('document:openPdf', async () => {
+  const picked=await dialog.showOpenDialog(win,{title:'Open PDF in Breeze',properties:['openFile'],filters:[{name:'PDF documents',extensions:['pdf']}]});
+  if(picked.canceled || !picked.filePaths[0]) return {canceled:true};
+  const filePath=path.resolve(picked.filePaths[0]);
+  if(path.extname(filePath).toLowerCase()!=='.pdf') return {error:'Choose a PDF document'};
+  const current=tabs.get(activeTabId); const privateMode=!!current?.private;
+  return {ok:true,id:createTab({localPdfPath:filePath,workspaceId:privateMode?'private':(current?.workspace||'default'),sealed:privateMode||!!current?.sealed,privateMode}),name:path.basename(filePath)};
+});
+reg('tab:close',    id => { closeTab(Number(id)); return true; });
+reg('tab:select',   id => { setActiveTab(Number(id)); return true; });
+reg('tab:list',     () => [...tabs.keys()].map(tabState));
+reg('tab:navigate', (id, input) => {
+  const t = tabs.get(Number(id)); if (!t) return null;
+  const url = resolveInput(input); if (!url) return { error: 'blocked scheme' };
+  t.blocked = 0;
+  t.view.webContents.loadURL(url);
+  return url;
+});
+reg('tab:back',    id => { const t = tabs.get(Number(id)); t?.view.webContents.navigationHistory.goBack(); });
+reg('tab:forward', id => { const t = tabs.get(Number(id)); t?.view.webContents.navigationHistory.goForward(); });
+reg('tab:reload',  (id, hard) => {
+  const t = tabs.get(Number(id));
+  hard ? t?.view.webContents.reloadIgnoringCache() : t?.view.webContents.reload();
+});
+reg('tab:find', (id, text, forward = true) => {
+  const t = tabs.get(Number(id)); if (!t) return 0;
+  if (!text) { t.view.webContents.stopFindInPage('clearSelection'); return 0; }
+  return t.view.webContents.findInPage(String(text), { forward, findNext: false });
+});
+reg('tab:zoom', (id, factor) => {
+  const t = tabs.get(Number(id)); if (!t) return;
+  t.view.webContents.setZoomFactor(Math.max(.5, Math.min(2, Number(factor) || 1)));
+});
+
+/* Session recovery — the feature the whole product is named around.
+   Three graduated repairs, each doing exactly what its label promises. */
+reg('session:repair', async (id, kind) => {
+  const t = tabs.get(Number(id)); if (!t) return { error: 'no tab' };
+  const wc = t.view.webContents;
+  const origin = (() => { try { return new URL(wc.getURL()).origin; } catch { return null; } })();
+  if (kind === 'reload'){ wc.reload(); return { ok: 'Reloaded past cache' }; }
+  if (kind === 'rebuild'){
+    // Clears the broken scratch state and the stale worker, and DOES NOT touch
+    // cookies — so you stay signed in. This is the whole point.
+    await t.session.clearStorageData({
+      origin, storages: ['cachestorage','serviceworkers','shadercache','websql','indexdb']
+    });
+    await t.session.clearCache();
+    wc.reloadIgnoringCache();
+    return { ok: 'Page state rebuilt — you are still signed in' };
+  }
+  if (kind === 'reset'){
+    await t.session.clearStorageData({ origin });     // includes cookies
+    wc.reloadIgnoringCache();
+    return { ok: 'Site reset — you have been signed out of this site' };
+  }
+  return { error: 'unknown repair' };
+});
+
+reg('chrome:geometry', g => {
+  if (typeof g?.top === 'number')   CHROME.top   = g.top;
+  if (typeof g?.side === 'number')  CHROME.side  = g.side;
+  if (typeof g?.panel === 'number') CHROME.panel = g.panel;
+  layout();
+  return CHROME;
+});
+reg('chrome:internalView', on => {
+  internalView = !!on;
+  layout();
+  return internalView;
+});
+reg('engine:set',  name => search.setProvider(String(name || '')));
+reg('engine:list', () => Object.keys(ENGINES));
+
+/* ── search ───────────────────────────────────────────────────────────────
+   The key never crosses back to the renderer. search:config reports whether a
+   provider is ready, not what it was configured with. */
+reg('search:config',    () => search.config());
+reg('search:provider',  name => search.setProvider(String(name || '')));
+reg('search:setKey',    (id, key) => search.setKey(String(id || ''), key));
+reg('search:clearKey',  id => search.clearKey(String(id || '')));
+reg('search:searxngUrl', url => search.setSearxngUrl(url));
+reg('search:signals',   on => search.setSignals(!!on));
+reg('search:run',       q => search.search(q));
+reg('search:measure',   url => search.measure(url));
+
+
+/* ── Breeze Flow: local media conversion ─────────────────────────────────
+   Paths stay in the main process. The renderer gets an opaque job id only. */
+reg('flow:mediaCapabilities', () => media.capabilities());
+reg('flow:ingestMediaPath', filePath => {
+  if(typeof filePath !== 'string' || !filePath || filePath.length > 4096) return {error:'invalid media path'};
+  return media.safeFile(filePath);
+});
+reg('flow:pickMedia', async kind => {
+  const want = kind === 'video' ? 'video' : kind === 'audio' ? 'audio' : 'media';
+  const label = want === 'audio' ? 'Audio' : want === 'video' ? 'Video' : 'Media';
+  const picked = await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:label,extensions:media.supportedInputs(want)}]});
+  if(picked.canceled||!picked.filePaths[0]) return {canceled:true};
+  return media.safeFile(picked.filePaths[0]);
+});
+reg('flow:convertMedia', async (id,opts={}) => {
+  const job=media.get(id); const format=String(opts.format||'').toLowerCase();
+  if(!media.supportedOutputs(job.kind).includes(format)) return {error:'unsupported output format'};
+  const base=path.basename(job.path,path.extname(job.path));
+  const save=await dialog.showSaveDialog(win,{defaultPath:path.join(path.dirname(job.path),`${base}-flow.${format}`),filters:[{name:format.toUpperCase(),extensions:[format]}]});
+  if(save.canceled||!save.filePath) return {canceled:true};
+  return media.convert(id,{format,quality:String(opts.quality||'balanced')},save.filePath);
+});
+reg('flow:clearMedia', id => media.clear(id));
+
+/* Extensions — compatible unpacked extensions today; the manager reports
+   unsupported MV3/service-worker requirements instead of silently breaking. */
+reg('extension:list', () => extensions.list());
+reg('extension:installUnpacked', async () => {
+  const picked = await dialog.showOpenDialog(win,{properties:['openDirectory'],title:'Choose an unpacked Chrome extension'});
+  if (picked.canceled || !picked.filePaths[0]) return { canceled:true };
+  let result;
+  try { result = extensions.importDirectory(picked.filePaths[0]); }
+  catch (err){ return { error:String(err.message || err) }; }
+  if (result.installed){
+    for (const {ses,workspaceId} of sessionEntries()) await extensions.loadIntoSession(ses,workspaceId);
+  }
+  return result;
+});
+reg('extension:setEnabled', async (id,on) => extensions.setEnabled(String(id||''),!!on,sessionEntries()));
+reg('extension:remove', async id => extensions.remove(String(id||''),sessionEntries()));
+
+/* Real Chromium downloads. Paths never cross into the chrome renderer. */
+reg('download:list', () => downloads.list());
+reg('download:open', id => downloads.open(String(id||'')));
+reg('download:show', id => downloads.show(String(id||'')));
+reg('download:pause', id => downloads.pause(String(id||'')));
+reg('download:resume', id => downloads.resume(String(id||'')));
+reg('download:cancel', id => downloads.cancel(String(id||'')));
+reg('download:clearFinished', () => downloads.clearFinished());
+
+reg('permission:respond', (id,decision) => permissionBroker.respond(id,decision));
+reg('permission:list', () => permissionBroker.list());
+reg('permission:reset', (origin,permission) => permissionBroker.reset(origin,permission));
+reg('display:respond', (id,sourceId) => displayShare.respond(id,sourceId));
+reg('display:cancel', id => displayShare.cancel(id));
+
+/* Local browser library. History is automatic for normal tabs; private tabs
+   never enter it. Bookmarks are explicit and can be saved from any tab. */
+reg('history:list', q => library.listHistory(String(q||'')));
+reg('history:clear', () => library.clearHistory());
+reg('bookmark:list', q => library.listBookmarks(String(q||'')));
+reg('bookmark:is', id => { const t=tabs.get(Number(id)); return t ? library.isBookmarked(t.view.webContents.getURL()) : false; });
+reg('bookmark:add', id => {
+  const t=tabs.get(Number(id)); if(!t) return {error:'no tab'};
+  return library.addBookmark({url:t.view.webContents.getURL(),title:t.view.webContents.getTitle(),workspace:t.workspace});
+});
+reg('bookmark:remove', key => library.removeBookmark(String(key||'')));
+reg('bookmark:toggle', id => { const t=tabs.get(Number(id)); if(!t)return {error:'no tab'}; const url=t.view.webContents.getURL(); if(library.isBookmarked(url)){ library.removeBookmark(url); return {ok:true,saved:false}; } const row=library.addBookmark({url,title:t.view.webContents.getTitle(),workspace:t.workspace}); return row?.error?row:{ok:true,saved:true,bookmark:row}; });
+
+reg('win:minimize',       () => win?.minimize());
+reg('win:toggleMaximize', () => { win?.isMaximized() ? win.unmaximize() : win?.maximize(); });
+reg('win:isMaximized',    () => !!win?.isMaximized());
+reg('win:close',          () => win?.close());
+reg('win:toggleFullScreen', () => win?.setFullScreen(!win.isFullScreen()));
+reg('win:new',            () => createWindow());
+reg('app:openDevTools',   () => tabs.get(activeTabId)?.view.webContents.openDevTools({ mode: 'bottom' }));
+reg('app:print',          () => tabs.get(activeTabId)?.view.webContents.print());
+reg('app:version',        () => ({
+  version: app.getVersion(), electron: process.versions.electron,
+  chrome: process.versions.chrome, platform: process.platform
+}));
+reg('app:clearData', async (kinds = []) => {
+  const map = { cache:['cachestorage'], history:[], cookies:['cookies'],
+                storage:['localstorage','indexdb','websql','serviceworkers'] };
+  const storages = kinds.flatMap(k => map[k] || []);
+  if (kinds.includes('history')) library.clearHistory();
+  for (const ses of sessions.values()){
+    if (kinds.includes('cache')) await ses.clearCache();
+    if (storages.length) await ses.clearStorageData({ storages });
+  }
+  return { ok: true };
+});
+
+/* ── app lifecycle ────────────────────────────────────────────────────────── */
+app.whenReady().then(() => {
+  // Local browser services initialize before any page sessions are created.
+  const userDataPath = app.getPath('userData');
+  search.init({ userDataPath, safeStorage });
+  extensions.init(userDataPath);
+  browserState.init(userDataPath);
+  permissionBroker.init(userDataPath, send);
+  library.init(userDataPath);
+  downloads.init({ userDataPath, systemDownloadsPath:app.getPath('downloads'), emit:send });
+  installGuards(app, shell, path.join(__dirname, 'ui'));
+  hardenSession(session.defaultSession);
+  createWindow();
+  win.webContents.once('did-finish-load', () => { if (!SMOKE) setTimeout(restoreSavedTabs, 40); });
+  app.on('activate', () => { if (!BrowserWindow.getAllWindows().length){ createWindow(); win.webContents.once('did-finish-load', () => { if (!SMOKE) setTimeout(restoreSavedTabs,40); }); } });
+});
+app.on('before-quit', () => { try { browserState.write(stateSnapshot()); } catch {} });
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+
+
+/* ── smoke test ───────────────────────────────────────────────────────────
+   Run with `npm run smoke`. Exercises the real pipeline headlessly: create a
+   tab, load a data: page, verify title, check sealed sessions are genuinely
+   separate, confirm dangerous schemes are refused. Exits non-zero on failure. */
+async function runSmokeTest(){
+  const results = [];
+  const ok = (name, cond, extra = '') => { results.push([cond ? 'PASS' : 'FAIL', name, extra]); };
+
+  try {
+    const page = 'data:text/html,' + encodeURIComponent('<title>Breeze Smoke</title><h1>hello</h1>');
+    const id = createTab({ url: page });
+    const wc = tabs.get(id).view.webContents;
+    await new Promise(r => wc.once('did-finish-load', r));
+    ok('tab loads and reports title', wc.getTitle() === 'Breeze Smoke', wc.getTitle());
+
+    ok('javascript: scheme refused',  resolveInput('javascript:alert(1)') === null);
+    ok('file: scheme refused',        resolveInput('file:///etc/passwd') === null);
+    ok('host goes to host',           resolveInput('example.com').startsWith('https://example.com'));
+    ok('query goes to search',        resolveInput('offline first').includes('search.brave.com'));
+    ok('utm params stripped',
+       !resolveInput('https://x.com/a?utm_source=n&b=1').includes('utm_source'),
+       resolveInput('https://x.com/a?utm_source=n&b=1'));
+
+    const sMain = sessionFor('default', false);
+    const sSeal = sessionFor('northwind', true);
+    ok('sealed workspace gets its own session', sMain !== sSeal);
+    ok('same workspace reuses its session', sessionFor('northwind', true) === sSeal);
+
+    const id2 = createTab({ url: page, workspaceId: 'northwind', sealed: true });
+    await new Promise(r => tabs.get(id2).view.webContents.once('did-finish-load', r));
+    ok('sealed tab uses sealed partition',
+       tabs.get(id2).session === sSeal && tabs.get(id).session !== sSeal);
+
+    setActiveTab(id);
+    ok('active tab is visible, others hidden',
+       tabs.get(id).view.getVisible() === true && tabs.get(id2).view.getVisible() === false);
+
+    closeTab(id2);
+    ok('tab closes cleanly', !tabs.has(id2));
+
+    const pid=createTab({url:page,privateMode:true,workspaceId:'private'});
+    await new Promise(r => tabs.get(pid).view.webContents.once('did-finish-load', r));
+    const ps=tabs.get(pid).session;
+    ok('private tab uses memory-only session', ps.storagePath === null);
+    ok('private tab is marked private', tabs.get(pid).private === true);
+    ok('private tab omitted from restart state', !stateSnapshot().tabs.some(t => t.id === pid));
+    closeTab(pid);
+
+    ok('contextIsolation on for chrome', win.webContents.getWebPreferences?.().contextIsolation !== false);
+  } catch (err){
+    results.push(['FAIL', 'smoke threw', String(err.message || err)]);
+  }
+
+  const failed = results.filter(r => r[0] === 'FAIL');
+  console.log('\n── BREEZE SHELL SMOKE TEST ──');
+  results.forEach(([s, n, x]) => console.log(`  ${s}  ${n}${x ? '  [' + x + ']' : ''}`));
+  console.log(`\n  ${results.length - failed.length}/${results.length} passed\n`);
+  app.exit(failed.length ? 1 : 0);
+}
