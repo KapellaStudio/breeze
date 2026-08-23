@@ -43,6 +43,12 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   requestDefaultBrowser: () => call('launch:requestDefault'),
   openDefaultBrowserSettings: () => call('launch:openDefaultSettings'),
 
+  /* persistent chrome preferences */
+  getPreferences: () => call('prefs:get'),
+  setPreference: (key,value) => call('prefs:set', key, value),
+  setPreferences: patch => call('prefs:setMany', patch || {}),
+  resetPreferences: () => call('prefs:reset'),
+
   /* tabs */
   newTab:    opts => call('tab:create', opts || {}),
   newPrivateTab: opts => call('tab:createPrivate', opts || {}),
