@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.sourceparts/**'
+      - '.bootstrap/**'
       - '.github/workflows/inspect-sourceparts.yml'
       - 'site/*.b64'
 
@@ -16,64 +17,85 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Recover canonical branding from repository payloads
+        with:
+          fetch-depth: 0
+      - name: Scan full repository history for canonical assets
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
+          import base64, gzip, hashlib, io, os, subprocess, tarfile, tempfile
           from pathlib import Path
-          import base64, hashlib, re, struct, zlib
 
-          for name in ['site/kapella-word-dark.png.b64','site/kapella-word-light.png.b64']:
-              s=Path(name).read_text().strip(); raw=base64.b64decode(s)
-              print('TRACKED', name, 'text_bytes=', len(s), 'text_sha256=', hashlib.sha256(s.encode()).hexdigest(), 'png_bytes=',len(raw),'png_sha256=',hashlib.sha256(raw).hexdigest())
+          expected = {
+            'src/logo.b64': 'c7dfe71d20cd0ee3e835d82bd7d04f44e1495c821e9a3afab6fed0ad1497d1b4',
+            'src/kapella_mark.b64': '7dc14b34323527431aa79fa468cbe2e674fa33c85e54bd5c338f9b0d3f50d6b3',
+            'src/kapella_word_dark.b64': 'c61c419cf5c0c1bdb067e91893f2b41739fc48db4c24bfa8540f7d670b3f4b04',
+            'src/kapella_word_light.b64': 'be357931787cf008ab5f19ca3a95b93088bc5749888d7fa54bae9c3d684be774',
+            'site/breeze-mark.png': '6455fcf580e72aa1b86f9dc5b7fa7a6b44ebfc0fbbe21a3ec6b2e17d352b140d',
+            'site/kapella-mark.png': '5c6b681c55a0aff3ff5c6c551906a7dc88543c1ea13b8395d057e223e4b6d2f6',
+            'site/kapella-word-dark.png': '1372ed9867faa2a5ce9893385ff6716b457335bd56778246b4942b7e67573d5f',
+            'site/kapella-word-light.png': 'ae5dea8b82e3ecf40d00c7ae71b3b9bded600ed1809292b62aa1d4a08b56838f',
+          }
+          commits=subprocess.check_output(['git','rev-list','--all'],text=True).splitlines()
+          print('COMMITS',len(commits))
+          found={k:[] for k in expected}
+          seen=set()
+          for c in commits:
+              for path, want in expected.items():
+                  key=(c,path)
+                  try:
+                      blob=subprocess.check_output(['git','rev-parse',f'{c}:{path}'],stderr=subprocess.DEVNULL,text=True).strip()
+                  except subprocess.CalledProcessError:
+                      continue
+                  if (path,blob) in seen: continue
+                  seen.add((path,blob))
+                  data=subprocess.check_output(['git','cat-file','blob',blob])
+                  got=hashlib.sha256(data.rstrip(b'\n') if path.endswith('.b64') else data).hexdigest()
+                  print('HIST_PATH',path,'commit',c[:12],'blob',blob,'bytes',len(data),'sha256',got,'MATCH',got==want)
+                  if got==want: found[path].append((c,blob))
 
-          def b64prefix(text):
-              compact=''.join(text.split()); m=re.match(r'[A-Za-z0-9+/=]*', compact); clean=m.group(0)
-              usable=len(clean)-(len(clean)%4)
-              return compact,clean,base64.b64decode(clean[:usable])
+          # Also test tracked site wordmark .b64 files as alternate canonical sources.
+          alternates={
+            'site/kapella-word-dark.png.b64': ('src/kapella_word_dark.b64','site/kapella-word-dark.png'),
+            'site/kapella-word-light.png.b64': ('src/kapella_word_light.b64','site/kapella-word-light.png'),
+          }
+          for alt,(src_target,png_target) in alternates.items():
+              if not Path(alt).exists(): continue
+              s=Path(alt).read_text().strip(); raw=base64.b64decode(s)
+              print('ALT',alt,'source_sha',hashlib.sha256(s.encode()).hexdigest(),'source_match',hashlib.sha256(s.encode()).hexdigest()==expected[src_target], 'png_sha',hashlib.sha256(raw).hexdigest(),'png_match',hashlib.sha256(raw).hexdigest()==expected[png_target])
 
-          def salvage_gzip(label, data):
-              d=zlib.decompressobj(16+zlib.MAX_WBITS); out=bytearray(); fail=None
-              for i,b in enumerate(data):
-                  try: out.extend(d.decompress(bytes([b])))
-                  except Exception as e: fail=(i,repr(e)); break
-              print('GZIP_SALVAGE',label,'compressed=',len(data),'out=',len(out),'fail=',fail,'head=',repr(bytes(out[:600])),'tail=',repr(bytes(out[-300:])))
-              text=bytes(out).decode('utf-8','ignore')
-              for j,m in enumerate(re.finditer(r'iVBORw0KGgo[0-9A-Za-z+/=]{80,}',text)):
-                  s=m.group(0)
-                  try: png=base64.b64decode(s+'===')
-                  except: continue
-                  print('SALVAGED_PNG',label,j,'text_len=',len(s),'text_sha256=',hashlib.sha256(s.encode()).hexdigest(),'png_len=',len(png),'png_sha256=',hashlib.sha256(png).hexdigest(),'pos=',m.start())
+          # Try every historical state that contains assetsbundle parts as a complete base64(gzip(tar)) bundle.
+          bundle_commits=subprocess.check_output(['git','rev-list','--all','--','.sourceparts/assetsbundle.00.part'],text=True).splitlines()
+          print('BUNDLE_COMMITS',len(bundle_commits),bundle_commits)
+          for c in bundle_commits:
+              try:
+                  names=subprocess.check_output(['git','ls-tree','-r','--name-only',c,'.sourceparts'],text=True).splitlines()
+                  parts=sorted(n for n in names if '/assetsbundle.' in n and n.endswith('.part'))
+                  if not parts: continue
+                  text=''.join(subprocess.check_output(['git','show',f'{c}:{p}'],text=True) for p in parts)
+                  compact=''.join(text.split())
+                  try:
+                      payload=base64.b64decode(compact + '='*((-len(compact))%4),validate=True)
+                      raw=gzip.decompress(payload)
+                  except Exception as e:
+                      print('BUNDLE_BAD',c[:12],'parts',[(p,len(subprocess.check_output(['git','show',f'{c}:{p}']))) for p in parts],repr(e)); continue
+                  print('BUNDLE_OK',c[:12],'compressed',len(payload),'tar_bytes',len(raw))
+                  try:
+                      tf=tarfile.open(fileobj=io.BytesIO(raw),mode='r:')
+                  except Exception as e:
+                      print('TAR_BAD',c[:12],repr(e)); continue
+                  for m in tf.getmembers():
+                      if not m.isfile(): continue
+                      data=tf.extractfile(m).read(); path=m.name
+                      check=data.rstrip(b'\n') if path.endswith('.b64') else data
+                      got=hashlib.sha256(check).hexdigest(); want=expected.get(path)
+                      print('TAR_FILE',c[:12],path,'bytes',len(data),'sha256',got,'MATCH',want==got if want else 'n/a')
+                      if want and got==want: found[path].append((c,'bundle'))
 
-          bundle=''.join(Path(p).read_text() for p in sorted(Path('.sourceparts').glob('assetsbundle.*.part')))
-          c,clean,braw=b64prefix(bundle); print('ASSET_BUNDLE_CHARS',len(c),'CLEAN',len(clean),'FIRST_BAD',repr(c[len(clean):len(clean)+40])); salvage_gzip('assetsbundle',braw)
-          fix=Path('.sourceparts/assetsfix.00.part').read_text(); c,clean,fraw=b64prefix(fix); print('ASSET_FIX_CHARS',len(c),'CLEAN',len(clean),'FIRST_BAD',repr(c[len(clean):len(clean)+40])); salvage_gzip('assetsfix',fraw)
-
-          p=Path('.bootstrap/part00.b64')
-          if p.exists():
-              compact,clean,raw=b64prefix(p.read_text())
-              print('BOOTSTRAP_CHARS',len(compact),'CLEAN_PREFIX',len(clean),'FIRST_BAD',repr(compact[len(clean):len(clean)+80]),'BOOTSTRAP_BYTES',len(raw))
-              off=0
-              while off+30 <= len(raw) and raw[off:off+4] == b'PK\x03\x04':
-                  sig,ver,flags,method,mtime,mdate,crc,csize,usize,nlen,xlen=struct.unpack_from('<IHHHHHIIIHH', raw, off)
-                  name=raw[off+30:off+30+nlen].decode('utf-8','replace'); data_start=off+30+nlen+xlen
-                  avail=max(0,min(csize,len(raw)-data_start)); chunk=raw[data_start:data_start+avail]
-                  print('ZIP_ENTRY',name,'method=',method,'csize=',csize,'usize=',usize,'available=',avail)
-                  out=b''
-                  if method==0: out=chunk
-                  elif method==8:
-                      d=zlib.decompressobj(-15)
-                      try: out=d.decompress(chunk)
-                      except Exception as e: print('INFLATE_ERROR',name,repr(e))
-                  if out:
-                      print('RECOVERED_PREFIX',name,'bytes=',len(out),'head=',repr(out[:300]),'tail=',repr(out[-300:]))
-                      text=out.decode('utf-8','ignore')
-                      for i,m2 in enumerate(re.finditer(r'iVBORw0KGgo[0-9A-Za-z+/=]{80,}',text)):
-                          s=m2.group(0)
-                          try: png=base64.b64decode(s+'===')
-                          except: continue
-                          print('BOOTSTRAP_PNG',i,'text_len=',len(s),'text_sha256=',hashlib.sha256(s.encode()).hexdigest(),'png_len=',len(png),'png_sha256=',hashlib.sha256(png).hexdigest(),'pos=',m2.start())
-                  if avail<csize: break
-                  off=data_start+csize
+          print('=== EXACT MATCH SUMMARY ===')
+          for path in expected:
+              print(path, found[path])
+          missing=[p for p,v in found.items() if not v and p not in ('src/kapella_word_dark.b64','src/kapella_word_light.b64','site/kapella-word-dark.png','site/kapella-word-light.png')]
+          print('MISSING_AFTER_HISTORY_SCAN',missing)
           PY
