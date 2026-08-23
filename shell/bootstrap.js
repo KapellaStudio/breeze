@@ -1,11 +1,12 @@
 /* Breeze desktop bootstrap.
-   Keeps first-run/import/preferences IPC separate from the browser runtime so
-   setup work can evolve without widening main.js's page-facing surface. */
+   Keeps first-run/import/preferences/workspace IPC separate from the browser
+   runtime so product setup can evolve without widening page-facing surfaces. */
 'use strict';
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('node:path');
 const launch = require('./launch');
 const preferences = require('./preferences');
+const workspaces = require('./workspaces');
 
 let initialized = false;
 function ensureInit(){
@@ -13,6 +14,7 @@ function ensureInit(){
     const userDataPath=app.getPath('userData');
     launch.init(userDataPath);
     preferences.init(userDataPath);
+    workspaces.init(userDataPath);
     initialized = true;
   }
 }
@@ -66,6 +68,12 @@ handle('prefs:get', () => preferences.get());
 handle('prefs:set', (key,value) => preferences.set(String(key||''),value));
 handle('prefs:setMany', patch => preferences.setMany(patch || {}));
 handle('prefs:reset', () => preferences.reset());
+
+handle('workspace:list', () => workspaces.list());
+handle('workspace:get', id => workspaces.get(String(id||'')));
+handle('workspace:create', opts => workspaces.create(opts || {}));
+handle('workspace:update', (id,patch) => workspaces.update(String(id||''),patch || {}));
+handle('workspace:remove', id => workspaces.remove(String(id||'')));
 
 app.whenReady().then(() => ensureInit());
 require('./main');
