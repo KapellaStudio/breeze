@@ -1,0 +1,17 @@
+{
+  "name": "breeze-browser",
+  "version": "1.0.0",
+  "description": "Breeze — a privacy-first Chromium browser by Kapella. Marketing site, prototypes and deployment.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "python3 build.py",
+    "verify": "python3 src/regress.py && python3 src/mob.py && python3 src/sitecheck.py && python3 src/flowcheck.py && python3 src/backendcheck.py && python3 src/privatecheck.py && npm run security",
+    "security": "python3 src/breach.py && python3 src/breach2.py && python3 src/breach3.py && python3 src/mbreach.py",
+    "dev": "netlify dev",
+    "release": "python3 release.py"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
