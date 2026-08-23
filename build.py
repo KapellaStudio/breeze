@@ -20,12 +20,22 @@ TOKEN_COPY = ROOT / 'site' / 'tokens.css'
 tokens = (SRC / 'breeze-tokens.css').read_text()
 core   = (SRC / 'breeze-core.js').read_text()
 adapter= (SRC / 'breeze-shell-adapter.js').read_text()
-logo   = (SRC / 'logo.b64').read_text().strip()
+
+# Canonical releases carry these PNGs as base64 source files. During a
+# source-only bootstrap checkout (for example while large binary assets are
+# being restored), keep the browser buildable with a tiny transparent PNG.
+# Packaging/release validation must still restore the canonical assets.
+_FALLBACK_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg=='
+def _asset(name):
+    p = SRC / name
+    return p.read_text().strip() if p.exists() else _FALLBACK_PNG
+
+logo = _asset('logo.b64')
 ASSETS = {
     '__LOGO__':      logo,
-    '__KMARK__':     (SRC / 'kapella_mark.b64').read_text().strip(),
-    '__KWORD_L__':   (SRC / 'kapella_word_light.b64').read_text().strip(),
-    '__KWORD_D__':   (SRC / 'kapella_word_dark.b64').read_text().strip(),
+    '__KMARK__':     _asset('kapella_mark.b64'),
+    '__KWORD_L__':   _asset('kapella_word_light.b64'),
+    '__KWORD_D__':   _asset('kapella_word_dark.b64'),
 }
 
 SHELLS = ['breeze-desktop.html', 'breeze-mobile.html']
