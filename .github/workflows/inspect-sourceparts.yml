@@ -6,6 +6,7 @@ on:
     paths:
       - '.sourceparts/**'
       - '.github/workflows/inspect-sourceparts.yml'
+      - 'site/*.b64'
 
 permissions:
   contents: read
@@ -15,41 +16,59 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect staged asset payloads
+      - name: Recover canonical branding from repository payloads
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import base64, gzip, tarfile, zipfile, traceback
+          import base64, hashlib, re, struct, zlib
 
-          def decode_parts(label, paths):
-              try:
-                  text=''.join(Path(p).read_text() for p in paths)
-                  compact=''.join(text.split())
-                  bad=[(i,ch) for i,ch in enumerate(compact) if ch not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=']
-                  print(label, 'chars=', len(compact), 'mod4=', len(compact)%4, 'bad=', bad[:5])
-                  compact += '=' * ((-len(compact)) % 4)
-                  raw=base64.b64decode(compact, validate=True)
-                  print(label, 'decoded=', len(raw), 'head=', repr(raw[:24]), 'tail=', repr(raw[-24:]))
-                  out=gzip.decompress(raw)
-                  p=Path('/tmp/'+label+'.raw'); p.write_bytes(out)
-                  print(label, 'gunzipped=', len(out), 'head=', repr(out[:300]))
-                  if tarfile.is_tarfile(p):
-                      with tarfile.open(p) as t: print(label, 'tar=', t.getnames())
-                  elif zipfile.is_zipfile(p):
-                      with zipfile.ZipFile(p) as z: print(label, 'zip=', z.namelist())
-                  else:
-                      try: print(label, 'utf8=', repr(out.decode('utf-8')[:4000]))
-                      except Exception as e: print(label, 'binary=', e)
-              except Exception as e:
-                  print(label, 'ERROR', repr(e))
-                  traceback.print_exc()
+          for name in ['site/kapella-word-dark.png.b64','site/kapella-word-light.png.b64']:
+              s=Path(name).read_text().strip()
+              raw=base64.b64decode(s)
+              print('TRACKED', name, 'text_bytes=', len(s), 'text_sha256=', hashlib.sha256(s.encode()).hexdigest(), 'png_bytes=',len(raw),'png_sha256=',hashlib.sha256(raw).hexdigest())
 
-          bundle=sorted(str(p) for p in Path('.sourceparts').glob('assetsbundle.*.part'))
-          decode_parts('assetsbundle', bundle)
-          decode_parts('assetsfix', ['.sourceparts/assetsfix.00.part'])
-          for p in bundle:
-              s=''.join(Path(p).read_text().split())
-              print('PART', p, 'chars=', len(s), 'head=', s[:40], 'tail=', s[-40:])
+          # main contributes this repository-resident partial canonical Breeze 19 ZIP to the PR merge checkout.
+          p=Path('.bootstrap/part00.b64')
+          if not p.exists():
+              print('NO_BOOTSTRAP')
+              raise SystemExit(0)
+          raw=base64.b64decode(''.join(p.read_text().split()) + '===')
+          print('BOOTSTRAP_BYTES', len(raw), hashlib.sha256(raw).hexdigest())
+          off=0
+          while off+30 <= len(raw) and raw[off:off+4] == b'PK\x03\x04':
+              sig,ver,flags,method,mtime,mdate,crc,csize,usize,nlen,xlen=struct.unpack_from('<IHHHHHIIIHH', raw, off)
+              name=raw[off+30:off+30+nlen].decode('utf-8','replace')
+              data_start=off+30+nlen+xlen
+              avail=max(0,min(csize,len(raw)-data_start))
+              chunk=raw[data_start:data_start+avail]
+              print('ZIP_ENTRY', name, 'method=',method,'csize=',csize,'usize=',usize,'available=',avail)
+              out=b''
+              if method==0:
+                  out=chunk
+              elif method==8:
+                  try:
+                      d=zlib.decompressobj(-15)
+                      out=d.decompress(chunk)
+                  except Exception as e:
+                      print('INFLATE_ERROR', name, repr(e))
+              if out:
+                  print('RECOVERED_PREFIX', name, 'bytes=',len(out),'sha256=',hashlib.sha256(out).hexdigest())
+                  if name.endswith('.html'):
+                      text=out.decode('utf-8','ignore')
+                      print('HTML_HEAD', repr(text[:500]))
+                      # Identify complete PNG base64 strings already present in the recovered prefix.
+                      for i,m in enumerate(re.finditer(r'iVBORw0KGgo[0-9A-Za-z+/=]{80,}', text)):
+                          s=m.group(0)
+                          try: png=base64.b64decode(s + '===')
+                          except Exception: continue
+                          print('PNG_CANDIDATE', i, 'text_len=',len(s),'text_sha256=',hashlib.sha256(s.encode()).hexdigest(),'png_len=',len(png),'png_sha256=',hashlib.sha256(png).hexdigest(),'pos=',m.start())
+              if avail < csize:
+                  break
+              off=data_start+csize
+              if flags & 0x08:
+                  # data descriptor may be 12 or 16 bytes; canonical zip uses normal headers here, so stop rather than guessing.
+                  print('DATA_DESCRIPTOR_FLAG', name)
+                  break
           PY
