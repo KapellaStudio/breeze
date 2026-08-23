@@ -56,6 +56,31 @@ jobs:
             fi
           done < .sourceparts/manifest
 
+      - name: Restore canonical brand assets
+        run: |
+          mkdir -p src site
+          curl -fLsS https://kapella-breeze.netlify.app/breeze-mark.png -o site/breeze-mark.png
+          curl -fLsS https://kapella-breeze.netlify.app/kapella-mark.png -o site/kapella-mark.png
+          curl -fLsS https://kapella-breeze.netlify.app/kapella-word-dark.png -o site/kapella-word-dark.png
+          curl -fLsS https://kapella-breeze.netlify.app/kapella-word-light.png -o site/kapella-word-light.png
+
+          printf '%s  %s\n' \
+            6455fcf580e72aa1b86f9dc5b7fa7a6b44ebfc0fbbe21a3ec6b2e17d352b140d site/breeze-mark.png \
+            5c6b681c55a0aff3ff5c6c551906a7dc88543c1ea13b8395d057e223e4b6d2f6 site/kapella-mark.png \
+            1372ed9867faa2a5ce9893385ff6716b457335bd56778246b4942b7e67573d5f site/kapella-word-dark.png \
+            ae5dea8b82e3ecf40d00c7ae71b3b9bded600ed1809292b62aa1d4a08b56838f site/kapella-word-light.png | sha256sum -c -
+
+          base64 -w0 site/breeze-mark.png > src/logo.b64
+          base64 -w0 site/kapella-mark.png > src/kapella_mark.b64
+          base64 -w0 site/kapella-word-dark.png > src/kapella_word_dark.b64
+          base64 -w0 site/kapella-word-light.png > src/kapella_word_light.b64
+
+          printf '%s  %s\n' \
+            c7dfe71d20cd0ee3e835d82bd7d04f44e1495c821e9a3afab6fed0ad1497d1b4 src/logo.b64 \
+            7dc14b34323527431aa79fa468cbe2e674fa33c85e54bd5c338f9b0d3f50d6b3 src/kapella_mark.b64 \
+            c61c419cf5c0c1bdb067e91893f2b41739fc48db4c24bfa8540f7d670b3f4b04 src/kapella_word_dark.b64 \
+            be357931787cf008ab5f19ca3a95b93088bc5749888d7fa54bae9c3d684be774 src/kapella_word_light.b64 | sha256sum -c -
+
       - name: Install Playwright
         run: pip install playwright && playwright install --with-deps chromium
 
