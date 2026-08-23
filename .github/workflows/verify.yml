@@ -3,6 +3,8 @@ on: [push, pull_request]
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 defaults:
   run:
@@ -135,3 +137,10 @@ jobs:
             git commit -m "Finalize verified Breeze 19 source"
             git push origin HEAD:${{ github.head_ref }}
           fi
+
+      - name: Report main verification
+        if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze verify: **${{ job.status }}** — run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
