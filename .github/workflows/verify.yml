@@ -32,11 +32,21 @@ jobs:
             for i in $(seq -w 0 $((count-1))); do
               cat ".sourceparts/${prefix}.${i}.part" >> "$tmp"
             done
-            if [ "${mode:-raw}" = "gz64" ]; then
-              base64 -d "$tmp" | gzip -d > "$target"
-            else
-              cp "$tmp" "$target"
-            fi
+            case "${mode:-raw}" in
+              gz64)
+                base64 -d "$tmp" | gzip -d > "$target"
+                ;;
+              tgz64)
+                base64 -d "$tmp" | tar -xz -C .
+                ;;
+              raw)
+                cp "$tmp" "$target"
+                ;;
+              *)
+                echo "Unknown reconstruction mode: $mode" >&2
+                exit 1
+                ;;
+            esac
           done < .sourceparts/manifest
 
       - name: Install Playwright
