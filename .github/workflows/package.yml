@@ -16,6 +16,12 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths:
+      - 'src/**'
+      - 'shell/**'
+      - 'build.py'
+      - 'package.json'
+      - '.github/workflows/package.yml'
 
 permissions:
   contents: write
@@ -93,7 +99,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze package **${{ matrix.name }}**: **${{ job.status }}** — main \`$GITHUB_SHA\`."
+          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze package **${{ matrix.name }}**: **${{ job.status }}** — run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
 
   publish-rc:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -133,4 +139,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze release pipeline — package matrix: **${{ needs.build.result }}**; prerelease publication: **${{ needs.publish-rc.result }}** — main \`$GITHUB_SHA\`."
+          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze release pipeline — package matrix: **${{ needs.build.result }}**; prerelease publication: **${{ needs.publish-rc.result }}** — run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
