@@ -129,12 +129,13 @@ jobs:
           python3 - <<'PY'
           import base64, os, pathlib
           out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'Breeze_Notarization_Key.p8'
-          out.write_bytes(base64.b64decode(os.environ['APPLE_API_KEY_BASE64'], validate=True))
-          print(f'APPLE_API_KEY={out}')
+          encoded = ''.join(os.environ['APPLE_API_KEY_BASE64'].split())
+          out.write_bytes(base64.b64decode(encoded, validate=True))
+          out.chmod(0o600)
           with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
               f.write(f'APPLE_API_KEY={out}\n')
+          print(f'Notarization API key materialized at {out}')
           PY
-          chmod 600 "$APPLE_API_KEY"
 
       - name: Build Breeze UI
         run: python3 build.py
@@ -154,14 +155,15 @@ jobs:
 
       - name: Verify code signing, Gatekeeper and notarization staple
         run: |
-          mapfile -d '' apps < <(find shell/dist -type d -name 'Breeze.app' -print0)
-          test "${#apps[@]}" -ge 2 || { echo '::error::Expected both arm64 and x64 Breeze.app outputs'; exit 1; }
-          for app in "${apps[@]}"; do
+          find shell/dist -type d -name 'Breeze.app' -prune -print > "$RUNNER_TEMP/breeze-apps.txt"
+          count="$(wc -l < "$RUNNER_TEMP/breeze-apps.txt" | tr -d ' ')"
+          test "$count" -ge 2 || { echo "::error::Expected both arm64 and x64 Breeze.app outputs; found $count"; exit 1; }
+          while IFS= read -r app; do
             echo "Verifying $app"
             codesign --verify --deep --strict --verbose=2 "$app"
             spctl --assess --type execute --verbose=4 "$app"
             xcrun stapler validate "$app"
-          done
+          done < "$RUNNER_TEMP/breeze-apps.txt"
 
       - name: Upload signed macOS artifacts
         uses: actions/upload-artifact@v4
