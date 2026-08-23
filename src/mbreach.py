@@ -5,17 +5,18 @@ _ROOT = pathlib.Path(os.environ.get("BREEZE_BUILD_DIR") or pathlib.Path(__file__
 DESKTOP_URL = (_ROOT / "breeze-desktop.html").as_uri()
 MOBILE_URL  = (_ROOT / "breeze-mobile.html").as_uri()
 P = "<img src=x onerror=\"window.__PWNED=(window.__PWNED||0)+1\">"
+SITE_KEY_BREAKOUT = '\"/><script>window.__PWNED=1<\\/script>'
+MARK_FORGERY = 'a <mark><img src=x onerror=\"window.__PWNED=1\"></mark> b'
 ATTACKS = [
  ("M1 tab title -> tab switcher grid",
   f"""TABS[0].t={json.dumps('Evil '+P)}; renderTabGrid(); 'ran'"""),
  ("M2 site key -> mark node / tint",
-  f"""TABS[0].k={json.dumps('\"/><script>window.__PWNED=1<\\/script>')}; renderTabGrid(); renderQuick(); 'ran'"""),
+  "TABS[0].k=" + json.dumps(SITE_KEY_BREAKOUT) + "; renderTabGrid(); renderQuick(); 'ran'"),
  ("M3 search result title/domain/snippet",
   f"""SR_DATA[0].title={json.dumps('T '+P)}; SR_DATA[0].dom={json.dumps('d '+P)};
       SR_DATA[0].snip={json.dumps('s '+P)}; renderSearch(); 'ran'"""),
  ("M4 snippet <mark> forgery",
-  f"""SR_DATA[0].snip={json.dumps('a <mark><img src=x onerror=\"window.__PWNED=1\"></mark> b')};
-      renderSearch(); 'ran'"""),
+  "SR_DATA[0].snip=" + json.dumps(MARK_FORGERY) + "; renderSearch(); 'ran'"),
  ("M5 search query -> results header",
   f"""runSearch({json.dumps('q '+P)}); 'ran'"""),
  ("M6 queue title -> queue sheet",
