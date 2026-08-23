@@ -36,16 +36,9 @@ jobs:
               cat ".sourceparts/$part" >> "$tmp"
             done
             case "${mode:-raw}" in
-              gz64)
-                base64 -d "$tmp" | gzip -d > "$target"
-                ;;
-              raw)
-                cp "$tmp" "$target"
-                ;;
-              *)
-                echo "Unknown reconstruction mode: $mode" >&2
-                exit 1
-                ;;
+              gz64) base64 -d "$tmp" | gzip -d > "$target" ;;
+              raw) cp "$tmp" "$target" ;;
+              *) echo "Unknown reconstruction mode: $mode" >&2; exit 1 ;;
             esac
             actual="$(sha256sum "$target" | awk '{print $1}')"
             if [ "$actual" != "$expected" ]; then
@@ -58,22 +51,22 @@ jobs:
 
       - name: Restore canonical brand assets
         run: |
+          cat .sourceparts/assetsbundle.00.part \
+              .sourceparts/assetsbundle.01.part \
+              .sourceparts/assetsbundle.02.part \
+              .sourceparts/assetsbundle.03.part \
+              .sourceparts/assetsbundle.04.part \
+              .sourceparts/assetsbundle.05.part > /tmp/breeze-assets.b64
+          base64 -d /tmp/breeze-assets.b64 | gzip -d > /tmp/breeze-assets.tar
+          echo "Staged brand archive contents:"
+          tar -tf /tmp/breeze-assets.tar
+          tar -xf /tmp/breeze-assets.tar -C .
+
           mkdir -p src site
-          curl -fLsS https://kapella-breeze.netlify.app/breeze-mark.png -o site/breeze-mark.png
-          curl -fLsS https://kapella-breeze.netlify.app/kapella-mark.png -o site/kapella-mark.png
-          curl -fLsS https://kapella-breeze.netlify.app/kapella-word-dark.png -o site/kapella-word-dark.png
-          curl -fLsS https://kapella-breeze.netlify.app/kapella-word-light.png -o site/kapella-word-light.png
-
-          printf '%s  %s\n' \
-            6455fcf580e72aa1b86f9dc5b7fa7a6b44ebfc0fbbe21a3ec6b2e17d352b140d site/breeze-mark.png \
-            5c6b681c55a0aff3ff5c6c551906a7dc88543c1ea13b8395d057e223e4b6d2f6 site/kapella-mark.png \
-            1372ed9867faa2a5ce9893385ff6716b457335bd56778246b4942b7e67573d5f site/kapella-word-dark.png \
-            ae5dea8b82e3ecf40d00c7ae71b3b9bded600ed1809292b62aa1d4a08b56838f site/kapella-word-light.png | sha256sum -c -
-
-          base64 -w0 site/breeze-mark.png > src/logo.b64
-          base64 -w0 site/kapella-mark.png > src/kapella_mark.b64
-          base64 -w0 site/kapella-word-dark.png > src/kapella_word_dark.b64
-          base64 -w0 site/kapella-word-light.png > src/kapella_word_light.b64
+          if [ ! -f src/logo.b64 ] && [ -f site/breeze-mark.png ]; then base64 -w0 site/breeze-mark.png > src/logo.b64; fi
+          if [ ! -f src/kapella_mark.b64 ] && [ -f site/kapella-mark.png ]; then base64 -w0 site/kapella-mark.png > src/kapella_mark.b64; fi
+          if [ ! -f src/kapella_word_dark.b64 ] && [ -f site/kapella-word-dark.png ]; then base64 -w0 site/kapella-word-dark.png > src/kapella_word_dark.b64; fi
+          if [ ! -f src/kapella_word_light.b64 ] && [ -f site/kapella-word-light.png ]; then base64 -w0 site/kapella-word-light.png > src/kapella_word_light.b64; fi
 
           printf '%s  %s\n' \
             c7dfe71d20cd0ee3e835d82bd7d04f44e1495c821e9a3afab6fed0ad1497d1b4 src/logo.b64 \
@@ -100,9 +93,7 @@ jobs:
 
       - name: Syntax check shell and functions
         run: |
-          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js; do
-            node --check "$f"
-          done
+          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js; do node --check "$f"; done
 
       - name: Regression — desktop 1440/1180/1024
         run: python3 src/regress.py
