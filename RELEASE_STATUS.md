@@ -4,15 +4,15 @@
 
 ## Canonical repository state
 
-`KapellaStudio/breeze` is now the complete Breeze 19 source repository on the
-`release/breeze-19-source` integration branch. The oversized-source transfer
-scaffolding has been removed after SHA-verified reconstruction and a full passing
-verification run. Desktop/mobile source, Electron main process, bridge code,
-backend, packaging, and release workflows are tracked as normal repository files.
+`KapellaStudio/breeze` is the canonical Breeze source and release repository.
+PR #1 merged the verified Breeze 19 source into `main`; the temporary source
+transfer scaffolding has been removed. Desktop/mobile source, Electron main
+process, bridge code, backend, packaging, production smoke verification, and
+release workflows are tracked as normal repository files.
 
 The Breeze mark is sourced from the tracked Kapella Breeze vector master. Kapella
-wordmarks are verified byte-for-byte by CI. Generated root/preview UI remains a
-build product; edit `src/` and run `python3 build.py`.
+wordmarks are integrity-checked by CI. Generated root/preview UI remains a build
+product; edit `src/` and run `python3 build.py`.
 
 ## Verified product surface
 
@@ -24,45 +24,55 @@ build product; edit `src/` and run `python3 build.py`.
 - compatible unpacked-extension management
 - sandboxed Breeze PDF Workspace + Comfort Reading + local document actions
 - separate mobile interaction architecture/prototype
-- Netlify download/waitlist/release site and functions
+- Netlify download/release/waitlist site and functions
 - Supabase release/waitlist backend with RLS and narrow Breeze Ops seam
-- cross-platform Windows/macOS/Linux packaging workflow
+- cross-platform Windows/macOS/Linux packaging
 - browser-chrome security, desktop/mobile regression, Electron shell, media,
-  browser-core, search and PDF document test gates
+  browser-core, search and PDF document gates
 
 ## Live infrastructure
 
 - GitHub repository: `KapellaStudio/breeze` (public)
 - Supabase project: Breeze (`iyyuxzfjkrtqqixqzsrr`) — healthy
-- Supabase release bucket + schema: provisioned; RLS enabled on all public tables
-- Breeze Ops Edge Function: active; privileged surface limited to waitlist insert
-  and aggregate download counting
-- Netlify project: `kapella-breeze`
-- Netlify functions use the Supabase project URL + publishable key for reads
+- Breeze Ops Edge Function: active; privileged surface is limited to waitlist
+  insert and aggregate download counting
+- Netlify project: `kapella-breeze` — Git-backed and deploying from `main`
+- Netlify functions use only the Supabase URL + publishable key for reads
 - Netlify holds only a Breeze-specific write token as a function secret; no
   Supabase service-role/admin key is sent to Netlify
 
-## Release publication
+## Published release candidate
 
-The desktop package version is `1.3.0`. The repository packaging workflow builds
-Linux, Windows and macOS from `main`, publishes checksums, and on the canonical
-main merge publishes `v1.3.0-rc.1` as a GitHub prerelease.
+Breeze `1.3.0` RC 1 is published as GitHub prerelease `v1.3.0-rc.1` from the
+canonical `main` branch. The release includes the platform installers,
+`SHA256SUMS.txt`, and `release-manifest.json`.
 
-No Supabase `releases` row is published until a real installer URL, byte size and
-SHA-256 exist. This prevents the download site from advertising nonexistent files.
+The successful release matrix produced and published:
+
+- macOS Apple silicon DMG
+- macOS Intel DMG
+- Windows x64 installer
+- Linux x64 AppImage
+- alternate macOS ZIP and Linux DEB packages
+
+The four canonical platform downloads are registered in Supabase as published
+`beta` rows with the exact final byte size and SHA-256 from the release manifest.
+The Netlify release page explicitly queries the beta channel and labels these
+files as release-candidate downloads; the backend default remains `stable` for
+the eventual signed production channel.
 
 ## Public launch gate
 
 Windows and macOS code signing/notarization remain external credential/account
-work. Those packages must stay clearly identified as unsigned prerelease builds
-until signing is configured. Linux can be distributed unsigned without the same
-platform trust-warning problem.
+work. RC downloads are intentionally labeled unsigned/unnotarized and may trigger
+SmartScreen/Gatekeeper warnings. They must not be reclassified as a stable public
+release until production signing is configured. Linux does not have the same
+platform-signing gate.
 
-This is no longer a source-transfer or preview-only repository. The remaining
-launch work is release engineering: merge the verified canonical tree, deploy the
-repo-backed site/functions, publish CI-built installers/checksums, register the
-real artifact metadata, and complete Windows/macOS signing for an unqualified
-stable desktop launch.
+Breeze is no longer preview-only: canonical source, backend, repo-backed hosting,
+CI-built desktop packages, checksums, release metadata, and beta download routing
+are all in place. The remaining gate for an unqualified stable desktop launch is
+Windows/macOS signing/notarization plus final signed-build regression.
 
 ## Engine milestone after Breeze 19
 
