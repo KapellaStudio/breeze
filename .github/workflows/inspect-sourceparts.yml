@@ -34,9 +34,12 @@ jobs:
               print('NO_BOOTSTRAP')
               raise SystemExit(0)
           compact=''.join(p.read_text().split())
-          usable=len(compact)-(len(compact)%4)
-          raw=base64.b64decode(compact[:usable], validate=True)
-          print('BOOTSTRAP_CHARS',len(compact),'USABLE',usable,'BOOTSTRAP_BYTES', len(raw), hashlib.sha256(raw).hexdigest())
+          m=re.match(r'[A-Za-z0-9+/=]*', compact)
+          clean=m.group(0)
+          print('BOOTSTRAP_CHARS',len(compact),'CLEAN_PREFIX',len(clean),'FIRST_BAD',repr(compact[len(clean):len(clean)+80]))
+          usable=len(clean)-(len(clean)%4)
+          raw=base64.b64decode(clean[:usable])
+          print('BOOTSTRAP_BYTES', len(raw), hashlib.sha256(raw).hexdigest())
           off=0
           while off+30 <= len(raw) and raw[off:off+4] == b'PK\x03\x04':
               sig,ver,flags,method,mtime,mdate,crc,csize,usize,nlen,xlen=struct.unpack_from('<IHHHHHIIIHH', raw, off)
@@ -50,23 +53,20 @@ jobs:
                   out=chunk
               elif method==8:
                   d=zlib.decompressobj(-15)
-                  try:
-                      out=d.decompress(chunk)
-                  except Exception as e:
-                      print('INFLATE_ERROR', name, repr(e))
+                  try: out=d.decompress(chunk)
+                  except Exception as e: print('INFLATE_ERROR', name, repr(e))
               if out:
                   print('RECOVERED_PREFIX', name, 'bytes=',len(out),'sha256=',hashlib.sha256(out).hexdigest())
                   if name.endswith('.html'):
                       text=out.decode('utf-8','ignore')
                       print('HTML_HEAD', repr(text[:500]))
                       print('HTML_TAIL', repr(text[-500:]))
-                      for i,m in enumerate(re.finditer(r'iVBORw0KGgo[0-9A-Za-z+/=]{80,}', text)):
-                          s=m.group(0)
+                      for i,m2 in enumerate(re.finditer(r'iVBORw0KGgo[0-9A-Za-z+/=]{80,}', text)):
+                          s=m2.group(0)
                           try: png=base64.b64decode(s + '===')
                           except Exception: continue
-                          print('PNG_CANDIDATE', i, 'text_len=',len(s),'text_sha256=',hashlib.sha256(s.encode()).hexdigest(),'png_len=',len(png),'png_sha256=',hashlib.sha256(png).hexdigest(),'pos=',m.start())
-              if avail < csize:
-                  break
+                          print('PNG_CANDIDATE', i, 'text_len=',len(s),'text_sha256=',hashlib.sha256(s.encode()).hexdigest(),'png_len=',len(png),'png_sha256=',hashlib.sha256(png).hexdigest(),'pos=',m2.start())
+              if avail < csize: break
               off=data_start+csize
               if flags & 0x08:
                   print('DATA_DESCRIPTOR_FLAG', name)
