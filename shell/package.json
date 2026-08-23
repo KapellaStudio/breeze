@@ -3,7 +3,7 @@
   "productName": "Breeze",
   "version": "1.3.0",
   "description": "Breeze — the desktop shell. Real Chromium, real tabs, real search.",
-  "main": "main.js",
+  "main": "bootstrap.js",
   "author": "Kapella — Venture Technology Studio",
   "license": "UNLICENSED",
   "scripts": {
@@ -20,7 +20,8 @@
     "dist:mac": "npm run prebuild && electron-builder --mac",
     "mediatest": "node mediatest.js",
     "browsercoretest": "node browsercoretest.js",
-    "documenttest": "node documenttest.js"
+    "documenttest": "node documenttest.js",
+    "launchtest": "node launchtest.js"
   },
   "devDependencies": {
     "electron": "^43.0.0",
