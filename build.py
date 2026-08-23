@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-Breeze build — inlines the shared token stylesheet, the shared JS core and the
-logo into each shell, producing two standalone HTML files that open by
-double-click with no server and no bundler.
+Breeze build — inlines the shared token stylesheet, shared JS core and release
+brand assets into each shell, producing standalone HTML files with no server
+and no bundler.
 
     python3 build.py
 
-Source of truth lives in src/. Never edit the files in the output directory —
-they are generated and will be overwritten.
+Source of truth lives in src/. Never edit generated output files directly.
 """
-import os, pathlib, re, shutil, sys
+import base64, os, pathlib, re, shutil, sys
 
 ROOT = pathlib.Path(__file__).parent
 SRC  = ROOT / 'src'
@@ -21,21 +20,31 @@ tokens = (SRC / 'breeze-tokens.css').read_text()
 core   = (SRC / 'breeze-core.js').read_text()
 adapter= (SRC / 'breeze-shell-adapter.js').read_text()
 
-# Canonical releases carry these PNGs as base64 source files. During a
-# source-only bootstrap checkout (for example while large binary assets are
-# being restored), keep the browser buildable with a tiny transparent PNG.
-# Packaging/release validation must still restore the canonical assets.
-_FALLBACK_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg=='
-def _asset(name):
-    p = SRC / name
-    return p.read_text().strip() if p.exists() else _FALLBACK_PNG
+# Breeze 19 keeps its browser mark as the Kapella-owned vector master in src/.
+# Kapella wordmarks are tracked as base64 PNG source files under site/ so the
+# public site and standalone browser builds share the exact same brand bytes.
+# No transparent/bootstrap brand fallback is allowed in a release build.
+def _b64_text(*paths):
+    for path in paths:
+        p = ROOT / path
+        if p.exists():
+            data = p.read_text().strip()
+            if data:
+                return data
+    raise FileNotFoundError('Missing required release asset: ' + ' or '.join(str(p) for p in paths))
 
-logo = _asset('logo.b64')
+breeze_svg = (SRC / 'breeze-mark.svg').read_bytes()
+logo_svg_b64 = base64.b64encode(breeze_svg).decode('ascii')
+kapella_dark = _b64_text('src/kapella_word_dark.b64', 'site/kapella-word-dark.png.b64')
+kapella_light = _b64_text('src/kapella_word_light.b64', 'site/kapella-word-light.png.b64')
+
+# The legacy __KMARK__ slot is retained for source-template compatibility. In
+# Breeze 19 it resolves to the current Kapella dark wordmark rather than a
+# missing raster mark. This keeps every release build branded and self-contained.
 ASSETS = {
-    '__LOGO__':      logo,
-    '__KMARK__':     _asset('kapella_mark.b64'),
-    '__KWORD_L__':   _asset('kapella_word_light.b64'),
-    '__KWORD_D__':   _asset('kapella_word_dark.b64'),
+    '__KMARK__':     kapella_dark,
+    '__KWORD_L__':   kapella_light,
+    '__KWORD_D__':   kapella_dark,
 }
 
 SHELLS = ['breeze-desktop.html', 'breeze-mobile.html']
@@ -49,6 +58,10 @@ for name in SHELLS:
     html = html.replace('__TOKENS__', tokens)
     html = html.replace('__CORE__', core)
     html = html.replace('__ADAPTER__', adapter if name == 'breeze-desktop.html' else '')
+    # Existing templates wrap __LOGO__ in an image/png data URI. Replace the
+    # complete URI first so the canonical SVG is served with the correct MIME.
+    html = html.replace('data:image/png;base64,__LOGO__', 'data:image/svg+xml;base64,' + logo_svg_b64)
+    html = html.replace('__LOGO__', logo_svg_b64)
     for marker, data in ASSETS.items():
         html = html.replace(marker, data)
     OUT.mkdir(parents=True, exist_ok=True)
@@ -90,5 +103,5 @@ for name in SHELLS:
 TOKEN_COPY.parent.mkdir(parents=True, exist_ok=True)
 TOKEN_COPY.write_text(tokens)
 
-print('\nBUILD FAILED' if fail else '\nBuild OK — tokens and core are single-source.')
+print('\nBUILD FAILED' if fail else '\nBuild OK — tokens, core and release branding are single-source.')
 sys.exit(1 if fail else 0)
