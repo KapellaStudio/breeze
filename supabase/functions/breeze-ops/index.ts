@@ -10,7 +10,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const TOKEN_SHA256S = new Set([
-  '78f3a4d52eb1bc81ca2dd4c28c434f2dc8acaef47de23ba08e0a06282334cdcf', // current production Netlify token
+  '124930decf494672a6e66d5c423b5cae91bad252540727fd3948c1f913d2eed4', // current production Netlify token
 ])
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const HINTS = new Set(['macos', 'windows', 'linux', 'mobile'])
