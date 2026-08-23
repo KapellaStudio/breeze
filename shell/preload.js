@@ -14,9 +14,6 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const call = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
-
-/* Event subscription is also allowlisted. A page cannot listen to arbitrary
-   IPC channels, only the handful the UI genuinely renders. */
 const EVENTS = ['tab:update','tab:loading','tab:closed','tab:favicon','tab:error','win:state','download:update','download:refresh','permission:request','display:request'];
 const listeners = new Map();
 let activeWorkspace = { workspaceId:'default', sealed:false };
@@ -31,7 +28,6 @@ EVENTS.forEach(ch => {
 });
 
 contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
-  /* identity */
   isShell: true,
   version: () => call('app:version'),
 
@@ -60,6 +56,20 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   updateWorkspace: (id,patch) => call('workspace:update', id, patch || {}),
   removeWorkspace: id => call('workspace:remove', id),
 
+  /* local Breeze context */
+  listQueue: workspace => call('queue:list', workspace || ''),
+  addQueue: item => call('queue:add', item || {}),
+  removeQueue: id => call('queue:remove', id),
+  moveQueueTop: id => call('queue:top', id),
+  clearQueue: workspace => call('queue:clear', workspace || 'default'),
+  listNotes: workspace => call('note:list', workspace || ''),
+  addNote: item => call('note:add', item || {}),
+  updateNote: (id,body) => call('note:update', id, body),
+  removeNote: id => call('note:remove', id),
+  listSnapshots: workspace => call('snapshot:list', workspace || ''),
+  saveSnapshot: item => call('snapshot:save', item || {}),
+  removeSnapshot: id => call('snapshot:remove', id),
+
   /* tabs. A plain New Tab inherits the active non-private workspace so the
      workspace boundary is not silently lost through a keyboard/menu action. */
   newTab: opts => call('tab:create', { ...activeWorkspace, ...(opts || {}) }),
@@ -76,10 +86,7 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   find:      (id, text, forward) => call('tab:find', id, text, forward !== false),
   setZoom:   (id, factor) => call('tab:zoom', id, factor),
 
-  /* session recovery — 'reload' | 'rebuild' | 'reset' */
   repairSession: (id, kind) => call('session:repair', id, kind),
-
-  /* chrome geometry: the renderer owns layout, the main process owns bounds */
   reportGeometry: g => call('chrome:geometry', g),
   setInternalView: on => call('chrome:internalView', !!on),
 
@@ -107,25 +114,25 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   convertMedia:     (id, opts) => call('flow:convertMedia', id, opts || {}),
   clearMedia:       id => call('flow:clearMedia', id),
 
-  /* extensions — managed locally by Breeze */
-  listExtensions:      () => call('extension:list'),
-  installUnpacked:     () => call('extension:installUnpacked'),
+  /* extensions */
+  listExtensions: () => call('extension:list'),
+  installUnpacked: () => call('extension:installUnpacked'),
   setExtensionEnabled:(id,on) => call('extension:setEnabled', id, !!on),
-  removeExtension:     id => call('extension:remove', id),
+  removeExtension: id => call('extension:remove', id),
 
-  /* downloads — the renderer never receives filesystem paths */
-  listDownloads:       () => call('download:list'),
-  openDownload:        id => call('download:open', id),
-  showDownload:        id => call('download:show', id),
-  pauseDownload:       id => call('download:pause', id),
-  resumeDownload:      id => call('download:resume', id),
-  cancelDownload:      id => call('download:cancel', id),
+  /* downloads */
+  listDownloads: () => call('download:list'),
+  openDownload: id => call('download:open', id),
+  showDownload: id => call('download:show', id),
+  pauseDownload: id => call('download:pause', id),
+  resumeDownload: id => call('download:resume', id),
+  cancelDownload: id => call('download:cancel', id),
   clearDownloadHistory:() => call('download:clearFinished'),
 
   /* site permissions */
   respondPermission: (id,decision) => call('permission:respond', id, decision),
-  listPermissions:   () => call('permission:list'),
-  resetPermission:   (origin,permission) => call('permission:reset', origin, permission),
+  listPermissions: () => call('permission:list'),
+  resetPermission: (origin,permission) => call('permission:reset', origin, permission),
   respondDisplayShare: (id,sourceId) => call('display:respond', id, sourceId),
   cancelDisplayShare: id => call('display:cancel', id),
 
@@ -139,19 +146,18 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   toggleBookmark: id => call('bookmark:toggle', id),
 
   /* window controls */
-  minimize:         () => call('win:minimize'),
-  toggleMaximize:   () => call('win:toggleMaximize'),
-  isMaximized:      () => call('win:isMaximized'),
-  close:            () => call('win:close'),
+  minimize: () => call('win:minimize'),
+  toggleMaximize: () => call('win:toggleMaximize'),
+  isMaximized: () => call('win:isMaximized'),
+  close: () => call('win:close'),
   toggleFullScreen: () => call('win:toggleFullScreen'),
-  newWindow:        () => call('win:new'),
+  newWindow: () => call('win:new'),
 
   /* app */
   openDevTools: () => call('app:openDevTools'),
-  print:        () => call('app:print'),
-  clearData:    kinds => call('app:clearData', kinds),
+  print: () => call('app:print'),
+  clearData: kinds => call('app:clearData', kinds),
 
-  /* events */
   on(channel, fn){
     if (!EVENTS.includes(channel) || typeof fn !== 'function') return () => {};
     const arr = listeners.get(channel) || [];
