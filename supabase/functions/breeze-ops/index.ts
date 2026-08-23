@@ -10,8 +10,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const TOKEN_SHA256S = new Set([
-  'c3970e0acc98f4ae89230a4328ae102ebdbcdb3189e5910e04a28d21014930d1',
-  '48e5357d7bb3d6e1399ddb4c2d8fb9c2f1a0b71859518d772d58ce258ce6df54',
+  'bd8dec2243730b53df4d5e59d5ba025bfe9c5dd84b22e073cab4c9ebc99f25ba', // current production Netlify token
 ])
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const HINTS = new Set(['macos', 'windows', 'linux', 'mobile'])
