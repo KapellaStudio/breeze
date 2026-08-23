@@ -1,13 +1,12 @@
 # ═══════════════════════════════════════════════════════════════════════════
 # BREEZE — INSTALLER BUILD + RELEASE CANDIDATE PUBLICATION
 #
-# Builds macOS, Windows and Linux installers on GitHub's runners. The canonical
-# release merge to main packages once automatically; future v* tags can package
-# versioned releases, and workflow_dispatch remains available for maintainers.
+# Builds macOS, Windows and Linux installers on GitHub's runners. Main-branch
+# release engineering is self-reporting on PR #1 so packaging remains auditable
+# even when the connected GitHub API cannot enumerate push-triggered runs.
 #
-# Windows/macOS outputs are currently unsigned, so the automatic main-merge
-# publication is explicitly a prerelease. Stable public launch stays gated on
-# platform signing/notarisation rather than hiding those OS trust warnings.
+# Windows/macOS outputs are currently unsigned, so automatic publication is an
+# explicit prerelease. Stable public launch stays gated on signing/notarisation.
 # ═══════════════════════════════════════════════════════════════════════════
 
 name: package
@@ -20,6 +19,12 @@ on:
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -83,6 +88,13 @@ jobs:
         run: |
           shasum -a 256 *.dmg *.zip *.exe *.AppImage *.deb 2>/dev/null || true
 
+      - name: Report platform package result
+        if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze package **${{ matrix.name }}**: **${{ job.status }}** — main \`$GITHUB_SHA\`."
+
   publish-rc:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: build
@@ -111,3 +123,14 @@ jobs:
           else
             gh release create "$tag" release-assets/* --target "$GITHUB_SHA" --title 'Breeze 1.3.0 RC 1' --notes "$notes" --prerelease
           fi
+
+  report:
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [build, publish-rc]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report release pipeline result
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze release pipeline — package matrix: **${{ needs.build.result }}**; prerelease publication: **${{ needs.publish-rc.result }}** — main \`$GITHUB_SHA\`."
