@@ -5,7 +5,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { shell } = require('electron');
+const { shell, dialog } = require('electron');
+const preferences = require('./preferences');
 
 let historyPath = null;
 let downloadsDir = null;
@@ -51,20 +52,44 @@ function wireSession(ses, contextForWebContents){
   wired.add(ses);
   ses.on('will-download', (_event, item, webContents) => {
     const ctx = (contextForWebContents && contextForWebContents(webContents?.id)) || {};
+    const prefs = preferences.get();
     const id = crypto.randomUUID();
     const filename = path.basename(item.getFilename() || 'download');
-    const savePath = uniquePath(filename);
-    item.setSavePath(savePath);
+    const proposedPath = uniquePath(filename);
+    let savePath = proposedPath;
+    if (!prefs.askwhere) item.setSavePath(savePath);
+    else {
+      // Pause before asking so Chromium cannot finish into an implicit default
+      // path while the native save dialog is still open.
+      try { item.pause(); } catch {}
+    }
+    const keepProvenance = prefs.provenance !== false;
     const row = {
       id, filename, path:savePath, url:String(item.getURL() || '').slice(0,4096),
-      source:String(ctx.url || '').slice(0,4096), workspace:String(ctx.workspace || 'default').slice(0,80), private:!!ctx.private,
+      source:keepProvenance?String(ctx.url || '').slice(0,4096):'',
+      workspace:keepProvenance?String(ctx.workspace || 'default').slice(0,80):'', private:!!ctx.private,
       startedAt:Date.now(), total:Number(item.getTotalBytes() || 0), received:Number(item.getReceivedBytes() || 0),
-      state:'progressing', paused:false, mime:String(item.getMimeType?.() || '').slice(0,120)
+      state:prefs.askwhere?'choosing-location':'progressing', paused:!!prefs.askwhere, mime:String(item.getMimeType?.() || '').slice(0,120)
     };
     active.set(id, item); upsert(row);
+
+    if (prefs.askwhere){
+      dialog.showSaveDialog({title:'Save download',defaultPath:proposedPath}).then(result => {
+        if(result.canceled || !result.filePath){
+          try{item.cancel();}catch{}
+          row.state='cancelled';row.paused=false;row.completedAt=Date.now();active.delete(id);upsert(row);return;
+        }
+        savePath=path.resolve(result.filePath);row.path=savePath;item.setSavePath(savePath);row.state='progressing';row.paused=false;upsert(row);
+        try{item.resume();}catch{}
+      }).catch(() => {
+        try{item.cancel();}catch{}
+        row.state='cancelled';row.paused=false;row.completedAt=Date.now();active.delete(id);upsert(row);
+      });
+    }
+
     item.on('updated', (_e, state) => {
       row.received = Number(item.getReceivedBytes() || 0); row.total = Number(item.getTotalBytes() || row.total || 0);
-      row.paused = item.isPaused(); row.state = state === 'interrupted' ? 'interrupted' : 'progressing'; upsert(row);
+      row.paused = item.isPaused(); row.state = state === 'interrupted' ? 'interrupted' : (row.state==='choosing-location'?'choosing-location':'progressing'); upsert(row);
     });
     item.once('done', (_e, state) => {
       row.received = Number(item.getReceivedBytes() || 0); row.total = Number(item.getTotalBytes() || row.total || 0);
