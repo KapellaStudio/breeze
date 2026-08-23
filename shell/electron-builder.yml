@@ -2,7 +2,7 @@
 # BREEZE — PACKAGING
 #
 # Produces installers for macOS, Windows and Linux. Nothing here signs
-# anything: see "SIGNING" at the bottom, and HANDOFF.md §7B.
+# anything: see "SIGNING" at the bottom.
 #
 # Run from shell/ AFTER the root build.py, because ui/breeze-desktop.html is
 # generated and gitignored. `npm run dist` does both in the right order.
@@ -12,9 +12,6 @@ appId: com.kapella.breeze
 productName: Breeze
 copyright: © 2026 Kapella
 
-# Without this the Linux binary is named after the npm package — "breeze-shell"
-# — because executableName defaults to `name`, not `productName`. Users type
-# `breeze`.
 executableName: breeze
 
 directories:
@@ -25,6 +22,8 @@ directories:
 # the directory later; the test harnesses and their fake sites have no business
 # inside a shipped browser.
 files:
+  - bootstrap.js
+  - launch.js
   - main.js
   - preload.js
   - security.js
@@ -45,18 +44,11 @@ files:
   - ui/breeze-desktop.html
   - ui/breeze-mobile.html
 
-# asar is on by default and stays on. main.js resolves the chrome with
-# path.join(__dirname, 'ui', ...) and security.js builds its navigation guard
-# prefix from the same directory, so both resolve inside the archive and the
-# "chrome stays put" guard keeps working. Do not disable this without re-running
-# `npm run breach`.
 asar: true
 asarUnpack:
   - node_modules/ffmpeg-static/**
 
 # ── macOS ────────────────────────────────────────────────────────────────────
-# Both architectures shipped separately rather than as a universal binary:
-# universal doubles the download for every user to save one artifact for us.
 mac:
   category: public.app-category.productivity
   target:
@@ -64,13 +56,7 @@ mac:
       arch: [arm64, x64]
     - target: zip
       arch: [arm64, x64]
-  # Explicitly unsigned. electron-builder will otherwise try to find a
-  # certificate in the keychain and produce a confusing failure on a machine
-  # that has one for something else.
   identity: null
-  # hardenedRuntime requires notarisation to be useful and blocks an unsigned
-  # build from launching at all. Turn this on in the same change that adds a
-  # Developer ID, not before.
   hardenedRuntime: false
 
 dmg:
@@ -83,24 +69,16 @@ win:
       arch: [x64]
 
 nsis:
-  oneClick: false                 # a browser install should be a choice, not a surprise
-  perMachine: false               # per-user install needs no admin prompt
+  oneClick: false
+  perMachine: false
   allowToChangeInstallationDirectory: true
   artifactName: Breeze-Setup-${version}.${ext}
 
 # ── Linux ────────────────────────────────────────────────────────────────────
-# The only target with no signing story at all, which makes it the one that
-# ships cleanly at zero budget.
 linux:
   category: Network
   synopsis: A privacy-first Chromium browser
-  # .deb refuses to build without a maintainer and a homepage. Change the
-  # address if Breeze gets its own domain; until then it lives under Kapella.
   maintainer: Kapella <hello@kapella.studio>
-  # Without this the desktop environment cannot associate a running window with
-  # the .desktop entry — the app shows up as a generic unnamed window in the
-  # dock and alt-tab. `desktopName` itself lives in package.json; only the
-  # sync flag belongs here (electron-builder's schema rejects it otherwise).
   syncDesktopName: true
   target:
     - target: AppImage
@@ -112,18 +90,9 @@ appImage:
   artifactName: Breeze-${version}-${arch}.${ext}
 
 deb:
-  # Without this the package is named after the npm package — breeze-shell.
   artifactName: breeze_${version}_${arch}.${ext}
 
 # ── SIGNING ──────────────────────────────────────────────────────────────────
-# Nothing above is signed, and that is deliberate for now.
-#
-#   Linux   — no signing concept. Ships clean.
-#   Windows — installs, but SmartScreen warns until an OV/EV certificate exists.
-#   macOS   — Gatekeeper BLOCKS an unsigned .dmg. The user must right-click →
-#             Open, or clear the quarantine attribute by hand.
-#
-# HANDOFF.md §6 says a privacy browser that asks users to bypass their OS
-# security warnings has lost the argument. That still holds. These artifacts
-# are for you and for testers; they are not a public download. The launch state
-# is the waitlist until an Apple Developer ID and a Windows certificate exist.
+# Linux ships without a platform signing gate. Windows/macOS RC artifacts are
+# intentionally unsigned/unnotarized and remain test builds until the separate
+# production signing workflow has real credentials.
