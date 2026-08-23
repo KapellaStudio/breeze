@@ -1,0 +1,48 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   BREEZE — SHARED DESIGN TOKENS
+   Single source of truth for breeze-desktop.html and breeze-mobile.html.
+   Neither shell owns these. Edit here once; build.py inlines into both.
+
+   RULE: if a value must differ between desktop and mobile, it belongs in the
+   [data-platform="touch"] block below with a comment saying why — never as a
+   silent override inside a shell. Twelve tokens drifted apart within a single
+   session before this file existed, and the accidental drift was
+   indistinguishable from the deliberate drift. That is the failure this file
+   prevents.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root{
+  color-scheme: light;
+  --bg0:#DFE4EA;--bg1:#F0F3F7;--bg2:rgba(10,15,24,.045);--bg3:rgba(10,15,24,.085);
+  --anchor:#FFFFFF;--line:rgba(10,15,24,.10);--line2:rgba(10,15,24,.065);
+  --tx1:#0A0F18;--tx2:#4A5A6D;--tx3:rgba(10,15,24,.48);
+  --accent:#2563EB;--onAccent:#FFFFFF;--accentTx:var(--accent);
+  --accentSoft:rgba(37,99,235,.10);--accentLine:rgba(37,99,235,.28);
+  --card:#F1F4F7;--ok:#0F9D6E;--warn:#B06908;--bad:#C93B3B;
+  --sh1:0 1px 2px rgba(10,15,24,.04);
+  --sh2:0 1px 2px rgba(10,15,24,.04),0 8px 24px -12px rgba(10,15,24,.10);
+  --sh3:0 2px 4px rgba(10,15,24,.05),0 18px 40px -14px rgba(10,15,24,.18);
+  --sh4:0 2px 6px rgba(10,15,24,.05),0 18px 44px -18px rgba(10,15,24,.28);
+  --shPop:0 8px 16px -6px rgba(10,15,24,.10),0 32px 64px -20px rgba(10,15,24,.30);
+  --wash1:var(--w1);--wash2:var(--w2);--wash3:var(--w3);
+  --w1:rgba(34,211,238,.17);--w2:rgba(126,243,214,.11);--w3:rgba(37,99,235,.10);
+  --tint:color-mix(in srgb,var(--accent) 3.5%,transparent);
+  --paper:#EAEEF2;--paperTx:#12181F;--paperTx2:#54616F;--paperLine:rgba(20,26,34,.12);
+  --r-sm:8px;--r-md:10px;--r-lg:14px;--r-xl:18px;
+  --ease:cubic-bezier(.4,0,.2,1);--spring:cubic-bezier(.19,.72,.28,1);
+  --dTab:30px;--dPad:14px;--dGap:8px;--dItem:12px;--dSide:188px;
+}
+[data-density="compact"]{--dTab:27px;--dPad:11px;--dGap:6px;--dItem:9px;--dSide:172px}
+[data-density="spacious"]{--dTab:35px;--dPad:18px;--dGap:11px;--dItem:15px;--dSide:212px}
+[data-comfort="bright"]{--bg0:#EDF0F4;--bg1:#F9FBFC;--card:#F9FBFC;--paper:#F5F7FA;--line:rgba(10,15,24,.085);--line2:rgba(10,15,24,.055);--tx2:#52657A;--tx3:rgba(10,15,24,.42)}
+[data-comfort="dim"]{--bg0:#D3D9E0;--bg1:#E7EBF0;--card:#E8ECF1;--paper:#E1E6EB;--bg2:rgba(10,15,24,.05);--bg3:rgba(10,15,24,.095);--line:rgba(10,15,24,.115);--line2:rgba(10,15,24,.075);--tx2:#435365;--tx3:rgba(10,15,24,.52);--paperTx:#0E141A;--paperTx2:#4C5865}
+[data-theme="dark"]{color-scheme:dark;--bg0:#06111F;--bg1:#0B1626;--bg2:rgba(159,182,200,.06);--bg3:rgba(159,182,200,.12);--anchor:rgba(255,255,255,.13);--line:rgba(159,182,200,.13);--line2:rgba(159,182,200,.08);--tx1:#FFFFFF;--tx2:#9FB6C8;--tx3:rgba(159,182,200,.55);--accentSoft:rgba(37,99,235,.20);--accentLine:rgba(37,99,235,.45);--card:#0E1B2C;--ok:#34D399;--warn:#FBBF24;--bad:#F87171;--sh1:0 1px 2px rgba(0,0,0,.3);--sh2:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.6);--sh3:0 2px 6px rgba(0,0,0,.4),0 20px 44px -14px rgba(0,0,0,.7);--sh4:0 2px 8px rgba(0,0,0,.4),0 20px 48px -18px rgba(0,0,0,.75);--shPop:0 8px 20px -6px rgba(0,0,0,.5),0 32px 70px -20px rgba(0,0,0,.8);--w1:rgba(34,211,238,.17);--w2:rgba(126,243,214,.08);--w3:rgba(37,99,235,.17);--tint:color-mix(in srgb,var(--accent) 7%,transparent);--paper:#0D1620;--paperTx:#E8EEF4;--paperTx2:#8FA3B5;--paperLine:rgba(232,238,244,.12)}
+[data-accent="cyan"]{--accent:#22D3EE;--onAccent:#06111F;--accentSoft:rgba(34,211,238,.14);--accentLine:rgba(34,211,238,.35);--accentTx:#0A7C97;--w1:rgba(126,243,214,.20);--w2:rgba(34,211,238,.15);--w3:rgba(8,145,178,.12)}
+[data-accent="teal"]{--accent:#0891B2;--onAccent:#FFFFFF;--accentSoft:rgba(8,145,178,.12);--accentLine:rgba(8,145,178,.32);--w1:rgba(34,211,238,.16);--w2:rgba(52,211,153,.09);--w3:rgba(8,145,178,.14)}
+[data-accent="mint"]{--accent:#7EF3D6;--onAccent:#06111F;--accentSoft:rgba(126,243,214,.20);--accentLine:rgba(126,243,214,.45);--accentTx:#0B8F73;--w1:rgba(126,243,214,.22);--w2:rgba(34,211,238,.12);--w3:rgba(52,211,153,.12)}
+[data-theme="dark"][data-accent="cyan"]{--accentTx:#22D3EE;--w1:rgba(126,243,214,.16);--w2:rgba(34,211,238,.16);--w3:rgba(8,145,178,.20)}
+[data-theme="dark"][data-accent="teal"]{--w1:rgba(34,211,238,.14);--w2:rgba(52,211,153,.09);--w3:rgba(8,145,178,.24)}
+[data-theme="dark"][data-accent="mint"]{--accentTx:#7EF3D6;--w1:rgba(126,243,214,.18);--w2:rgba(34,211,238,.11);--w3:rgba(52,211,153,.18)}
+[data-theme="dark"][data-accent="blue"]{--accentTx:#7FB0FF}
+[data-platform="touch"]{--r-sm:9px;--r-md:12px;--r-lg:16px;--r-xl:22px;--safeT:env(safe-area-inset-top,0px);--safeB:env(safe-area-inset-bottom,0px);--safeL:env(safe-area-inset-left,0px);--safeR:env(safe-area-inset-right,0px);--bar:54px;--shBar:0 -1px 0 var(--line),0 -12px 34px -18px rgba(10,15,24,.28);--shSheet:0 -2px 10px -4px rgba(10,15,24,.10),0 -24px 60px -20px rgba(10,15,24,.34)}
+[data-platform="touch"][data-theme="dark"]{--shBar:0 -1px 0 var(--line),0 -12px 34px -18px rgba(0,0,0,.6);--shSheet:0 -2px 10px -4px rgba(0,0,0,.4),0 -24px 60px -20px rgba(0,0,0,.75)}
