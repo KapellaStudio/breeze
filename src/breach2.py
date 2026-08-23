@@ -6,6 +6,14 @@ DESKTOP_URL = (_ROOT / "breeze-desktop.html").as_uri()
 MOBILE_URL  = (_ROOT / "breeze-mobile.html").as_uri()
 P = "<img src=x onerror=\"window.__PWNED=(window.__PWNED||0)+1\">"
 
+PROTO_PAYLOAD = json.dumps('{"__proto__":{"pwned":"yes"},"kind":"x","title":"t","domain":"d","read":"1","trackers":"0","weight":"1","note":"n"}')
+B4_PAYLOAD = json.dumps('\"/><script>window.__PWNED=1<\\/script>')
+B5_PAYLOAD = json.dumps('#fff\"/><script>window.__PWNED=1<\\/script><rect fill=\"')
+B6_PAYLOAD = json.dumps('x\" onmouseover=\"window.__PWNED=1')
+P_PAYLOAD = json.dumps(P)
+SEARCH_PAYLOAD = json.dumps('offline ' + P)
+B10_PAYLOAD = json.dumps('a <mark><img src=x onerror=\"window.__PWNED=1\"></mark> b')
+
 ATTACKS = [
  ("B1 javascript: URL in a page link",
   """const a=document.querySelector('.article a'); a.href='javascript:window.__PWNED=1';
@@ -15,27 +23,27 @@ ATTACKS = [
      a.dispatchEvent(new MouseEvent('mouseenter',{bubbles:true})); 'ran'"""),
  ("B3 prototype pollution via data-lp",
   f"""const a=document.querySelector('a[data-lp]');
-      a.dataset.lp={json.dumps('{"__proto__":{"pwned":"yes"},"kind":"x","title":"t","domain":"d","read":"1","trackers":"0","weight":"1","note":"n"}')};
+      a.dataset.lp={PROTO_PAYLOAD};
       a.dispatchEvent(new MouseEvent('mouseenter',{{bubbles:true}}));
       window.__PROTO=(Object.prototype.pwned==='yes')?1:0; 'ran'"""),
  ("B4 svg/xlink markup smuggled through markHTML fallback letter",
-  f"""const t=flatTabs()[0]; t.mark=null; t.f={json.dumps('\"/><script>window.__PWNED=1<\\/script>')};
+  f"""const t=flatTabs()[0]; t.mark=null; t.f={B4_PAYLOAD};
       root.dataset.tabs='classic'; renderClassic(); renderTabs(); 'ran'"""),
  ("B5 tint attribute break-out in markHTML",
-  f"""const t=flatTabs()[0]; t.mark=null; t.tint={json.dumps('#fff\"/><script>window.__PWNED=1<\\/script><rect fill=\"')};
+  f"""const t=flatTabs()[0]; t.mark=null; t.tint={B5_PAYLOAD};
       renderTabs(); 'ran'"""),
  ("B6 extension id attribute break-out",
-  f"""EXTS[0].id={json.dumps('x\" onmouseover=\"window.__PWNED=1')}; renderExts();
+  f"""EXTS[0].id={B6_PAYLOAD}; renderExts();
       const r=document.querySelector('.extRow'); r&&r.dispatchEvent(new MouseEvent('mouseover',{{bubbles:true}})); 'ran'"""),
  ("B7 workspace name injection into extension scope line",
-  f"""const w=document.querySelector('.wsName'); w.textContent={json.dumps(P)};
+  f"""const w=document.querySelector('.wsName'); w.textContent={P_PAYLOAD};
       renderExts(); 'ran'"""),
  ("B8 oversized query DoS in tab search",
   """renderTabResults('a'.repeat(200000)); 'ran'"""),
  ("B9 search query with markup -> results header",
-  f"""runSearch({json.dumps('offline '+P)}); 'ran'"""),
+  f"""runSearch({SEARCH_PAYLOAD}); 'ran'"""),
  ("B10 snippet marker forgery in search results",
-  f"""SR_DATA[0].snip={json.dumps('a <mark><img src=x onerror=\"window.__PWNED=1\"></mark> b')};
+  f"""SR_DATA[0].snip={B10_PAYLOAD};
       runSearch('x'); 'ran'"""),
 ]
 async def main():
