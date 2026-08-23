@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import base64, gzip, hashlib, io, os, subprocess, tarfile, tempfile
+          import base64, gzip, hashlib, io, subprocess, tarfile
           from pathlib import Path
 
           expected = {
@@ -42,60 +42,76 @@ jobs:
           found={k:[] for k in expected}
           seen=set()
           for c in commits:
-              for path, want in expected.items():
-                  key=(c,path)
+              for path,want in expected.items():
                   try:
                       blob=subprocess.check_output(['git','rev-parse',f'{c}:{path}'],stderr=subprocess.DEVNULL,text=True).strip()
                   except subprocess.CalledProcessError:
                       continue
-                  if (path,blob) in seen: continue
+                  if (path,blob) in seen:
+                      continue
                   seen.add((path,blob))
                   data=subprocess.check_output(['git','cat-file','blob',blob])
-                  got=hashlib.sha256(data.rstrip(b'\n') if path.endswith('.b64') else data).hexdigest()
+                  check=data.rstrip(b'\n') if path.endswith('.b64') else data
+                  got=hashlib.sha256(check).hexdigest()
                   print('HIST_PATH',path,'commit',c[:12],'blob',blob,'bytes',len(data),'sha256',got,'MATCH',got==want)
-                  if got==want: found[path].append((c,blob))
+                  if got==want:
+                      found[path].append((c,blob))
 
-          # Also test tracked site wordmark .b64 files as alternate canonical sources.
           alternates={
             'site/kapella-word-dark.png.b64': ('src/kapella_word_dark.b64','site/kapella-word-dark.png'),
             'site/kapella-word-light.png.b64': ('src/kapella_word_light.b64','site/kapella-word-light.png'),
           }
           for alt,(src_target,png_target) in alternates.items():
-              if not Path(alt).exists(): continue
+              if not Path(alt).exists():
+                  continue
               s=Path(alt).read_text().strip(); raw=base64.b64decode(s)
-              print('ALT',alt,'source_sha',hashlib.sha256(s.encode()).hexdigest(),'source_match',hashlib.sha256(s.encode()).hexdigest()==expected[src_target], 'png_sha',hashlib.sha256(raw).hexdigest(),'png_match',hashlib.sha256(raw).hexdigest()==expected[png_target])
+              source_sha=hashlib.sha256(s.encode()).hexdigest(); png_sha=hashlib.sha256(raw).hexdigest()
+              print('ALT',alt,'source_sha',source_sha,'source_match',source_sha==expected[src_target],'png_sha',png_sha,'png_match',png_sha==expected[png_target])
 
-          # Try every historical state that contains assetsbundle parts as a complete base64(gzip(tar)) bundle.
           bundle_commits=subprocess.check_output(['git','rev-list','--all','--','.sourceparts/assetsbundle.00.part'],text=True).splitlines()
           print('BUNDLE_COMMITS',len(bundle_commits),bundle_commits)
           for c in bundle_commits:
+              names=subprocess.check_output(['git','ls-tree','-r','--name-only',c,'.sourceparts'],text=True).splitlines()
+              parts=sorted(n for n in names if '/assetsbundle.' in n and n.endswith('.part'))
+              if not parts:
+                  continue
+              chunks=[]
+              sizes=[]
+              for p in parts:
+                  b=subprocess.check_output(['git','show',f'{c}:{p}'])
+                  chunks.append(b.decode()); sizes.append((p,len(b)))
+              compact=''.join(''.join(chunks).split())
               try:
-                  names=subprocess.check_output(['git','ls-tree','-r','--name-only',c,'.sourceparts'],text=True).splitlines()
-                  parts=sorted(n for n in names if '/assetsbundle.' in n and n.endswith('.part'))
-                  if not parts: continue
-                  text=''.join(subprocess.check_output(['git','show',f'{c}:{p}'],text=True) for p in parts)
-                  compact=''.join(text.split())
-                  try:
-                      payload=base64.b64decode(compact + '='*((-len(compact))%4),validate=True)
-                      raw=gzip.decompress(payload)
-                  except Exception as e:
-                      print('BUNDLE_BAD',c[:12],'parts',[(p,len(subprocess.check_output(['git','show',f'{c}:{p}']))) for p in parts],repr(e)); continue
-                  print('BUNDLE_OK',c[:12],'compressed',len(payload),'tar_bytes',len(raw))
-                  try:
-                      tf=tarfile.open(fileobj=io.BytesIO(raw),mode='r:')
-                  except Exception as e:
-                      print('TAR_BAD',c[:12],repr(e)); continue
-                  for m in tf.getmembers():
-                      if not m.isfile(): continue
-                      data=tf.extractfile(m).read(); path=m.name
-                      check=data.rstrip(b'\n') if path.endswith('.b64') else data
-                      got=hashlib.sha256(check).hexdigest(); want=expected.get(path)
-                      print('TAR_FILE',c[:12],path,'bytes',len(data),'sha256',got,'MATCH',want==got if want else 'n/a')
-                      if want and got==want: found[path].append((c,'bundle'))
+                  payload=base64.b64decode(compact + '='*((-len(compact))%4),validate=True)
+                  raw=gzip.decompress(payload)
+              except Exception as e:
+                  print('BUNDLE_BAD',c[:12],'parts',sizes,repr(e))
+                  continue
+              print('BUNDLE_OK',c[:12],'compressed',len(payload),'tar_bytes',len(raw))
+              try:
+                  tf=tarfile.open(fileobj=io.BytesIO(raw),mode='r:')
+              except Exception as e:
+                  print('TAR_BAD',c[:12],repr(e))
+                  continue
+              for m in tf.getmembers():
+                  if not m.isfile():
+                      continue
+                  data=tf.extractfile(m).read(); path=m.name
+                  check=data.rstrip(b'\n') if path.endswith('.b64') else data
+                  got=hashlib.sha256(check).hexdigest(); want=expected.get(path)
+                  print('TAR_FILE',c[:12],path,'bytes',len(data),'sha256',got,'MATCH',want==got if want else 'n/a')
+                  if want and got==want:
+                      found[path].append((c,'bundle'))
 
           print('=== EXACT MATCH SUMMARY ===')
           for path in expected:
-              print(path, found[path])
-          missing=[p for p,v in found.items() if not v and p not in ('src/kapella_word_dark.b64','src/kapella_word_light.b64','site/kapella-word-dark.png','site/kapella-word-light.png')]
+              print(path,found[path])
+          missing=[]
+          for p,v in found.items():
+              if v:
+                  continue
+              if p in ('src/kapella_word_dark.b64','src/kapella_word_light.b64','site/kapella-word-dark.png','site/kapella-word-light.png'):
+                  continue
+              missing.append(p)
           print('MISSING_AFTER_HISTORY_SCAN',missing)
           PY
