@@ -25,6 +25,22 @@ function recordVisit({url,title,workspace,privateMode}={}){
   if(top?.url===clean) history[0]={...top,...row}; else history.unshift(row);
   history=history.slice(0,5000); saveHistory(); return row;
 }
+function importHistory(rows=[]){
+  if(!Array.isArray(rows)) return {imported:0,skipped:0};
+  const byUrl=new Map(history.map(r=>[r.url,r]));
+  let imported=0, skipped=0;
+  for(const src of rows.slice(0,5000)){
+    const clean=safeUrl(src?.url); if(!clean){skipped++;continue;}
+    const when=Number(src?.visitedAt); const visitedAt=Number.isFinite(when)&&when>0?when:Date.now();
+    const existing=byUrl.get(clean);
+    if(existing && Number(existing.visitedAt||0)>=visitedAt){skipped++;continue;}
+    const row={id:existing?.id||crypto.randomUUID(),url:clean,title:String(src?.title||existing?.title||'').slice(0,300),workspace:String(src?.workspace||existing?.workspace||'Imported').slice(0,80),visitedAt};
+    byUrl.set(clean,row); imported++;
+  }
+  history=[...byUrl.values()].sort((a,b)=>Number(b.visitedAt||0)-Number(a.visitedAt||0)).slice(0,5000);
+  if(imported) saveHistory();
+  return {imported,skipped};
+}
 function listHistory(q=''){
   const needle=String(q||'').trim().toLowerCase();
   return history.filter(r=>!needle||r.title.toLowerCase().includes(needle)||r.url.toLowerCase().includes(needle)).slice(0,500);
@@ -45,4 +61,4 @@ function listBookmarks(q=''){
   return bookmarks.filter(r=>!needle||r.title.toLowerCase().includes(needle)||r.url.toLowerCase().includes(needle)).slice(0,500);
 }
 function isBookmarked(url){ const clean=safeUrl(url); return !!clean&&bookmarks.some(b=>b.url===clean); }
-module.exports={init,recordVisit,listHistory,clearHistory,addBookmark,removeBookmark,listBookmarks,isBookmarked,safeUrl};
+module.exports={init,recordVisit,importHistory,listHistory,clearHistory,addBookmark,removeBookmark,listBookmarks,isBookmarked,safeUrl};
