@@ -72,7 +72,7 @@ jobs:
 
       - name: Syntax check shell and functions
         run: |
-          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js; do
+          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js; do
             node --check "$f"
           done
 
@@ -105,7 +105,7 @@ jobs:
         working-directory: shell
         run: npm install --no-audit --no-fund
 
-      - name: Shell — smoke, breach, integration, search
+      - name: Shell — smoke, breach, integration, search, launch/migration
         working-directory: shell
         run: |
           xvfb-run -a npx electron . --smoke-test --no-sandbox
@@ -115,6 +115,7 @@ jobs:
           npm run mediatest
           npm run browsercoretest
           npm run documenttest
+          npm run launchtest
 
       - name: Finalize verified reconstructed source
         if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('.sourceparts/manifest') != '' }}
