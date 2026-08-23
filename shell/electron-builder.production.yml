@@ -1,0 +1,94 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# BREEZE — SIGNED PRODUCTION PACKAGING
+#
+# This config is intentionally separate from electron-builder.yml. The latter
+# remains the unsigned RC/test lane. Production builds MUST fail rather than
+# silently emit an unsigned Windows/macOS artifact.
+# ═══════════════════════════════════════════════════════════════════════════
+
+appId: com.kapella.breeze
+productName: Breeze
+copyright: © 2026 Kapella
+executableName: breeze
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - main.js
+  - preload.js
+  - security.js
+  - search.js
+  - media.js
+  - extensions.js
+  - downloads.js
+  - state.js
+  - permissions.js
+  - library.js
+  - display.js
+  - documents.js
+  - pdf-preload.js
+  - ui/pdf-viewer.html
+  - ui/pdf-viewer.css
+  - ui/pdf-viewer.js
+  - package.json
+  - ui/breeze-desktop.html
+  - ui/breeze-mobile.html
+
+asar: true
+asarUnpack:
+  - node_modules/ffmpeg-static/**
+
+# ── macOS production ────────────────────────────────────────────────────────
+# CSC_LINK / CSC_KEY_PASSWORD must resolve to a Developer ID Application
+# certificate. APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER provide
+# App Store Connect API-key notarization credentials.
+mac:
+  category: public.app-category.productivity
+  forceCodeSigning: true
+  hardenedRuntime: true
+  notarize: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+
+dmg:
+  artifactName: Breeze-${version}-${arch}.${ext}
+
+# ── Windows production ──────────────────────────────────────────────────────
+# WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD are discovered by electron-builder.
+# forceCodeSigning prevents an unsigned installer from entering this lane.
+win:
+  forceCodeSigning: true
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Breeze-Setup-${version}.${ext}
+
+# ── Linux production ────────────────────────────────────────────────────────
+linux:
+  category: Network
+  synopsis: A privacy-first Chromium browser
+  maintainer: Kapella <hello@kapella.studio>
+  syncDesktopName: true
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+
+appImage:
+  artifactName: Breeze-${version}-${arch}.${ext}
+
+deb:
+  artifactName: breeze_${version}_${arch}.${ext}
