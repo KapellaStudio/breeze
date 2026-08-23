@@ -59,20 +59,24 @@ jobs:
       - name: Build
         run: python3 build.py
 
-      - name: Syntax check both shells
+      - name: Syntax check every generated shell script
         run: |
+          rm -rf /tmp/breeze-generated-js && mkdir -p /tmp/breeze-generated-js
           python3 - <<'PY'
-          import re
+          import pathlib, re
+          out=pathlib.Path('/tmp/breeze-generated-js')
           for f in ['breeze-desktop.html','breeze-mobile.html']:
-              s = open(f).read()
-              open('/tmp/'+f+'.js','w').write(re.findall(r'<script>(.*?)</script>', s, re.S)[-1])
+              scripts=re.findall(r'<script[^>]*>(.*?)</script>', pathlib.Path(f).read_text(encoding='utf-8'), re.S)
+              if not scripts:
+                  raise SystemExit(f'no scripts found in {f}')
+              for i,script in enumerate(scripts):
+                  (out/f'{f}.{i}.js').write_text(script,encoding='utf-8')
           PY
-          node --check /tmp/breeze-desktop.html.js
-          node --check /tmp/breeze-mobile.html.js
+          for f in /tmp/breeze-generated-js/*.js; do node --check "$f"; done
 
       - name: Syntax check shell and functions
         run: |
-          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js; do
+          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js src/breeze-product.js; do
             node --check "$f"
           done
 
@@ -105,7 +109,7 @@ jobs:
         working-directory: shell
         run: npm install --no-audit --no-fund
 
-      - name: Shell — smoke, breach, integration, search, launch/migration
+      - name: Shell — smoke, breach, integration, search, launch and product state
         working-directory: shell
         run: |
           xvfb-run -a npx electron . --smoke-test --no-sandbox
@@ -116,6 +120,7 @@ jobs:
           npm run browsercoretest
           npm run documenttest
           npm run launchtest
+          npm run producttest
 
       - name: Finalize verified reconstructed source
         if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('.sourceparts/manifest') != '' }}
