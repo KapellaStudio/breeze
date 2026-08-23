@@ -24,22 +24,27 @@ product; edit `src/` and run `python3 build.py`.
 - compatible unpacked-extension management
 - sandboxed Breeze PDF Workspace + Comfort Reading + local document actions
 - separate mobile interaction architecture/prototype
-- Netlify download/release/waitlist site and functions
+- Netlify-ready download/release/waitlist site and functions
 - Supabase release/waitlist backend with RLS and narrow Breeze Ops seam
 - cross-platform Windows/macOS/Linux packaging
 - browser-chrome security, desktop/mobile regression, Electron shell, media,
   browser-core, search and PDF document gates
 
-## Live infrastructure
+## Infrastructure state
 
-- GitHub repository: `KapellaStudio/breeze` (public)
+- GitHub repository: `KapellaStudio/breeze` (public) — canonical and active
 - Supabase project: Breeze (`iyyuxzfjkrtqqixqzsrr`) — healthy
 - Breeze Ops Edge Function: active; privileged surface is limited to waitlist
   insert and aggregate download counting
-- Netlify project: `kapella-breeze` — Git-backed and deploying from `main`
-- Netlify functions use only the Supabase URL + publishable key for reads
-- Netlify holds only a Breeze-specific write token as a function secret; no
-  Supabase service-role/admin key is sent to Netlify
+- Netlify project: `kapella-breeze` exists and the required Breeze/Supabase
+  environment variables have been configured
+- Netlify production deployment is **not complete**: external production smoke
+  tests return HTTP 404 for both the production alias and the deploy-specific URL
+- The Netlify connector available to this release session can manage the project
+  and environment but cannot link a Git repository or upload a local deploy
+  without a Netlify CLI/PAT path. The project must be connected to
+  `KapellaStudio/breeze` (production branch `main`) or receive an authenticated
+  production deploy before Netlify may be called live.
 
 ## Published release candidate
 
@@ -57,22 +62,28 @@ The successful release matrix produced and published:
 
 The four canonical platform downloads are registered in Supabase as published
 `beta` rows with the exact final byte size and SHA-256 from the release manifest.
-The Netlify release page explicitly queries the beta channel and labels these
-files as release-candidate downloads; the backend default remains `stable` for
-the eventual signed production channel.
+The Netlify release page source explicitly queries the beta channel and labels
+these files as release-candidate downloads; the backend default remains `stable`
+for the eventual signed production channel.
 
-## Public launch gate
+## Public launch gates
 
+### Hosting gate
+Connect/deploy the existing `kapella-breeze` Netlify project from
+`KapellaStudio/breeze` `main`, then require `production-smoke.yml` to pass the
+live site, `/api/health`, beta release API, and download redirect checks.
+
+### Stable desktop signing gate
 Windows and macOS code signing/notarization remain external credential/account
 work. RC downloads are intentionally labeled unsigned/unnotarized and may trigger
 SmartScreen/Gatekeeper warnings. They must not be reclassified as a stable public
 release until production signing is configured. Linux does not have the same
 platform-signing gate.
 
-Breeze is no longer preview-only: canonical source, backend, repo-backed hosting,
-CI-built desktop packages, checksums, release metadata, and beta download routing
-are all in place. The remaining gate for an unqualified stable desktop launch is
-Windows/macOS signing/notarization plus final signed-build regression.
+Breeze is past the source/CI/package phase: canonical source, backend, CI-built
+desktop packages, checksums, release metadata and Supabase beta rows are in
+place. The remaining launch work is the real Netlify production deploy followed
+by Windows/macOS signing/notarization and final signed-build regression.
 
 ## Engine milestone after Breeze 19
 
