@@ -19,9 +19,13 @@ const call = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
    IPC channels, only the handful the UI genuinely renders. */
 const EVENTS = ['tab:update','tab:loading','tab:closed','tab:favicon','tab:error','win:state','download:update','download:refresh','permission:request','display:request'];
 const listeners = new Map();
+let activeWorkspace = { workspaceId:'default', sealed:false };
 
 EVENTS.forEach(ch => {
   ipcRenderer.on(ch, (_e, payload) => {
+    if(ch==='tab:update' && payload?.active && !payload.private){
+      activeWorkspace={workspaceId:String(payload.workspace||'default'),sealed:!!payload.sealed};
+    }
     (listeners.get(ch) || []).forEach(fn => { try { fn(payload); } catch {} });
   });
 });
@@ -49,8 +53,16 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   setPreferences: patch => call('prefs:setMany', patch || {}),
   resetPreferences: () => call('prefs:reset'),
 
-  /* tabs */
-  newTab:    opts => call('tab:create', opts || {}),
+  /* persistent workspaces */
+  listWorkspaces: () => call('workspace:list'),
+  getWorkspace: id => call('workspace:get', id),
+  createWorkspace: opts => call('workspace:create', opts || {}),
+  updateWorkspace: (id,patch) => call('workspace:update', id, patch || {}),
+  removeWorkspace: id => call('workspace:remove', id),
+
+  /* tabs. A plain New Tab inherits the active non-private workspace so the
+     workspace boundary is not silently lost through a keyboard/menu action. */
+  newTab: opts => call('tab:create', { ...activeWorkspace, ...(opts || {}) }),
   newPrivateTab: opts => call('tab:createPrivate', opts || {}),
   reopenClosedTab: () => call('tab:reopenClosed'),
   openPdf: () => call('document:openPdf'),
@@ -71,11 +83,7 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   reportGeometry: g => call('chrome:geometry', g),
   setInternalView: on => call('chrome:internalView', !!on),
 
-  /* search
-     searchConfig() reports whether each provider is READY, never what it was
-     configured with. There is deliberately no getKey — a chrome XSS reading a
-     key back out of the settings pane would be a real breach, and no part of
-     the UI needs the value to render a filled-in state. */
+  /* search */
   setEngine:    name => call('engine:set', name),
   listEngines:  ()   => call('engine:list'),
   searchConfig: ()   => call('search:config'),
@@ -130,7 +138,7 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   removeBookmark: key => call('bookmark:remove', key),
   toggleBookmark: id => call('bookmark:toggle', id),
 
-  /* window controls — what the toolbar buttons have been waiting for */
+  /* window controls */
   minimize:         () => call('win:minimize'),
   toggleMaximize:   () => call('win:toggleMaximize'),
   isMaximized:      () => call('win:isMaximized'),
