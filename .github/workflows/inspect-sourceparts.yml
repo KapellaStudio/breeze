@@ -29,13 +29,14 @@ jobs:
               raw=base64.b64decode(s)
               print('TRACKED', name, 'text_bytes=', len(s), 'text_sha256=', hashlib.sha256(s.encode()).hexdigest(), 'png_bytes=',len(raw),'png_sha256=',hashlib.sha256(raw).hexdigest())
 
-          # main contributes this repository-resident partial canonical Breeze 19 ZIP to the PR merge checkout.
           p=Path('.bootstrap/part00.b64')
           if not p.exists():
               print('NO_BOOTSTRAP')
               raise SystemExit(0)
-          raw=base64.b64decode(''.join(p.read_text().split()) + '===')
-          print('BOOTSTRAP_BYTES', len(raw), hashlib.sha256(raw).hexdigest())
+          compact=''.join(p.read_text().split())
+          usable=len(compact)-(len(compact)%4)
+          raw=base64.b64decode(compact[:usable], validate=True)
+          print('BOOTSTRAP_CHARS',len(compact),'USABLE',usable,'BOOTSTRAP_BYTES', len(raw), hashlib.sha256(raw).hexdigest())
           off=0
           while off+30 <= len(raw) and raw[off:off+4] == b'PK\x03\x04':
               sig,ver,flags,method,mtime,mdate,crc,csize,usize,nlen,xlen=struct.unpack_from('<IHHHHHIIIHH', raw, off)
@@ -48,8 +49,8 @@ jobs:
               if method==0:
                   out=chunk
               elif method==8:
+                  d=zlib.decompressobj(-15)
                   try:
-                      d=zlib.decompressobj(-15)
                       out=d.decompress(chunk)
                   except Exception as e:
                       print('INFLATE_ERROR', name, repr(e))
@@ -58,7 +59,7 @@ jobs:
                   if name.endswith('.html'):
                       text=out.decode('utf-8','ignore')
                       print('HTML_HEAD', repr(text[:500]))
-                      # Identify complete PNG base64 strings already present in the recovered prefix.
+                      print('HTML_TAIL', repr(text[-500:]))
                       for i,m in enumerate(re.finditer(r'iVBORw0KGgo[0-9A-Za-z+/=]{80,}', text)):
                           s=m.group(0)
                           try: png=base64.b64decode(s + '===')
@@ -68,7 +69,6 @@ jobs:
                   break
               off=data_start+csize
               if flags & 0x08:
-                  # data descriptor may be 12 or 16 bytes; canonical zip uses normal headers here, so stop rather than guessing.
                   print('DATA_DESCRIPTOR_FLAG', name)
                   break
           PY
