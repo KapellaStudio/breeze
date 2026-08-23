@@ -51,28 +51,32 @@ jobs:
 
       - name: Restore canonical brand assets
         run: |
-          cat .sourceparts/assetsbundle.00.part \
-              .sourceparts/assetsbundle.01.part \
-              .sourceparts/assetsbundle.02.part \
-              .sourceparts/assetsbundle.03.part \
-              .sourceparts/assetsbundle.04.part \
-              .sourceparts/assetsbundle.05.part > /tmp/breeze-assets.b64
-          base64 -d /tmp/breeze-assets.b64 | gzip -d > /tmp/breeze-assets.tar
-          echo "Staged brand archive contents:"
-          tar -tf /tmp/breeze-assets.tar
-          tar -xf /tmp/breeze-assets.tar -C .
+          python3 - <<'PY'
+          import re, hashlib, pathlib, sys
 
-          mkdir -p src site
-          if [ ! -f src/logo.b64 ] && [ -f site/breeze-mark.png ]; then base64 -w0 site/breeze-mark.png > src/logo.b64; fi
-          if [ ! -f src/kapella_mark.b64 ] && [ -f site/kapella-mark.png ]; then base64 -w0 site/kapella-mark.png > src/kapella_mark.b64; fi
-          if [ ! -f src/kapella_word_dark.b64 ] && [ -f site/kapella-word-dark.png ]; then base64 -w0 site/kapella-word-dark.png > src/kapella_word_dark.b64; fi
-          if [ ! -f src/kapella_word_light.b64 ] && [ -f site/kapella-word-light.png ]; then base64 -w0 site/kapella-word-light.png > src/kapella_word_light.b64; fi
-
-          printf '%s  %s\n' \
-            c7dfe71d20cd0ee3e835d82bd7d04f44e1495c821e9a3afab6fed0ad1497d1b4 src/logo.b64 \
-            7dc14b34323527431aa79fa468cbe2e674fa33c85e54bd5c338f9b0d3f50d6b3 src/kapella_mark.b64 \
-            c61c419cf5c0c1bdb067e91893f2b41739fc48db4c24bfa8540f7d670b3f4b04 src/kapella_word_dark.b64 \
-            be357931787cf008ab5f19ca3a95b93088bc5749888d7fa54bae9c3d684be774 src/kapella_word_light.b64 | sha256sum -c -
+          html = pathlib.Path('breeze-desktop.html').read_text()
+          assets = re.findall(r'data:image/png;base64,([A-Za-z0-9+/=]+)', html)
+          expected = {
+              'src/logo.b64': 'c7dfe71d20cd0ee3e835d82bd7d04f44e1495c821e9a3afab6fed0ad1497d1b4',
+              'src/kapella_mark.b64': '7dc14b34323527431aa79fa468cbe2e674fa33c85e54bd5c338f9b0d3f50d6b3',
+              'src/kapella_word_light.b64': 'be357931787cf008ab5f19ca3a95b93088bc5749888d7fa54bae9c3d684be774',
+              'src/kapella_word_dark.b64': 'c61c419cf5c0c1bdb067e91893f2b41739fc48db4c24bfa8540f7d670b3f4b04',
+          }
+          by_hash = {hashlib.sha256(v.encode()).hexdigest(): v for v in assets}
+          if len(assets) != 4:
+              raise SystemExit(f'Expected exactly 4 embedded PNG assets, found {len(assets)}')
+          for path, digest in expected.items():
+              value = by_hash.get(digest)
+              if value is None:
+                  raise SystemExit(f'Canonical asset missing from verified desktop HTML: {path}')
+              p = pathlib.Path(path)
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_text(value)
+              actual = hashlib.sha256(value.encode()).hexdigest()
+              if actual != digest:
+                  raise SystemExit(f'Asset hash mismatch for {path}')
+              print('restored', path, digest)
+          PY
 
       - name: Install Playwright
         run: pip install playwright && playwright install --with-deps chromium
@@ -93,7 +97,9 @@ jobs:
 
       - name: Syntax check shell and functions
         run: |
-          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js; do node --check "$f"; done
+          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js; do
+            node --check "$f"
+          done
 
       - name: Regression — desktop 1440/1180/1024
         run: python3 src/regress.py
