@@ -1,0 +1,94 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# BREEZE — INSTALLER BUILD
+#
+# Builds macOS, Windows and Linux installers on GitHub's runners, so nobody
+# has to own a Mac or a Windows licence to ship. On a PUBLIC repository these
+# runners are free and unmetered. On a private repo the Free plan gives 2,000
+# Linux-equivalent minutes a month and macOS burns them at 10x, which is
+# roughly a dozen Mac builds — workable, but public is the free path.
+#
+# Nothing here is signed. See HANDOFF.md §7B before pointing anyone at the
+# output. These artifacts are for you and for testers.
+#
+# Run it: Actions tab → "package" → Run workflow. Or push a v* tag.
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: package
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    strategy:
+      # One platform failing should not delete the artifacts of the two that
+      # worked — you still want the Linux build when notarisation-free macOS
+      # packaging breaks.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+            args: --linux
+          - os: windows-latest
+            name: windows
+            args: --win
+          - os: macos-latest
+            name: macos
+            args: --mac
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      # ui/breeze-desktop.html is generated and gitignored. Without this the
+      # installer packages an app with no interface — it builds fine, launches
+      # to a blank window, and you find out by hand. Ask how we know.
+      - name: Build the UI
+        run: python3 build.py
+
+      - name: Install shell dependencies
+        working-directory: shell
+        run: npm install --no-audit --no-fund
+
+      - name: Package
+        working-directory: shell
+        # CSC_IDENTITY_AUTO_DISCOVERY=false stops electron-builder hunting the
+        # runner keychain for a certificate that is not there.
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder ${{ matrix.args }} --publish never
+
+      - name: Collect installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: breeze-${{ matrix.name }}
+          retention-days: 14
+          path: |
+            shell/dist/*.dmg
+            shell/dist/*.zip
+            shell/dist/*.exe
+            shell/dist/*.AppImage
+            shell/dist/*.deb
+
+      # Publishing the checksum matters more than usual here: an unsigned
+      # installer gives the user nothing else to verify against. DEPLOY.md §3
+      # already says to publish the SHA-256 alongside every release.
+      - name: Checksums
+        working-directory: shell/dist
+        run: |
+          shasum -a 256 *.dmg *.zip *.exe *.AppImage *.deb 2>/dev/null || true
