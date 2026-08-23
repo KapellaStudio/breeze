@@ -112,10 +112,32 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Build release checksum manifest
+      - name: Build release manifests
         run: |
           cd release-assets
           sha256sum * > SHA256SUMS.txt
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          root = pathlib.Path('.')
+          files = []
+          for p in sorted(root.iterdir()):
+              if not p.is_file() or p.name in {'SHA256SUMS.txt', 'release-manifest.json'}:
+                  continue
+              h = hashlib.sha256()
+              with p.open('rb') as f:
+                  for chunk in iter(lambda: f.read(1 << 20), b''):
+                      h.update(chunk)
+              files.append({'name': p.name, 'size': p.stat().st_size, 'sha256': h.hexdigest()})
+          manifest = {
+              'version': '1.3.0',
+              'tag': 'v1.3.0-rc.1',
+              'channel': 'beta',
+              'source_sha': '${{ github.sha }}',
+              'files': files,
+          }
+          pathlib.Path('release-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(manifest, indent=2))
+          PY
           cat SHA256SUMS.txt
 
       - name: Publish Breeze 1.3.0 RC
@@ -124,11 +146,17 @@ jobs:
         run: |
           tag='v1.3.0-rc.1'
           notes='Breeze 1.3.0 release candidate. Linux, Windows and macOS desktop packages built directly from the canonical KapellaStudio/breeze main branch. Windows and macOS packages are not yet production code-signed/notarised; verify SHA256SUMS.txt before testing.'
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" release-assets/* --clobber
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$tag" release-assets/* --target "$GITHUB_SHA" --title 'Breeze 1.3.0 RC 1' --notes "$notes" --prerelease
+            gh release create "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Breeze 1.3.0 RC 1' --notes "$notes" --prerelease
           fi
+
+      - name: Report prerelease publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze prerelease **v1.3.0-rc.1 published** — run \`${{ github.run_id }}\`, source \`$GITHUB_SHA\`. Release assets include \`SHA256SUMS.txt\` and \`release-manifest.json\`."
 
   report:
     if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
