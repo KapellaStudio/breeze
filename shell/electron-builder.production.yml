@@ -18,6 +18,8 @@ directories:
 files:
   - bootstrap.js
   - launch.js
+  - preferences.js
+  - workspaces.js
   - main.js
   - preload.js
   - security.js
