@@ -31,6 +31,18 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   isShell: true,
   version: () => call('app:version'),
 
+  /* first run / move to Breeze */
+  firstRunStatus: () => call('launch:status'),
+  completeFirstRun: () => call('launch:complete'),
+  resetFirstRun: () => call('launch:reset'),
+  detectImportSources: () => call('launch:sources'),
+  importBrowserData: (browser, options) => call('launch:importBrowser', browser, options || {}),
+  importBookmarksFile: () => call('launch:importBookmarksHtml'),
+  exportBookmarksFile: () => call('launch:exportBookmarksHtml'),
+  defaultBrowserStatus: () => call('launch:defaultStatus'),
+  requestDefaultBrowser: () => call('launch:requestDefault'),
+  openDefaultBrowserSettings: () => call('launch:openDefaultSettings'),
+
   /* tabs */
   newTab:    opts => call('tab:create', opts || {}),
   newPrivateTab: opts => call('tab:createPrivate', opts || {}),
