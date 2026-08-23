@@ -1,24 +1,30 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# BREEZE — INSTALLER BUILD + RELEASE CANDIDATE PUBLICATION
+# BREEZE — UNSIGNED PACKAGE TEST + RELEASE-CANDIDATE PUBLICATION
 #
-# Builds macOS, Windows and Linux installers on GitHub's runners. Main-branch
-# release engineering is self-reporting on PR #1 so packaging remains auditable
-# even when the connected GitHub API cannot enumerate push-triggered runs.
-#
-# Windows/macOS outputs are currently unsigned, so automatic publication is an
-# explicit prerelease. Stable public launch stays gated on signing/notarisation.
+# Main-branch source changes exercise the unsigned package matrix. Publishing
+# RC bytes is explicit: workflow_dispatch(publish_rc=true) or an RC tag push.
+# Stable tags are handled only by stable-release.yml so an unsigned build can
+# never become the stable release lane by accident.
 # ═══════════════════════════════════════════════════════════════════════════
 
 name: package
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_rc:
+        description: 'Publish/update v1.3.0-rc.1 after the matrix passes'
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ['v*-rc.*']
     paths:
       - 'src/**'
       - 'shell/**'
+      - '!shell/electron-builder.production.yml'
+      - '!shell/build/entitlements.mac.plist'
       - 'build.py'
       - 'package.json'
       - '.github/workflows/package.yml'
@@ -71,7 +77,7 @@ jobs:
         working-directory: shell
         run: npm install --no-audit --no-fund
 
-      - name: Package
+      - name: Package unsigned test build
         working-directory: shell
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -102,7 +108,7 @@ jobs:
           gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze package **${{ matrix.name }}**: **${{ job.status }}** — run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
 
   publish-rc:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_rc == true) || startsWith(github.ref, 'refs/tags/') }}
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -145,7 +151,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag='v1.3.0-rc.1'
-          notes='Breeze 1.3.0 release candidate. Linux, Windows and macOS desktop packages built directly from the canonical KapellaStudio/breeze main branch. Windows and macOS packages are not yet production code-signed/notarised; verify SHA256SUMS.txt before testing.'
+          notes='Breeze 1.3.0 release candidate. Linux, Windows and macOS desktop packages built directly from the canonical KapellaStudio/breeze source. Windows and macOS packages are not yet production code-signed/notarised; verify SHA256SUMS.txt before testing.'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
           else
@@ -163,8 +169,8 @@ jobs:
     needs: [build, publish-rc]
     runs-on: ubuntu-latest
     steps:
-      - name: Report release pipeline result
+      - name: Report package-test result
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze release pipeline — package matrix: **${{ needs.build.result }}**; prerelease publication: **${{ needs.publish-rc.result }}** — run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
+          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze package test — matrix: **${{ needs.build.result }}**; RC publication: **${{ needs.publish-rc.result }}** — run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
