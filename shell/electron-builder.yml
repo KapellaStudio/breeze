@@ -1,31 +1,21 @@
 # ═══════════════════════════════════════════════════════════════════════════
 # BREEZE — PACKAGING
-#
-# Produces installers for macOS, Windows and Linux. Nothing here signs
-# anything: see "SIGNING" at the bottom.
-#
-# Run from shell/ AFTER the root build.py, because ui/breeze-desktop.html is
-# generated and gitignored. `npm run dist` does both in the right order.
 # ═══════════════════════════════════════════════════════════════════════════
-
 appId: com.kapella.breeze
 productName: Breeze
 copyright: © 2026 Kapella
-
 executableName: breeze
 
 directories:
   output: dist
   buildResources: build
 
-# Allowlist, not a denylist. A denylist silently ships whatever gets added to
-# the directory later; the test harnesses and their fake sites have no business
-# inside a shipped browser.
 files:
   - bootstrap.js
   - launch.js
   - preferences.js
   - workspaces.js
+  - workspace-data.js
   - main.js
   - preload.js
   - security.js
@@ -50,7 +40,6 @@ asar: true
 asarUnpack:
   - node_modules/ffmpeg-static/**
 
-# ── macOS ────────────────────────────────────────────────────────────────────
 mac:
   category: public.app-category.productivity
   target:
@@ -64,19 +53,16 @@ mac:
 dmg:
   artifactName: Breeze-${version}-${arch}.${ext}
 
-# ── Windows ──────────────────────────────────────────────────────────────────
 win:
   target:
     - target: nsis
       arch: [x64]
-
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
   artifactName: Breeze-Setup-${version}.${ext}
 
-# ── Linux ────────────────────────────────────────────────────────────────────
 linux:
   category: Network
   synopsis: A privacy-first Chromium browser
@@ -87,14 +73,10 @@ linux:
       arch: [x64]
     - target: deb
       arch: [x64]
-
 appImage:
   artifactName: Breeze-${version}-${arch}.${ext}
-
 deb:
   artifactName: breeze_${version}_${arch}.${ext}
 
-# ── SIGNING ──────────────────────────────────────────────────────────────────
-# Linux ships without a platform signing gate. Windows/macOS RC artifacts are
-# intentionally unsigned/unnotarized and remain test builds until the separate
-# production signing workflow has real credentials.
+# Windows/macOS outputs in this lane are intentionally unsigned test/RC builds.
+# The separate production config hard-fails unless real signing is available.
