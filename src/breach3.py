@@ -5,11 +5,12 @@ _ROOT = pathlib.Path(os.environ.get("BREEZE_BUILD_DIR") or pathlib.Path(__file__
 DESKTOP_URL = (_ROOT / "breeze-desktop.html").as_uri()
 MOBILE_URL  = (_ROOT / "breeze-mobile.html").as_uri()
 P = "<img src=x onerror=\"window.__PWNED=(window.__PWNED||0)+1\">"
+SVG_BREAKOUT = 'M0 0\\\"/><script>window.__PWNED=1<\\/script><path d=\\\"'
 ATTACKS = [
  ("C1 app menu item label -> renderAppMenu",
   f"""APP_MENU[0].t={json.dumps('Evil '+P)}; renderAppMenu(); 'ran'"""),
  ("C2 app menu icon path -> svgIcon attribute breakout",
-  f"""AM_ICON.tab={json.dumps('M0 0\\\"/><script>window.__PWNED=1<\\/script><path d=\\\"')}; renderAppMenu(); 'ran'"""),
+  "AM_ICON.tab=" + json.dumps(SVG_BREAKOUT) + "; renderAppMenu(); 'ran'"),
  ("C3 history entry label -> renderHistory",
   f"""pushHistory({{view:'browse',kind:'page',host:'h',label:{json.dumps('H '+P)}}});
       renderHistory(); openPanel('history'); 'ran'"""),
