@@ -16,8 +16,6 @@ OUT  = pathlib.Path(os.environ.get('BREEZE_OUT', ROOT))
 COPY_TO = [ROOT / 'site' / 'preview', ROOT / 'shell' / 'ui']
 TOKEN_COPY = ROOT / 'site' / 'tokens.css'
 
-# Build output must be byte-equivalent across Linux, macOS and Windows. Never
-# depend on the host's locale/default text codec (Windows commonly uses cp1252).
 def _read(path):
     return path.read_text(encoding='utf-8')
 
@@ -29,11 +27,8 @@ core    = _read(SRC / 'breeze-core.js')
 adapter = _read(SRC / 'breeze-shell-adapter.js')
 launch  = _read(SRC / 'breeze-launch.js')
 product = _read(SRC / 'breeze-product.js')
+context = _read(SRC / 'breeze-context.js')
 
-# Breeze 19 keeps its browser mark as the Kapella-owned vector master in src/.
-# Kapella wordmarks are tracked as base64 PNG source files under site/ so the
-# public site and standalone browser builds share the exact same brand bytes.
-# No transparent/bootstrap brand fallback is allowed in a release build.
 def _b64_text(*paths):
     for path in paths:
         p = ROOT / path
@@ -47,10 +42,6 @@ breeze_svg = (SRC / 'breeze-mark.svg').read_bytes()
 logo_svg_b64 = base64.b64encode(breeze_svg).decode('ascii')
 kapella_dark = _b64_text('src/kapella_word_dark.b64', 'site/kapella-word-dark.png.b64')
 kapella_light = _b64_text('src/kapella_word_light.b64', 'site/kapella-word-light.png.b64')
-
-# The legacy __KMARK__ slot is retained for source-template compatibility. In
-# Breeze 19 it resolves to the current Kapella dark wordmark rather than a
-# missing raster mark. This keeps every release build branded and self-contained.
 ASSETS = {
     '__KMARK__':     kapella_dark,
     '__KWORD_L__':   kapella_light,
@@ -68,16 +59,12 @@ for name in SHELLS:
     html = html.replace('__TOKENS__', tokens)
     html = html.replace('__CORE__', core)
     html = html.replace('__ADAPTER__', adapter if name == 'breeze-desktop.html' else '')
-    # Packaged-only UI modules are injected after the design prototype scripts.
-    # They no-op outside Electron because the trusted shell bridge is absent.
     if name == 'breeze-desktop.html':
         if '</body>' not in html:
             print(f'  !! {name}: missing </body> for desktop module injection'); fail = True
         else:
-            modules = '<script>\n' + launch + '\n</script>\n<script>\n' + product + '\n</script>\n'
+            modules = ''.join('<script>\n' + module + '\n</script>\n' for module in (launch, product, context))
             html = html.replace('</body>', modules + '</body>', 1)
-    # Existing templates wrap __LOGO__ in an image/png data URI. Replace the
-    # complete URI first so the canonical SVG is served with the correct MIME.
     html = html.replace('data:image/png;base64,__LOGO__', 'data:image/svg+xml;base64,' + logo_svg_b64)
     html = html.replace('__LOGO__', logo_svg_b64)
     for marker, data in ASSETS.items():
