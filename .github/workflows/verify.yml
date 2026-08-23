@@ -49,6 +49,55 @@ jobs:
             fi
           done < .sourceparts/manifest
 
+      - name: Inspect staged release asset payloads
+        if: ${{ hashFiles('.sourceparts/assetsbundle.00.part') != '' }}
+        run: |
+          cat .sourceparts/assetsbundle.*.part > /tmp/assetsbundle.b64
+          base64 -d /tmp/assetsbundle.b64 > /tmp/assetsbundle.gz
+          gzip -dc /tmp/assetsbundle.gz > /tmp/assetsbundle.raw
+          file /tmp/assetsbundle.raw || true
+          wc -c /tmp/assetsbundle.raw
+          python3 - <<'PY'
+          from pathlib import Path
+          import tarfile, zipfile
+          p=Path('/tmp/assetsbundle.raw')
+          b=p.read_bytes()
+          print('ASSET_BUNDLE_HEAD', repr(b[:300]))
+          if tarfile.is_tarfile(p):
+              with tarfile.open(p) as t:
+                  print('ASSET_BUNDLE_TAR', t.getnames())
+          elif zipfile.is_zipfile(p):
+              with zipfile.ZipFile(p) as z:
+                  print('ASSET_BUNDLE_ZIP', z.namelist())
+          else:
+              try:
+                  print('ASSET_BUNDLE_UTF8', repr(b.decode('utf-8')[:1600]))
+              except Exception as e:
+                  print('ASSET_BUNDLE_BINARY', e)
+          PY
+          base64 -d .sourceparts/assetsfix.00.part > /tmp/assetsfix.gz
+          gzip -dc /tmp/assetsfix.gz > /tmp/assetsfix.raw
+          file /tmp/assetsfix.raw || true
+          wc -c /tmp/assetsfix.raw
+          python3 - <<'PY'
+          from pathlib import Path
+          import tarfile, zipfile
+          p=Path('/tmp/assetsfix.raw')
+          b=p.read_bytes()
+          print('ASSET_FIX_HEAD', repr(b[:300]))
+          if tarfile.is_tarfile(p):
+              with tarfile.open(p) as t:
+                  print('ASSET_FIX_TAR', t.getnames())
+          elif zipfile.is_zipfile(p):
+              with zipfile.ZipFile(p) as z:
+                  print('ASSET_FIX_ZIP', z.namelist())
+          else:
+              try:
+                  print('ASSET_FIX_UTF8', repr(b.decode('utf-8')[:1600]))
+              except Exception as e:
+                  print('ASSET_FIX_BINARY', e)
+          PY
+
       - name: Brand asset bootstrap note
         run: |
           echo "Canonical release assets are still being restored; build.py uses a transparent bootstrap fallback only when source asset files are absent."
