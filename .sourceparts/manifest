@@ -1,1 +1,4 @@
-shell/main.js|main|2
+shell/main.js|mainz|1|gz64
+src/breeze-shell-adapter.js|adapter|1|gz64
+src/breeze-mobile.html|mobile|2|gz64
+src/breeze-desktop.html|desktop|6|gz64
