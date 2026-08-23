@@ -19,99 +19,84 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Scan full repository history for canonical assets
+      - name: Compare all historical staged asset chunk variants
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import base64, gzip, hashlib, io, subprocess, tarfile
-          from pathlib import Path
+          import base64, gzip, hashlib, itertools, subprocess
 
-          expected = {
-            'src/logo.b64': 'c7dfe71d20cd0ee3e835d82bd7d04f44e1495c821e9a3afab6fed0ad1497d1b4',
-            'src/kapella_mark.b64': '7dc14b34323527431aa79fa468cbe2e674fa33c85e54bd5c338f9b0d3f50d6b3',
-            'src/kapella_word_dark.b64': 'c61c419cf5c0c1bdb067e91893f2b41739fc48db4c24bfa8540f7d670b3f4b04',
-            'src/kapella_word_light.b64': 'be357931787cf008ab5f19ca3a95b93088bc5749888d7fa54bae9c3d684be774',
-            'site/breeze-mark.png': '6455fcf580e72aa1b86f9dc5b7fa7a6b44ebfc0fbbe21a3ec6b2e17d352b140d',
-            'site/kapella-mark.png': '5c6b681c55a0aff3ff5c6c551906a7dc88543c1ea13b8395d057e223e4b6d2f6',
-            'site/kapella-word-dark.png': '1372ed9867faa2a5ce9893385ff6716b457335bd56778246b4942b7e67573d5f',
-            'site/kapella-word-light.png': 'ae5dea8b82e3ecf40d00c7ae71b3b9bded600ed1809292b62aa1d4a08b56838f',
-          }
           commits=subprocess.check_output(['git','rev-list','--all'],text=True).splitlines()
-          print('COMMITS',len(commits))
-          found={k:[] for k in expected}
-          seen=set()
+          paths=[f'.sourceparts/assetsbundle.{i:02d}.part' for i in range(6)] + ['.sourceparts/assetsfix.00.part']
+          variants={p:{} for p in paths}
           for c in commits:
-              for path,want in expected.items():
+              for p in paths:
                   try:
-                      blob=subprocess.check_output(['git','rev-parse',f'{c}:{path}'],stderr=subprocess.DEVNULL,text=True).strip()
+                      blob=subprocess.check_output(['git','rev-parse',f'{c}:{p}'],stderr=subprocess.DEVNULL,text=True).strip()
                   except subprocess.CalledProcessError:
                       continue
-                  if (path,blob) in seen:
-                      continue
-                  seen.add((path,blob))
-                  data=subprocess.check_output(['git','cat-file','blob',blob])
-                  check=data.rstrip(b'\n') if path.endswith('.b64') else data
-                  got=hashlib.sha256(check).hexdigest()
-                  print('HIST_PATH',path,'commit',c[:12],'blob',blob,'bytes',len(data),'sha256',got,'MATCH',got==want)
-                  if got==want:
-                      found[path].append((c,blob))
+                  if blob in variants[p]: continue
+                  b=subprocess.check_output(['git','cat-file','blob',blob])
+                  variants[p][blob]=b
+          for p in paths:
+              print('PATH',p,'VARIANTS',len(variants[p]))
+              for blob,b in variants[p].items():
+                  compact=b''.join(b.split())
+                  print(' VARIANT',blob,'bytes',len(b),'compact',len(compact),'sha256',hashlib.sha256(b).hexdigest(),'head',compact[:40].decode(errors='replace'),'tail',compact[-40:].decode(errors='replace'))
 
-          alternates={
-            'site/kapella-word-dark.png.b64': ('src/kapella_word_dark.b64','site/kapella-word-dark.png'),
-            'site/kapella-word-light.png.b64': ('src/kapella_word_light.b64','site/kapella-word-light.png'),
-          }
-          for alt,(src_target,png_target) in alternates.items():
-              if not Path(alt).exists():
-                  continue
-              s=Path(alt).read_text().strip(); raw=base64.b64decode(s)
-              source_sha=hashlib.sha256(s.encode()).hexdigest(); png_sha=hashlib.sha256(raw).hexdigest()
-              print('ALT',alt,'source_sha',source_sha,'source_match',source_sha==expected[src_target],'png_sha',png_sha,'png_match',png_sha==expected[png_target])
-
-          bundle_commits=subprocess.check_output(['git','rev-list','--all','--','.sourceparts/assetsbundle.00.part'],text=True).splitlines()
-          print('BUNDLE_COMMITS',len(bundle_commits),bundle_commits)
-          for c in bundle_commits:
-              names=subprocess.check_output(['git','ls-tree','-r','--name-only',c,'.sourceparts'],text=True).splitlines()
-              parts=sorted(n for n in names if '/assetsbundle.' in n and n.endswith('.part'))
-              if not parts:
-                  continue
-              chunks=[]
-              sizes=[]
-              for p in parts:
-                  b=subprocess.check_output(['git','show',f'{c}:{p}'])
-                  chunks.append(b.decode()); sizes.append((p,len(b)))
-              compact=''.join(''.join(chunks).split())
+          # Try every historical complete tree state, not only commits that touched part00.
+          states={}
+          for c in commits:
+              sig=[]; chunks=[]; ok=True
+              for i in range(6):
+                  p=f'.sourceparts/assetsbundle.{i:02d}.part'
+                  try:
+                      blob=subprocess.check_output(['git','rev-parse',f'{c}:{p}'],stderr=subprocess.DEVNULL,text=True).strip()
+                      b=subprocess.check_output(['git','cat-file','blob',blob])
+                  except subprocess.CalledProcessError:
+                      ok=False; break
+                  sig.append(blob); chunks.append(b)
+              if not ok: continue
+              key=tuple(sig)
+              if key in states: continue
+              states[key]=c
+              compact=b''.join(b''.join(chunks).split())
               try:
-                  payload=base64.b64decode(compact + '='*((-len(compact))%4),validate=True)
+                  payload=base64.b64decode(compact + b'='*((-len(compact))%4),validate=True)
                   raw=gzip.decompress(payload)
+                  print('STATE_OK',c[:12],'blobs',sig,'b64chars',len(compact),'gzbytes',len(payload),'rawbytes',len(raw),'rawsha',hashlib.sha256(raw).hexdigest())
               except Exception as e:
-                  print('BUNDLE_BAD',c[:12],'parts',sizes,repr(e))
-                  continue
-              print('BUNDLE_OK',c[:12],'compressed',len(payload),'tar_bytes',len(raw))
-              try:
-                  tf=tarfile.open(fileobj=io.BytesIO(raw),mode='r:')
-              except Exception as e:
-                  print('TAR_BAD',c[:12],repr(e))
-                  continue
-              for m in tf.getmembers():
-                  if not m.isfile():
-                      continue
-                  data=tf.extractfile(m).read(); path=m.name
-                  check=data.rstrip(b'\n') if path.endswith('.b64') else data
-                  got=hashlib.sha256(check).hexdigest(); want=expected.get(path)
-                  print('TAR_FILE',c[:12],path,'bytes',len(data),'sha256',got,'MATCH',want==got if want else 'n/a')
-                  if want and got==want:
-                      found[path].append((c,'bundle'))
+                  # Stream until first gzip failure to identify corruption offset/output coverage.
+                  try:
+                      payload=base64.b64decode(compact + b'='*((-len(compact))%4),validate=True)
+                      import zlib
+                      d=zlib.decompressobj(16+zlib.MAX_WBITS); out=bytearray(); fail=None
+                      for n,x in enumerate(payload):
+                          try: out.extend(d.decompress(bytes([x])))
+                          except Exception as ee: fail=(n,repr(ee)); break
+                      print('STATE_BAD',c[:12],'blobs',sig,'b64chars',len(compact),'gzbytes',len(payload),'fail',fail,'out',len(out),'error',repr(e))
+                  except Exception as ee:
+                      print('STATE_B64_BAD',c[:12],'blobs',sig,'b64chars',len(compact),repr(ee))
+          print('UNIQUE_COMPLETE_STATES',len(states))
 
-          print('=== EXACT MATCH SUMMARY ===')
-          for path in expected:
-              print(path,found[path])
-          missing=[]
-          for p,v in found.items():
-              if v:
-                  continue
-              if p in ('src/kapella_word_dark.b64','src/kapella_word_light.b64','site/kapella-word-dark.png','site/kapella-word-light.png'):
-                  continue
-              missing.append(p)
-          print('MISSING_AFTER_HISTORY_SCAN',missing)
+          # If a part has multiple historical variants, brute-force the small Cartesian product.
+          bundle_sets=[]
+          for i in range(6):
+              p=f'.sourceparts/assetsbundle.{i:02d}.part'
+              vals=list(variants[p].items())
+              if not vals:
+                  bundle_sets=[]; break
+              bundle_sets.append(vals)
+          combos=1
+          for vals in bundle_sets: combos*=len(vals)
+          print('COMBINATIONS',combos)
+          if bundle_sets and combos <= 10000:
+              for combo in itertools.product(*bundle_sets):
+                  blobs=[x[0] for x in combo]; compact=b''.join(b''.join(x[1] for x in combo).split())
+                  try:
+                      payload=base64.b64decode(compact + b'='*((-len(compact))%4),validate=True)
+                      raw=gzip.decompress(payload)
+                  except Exception:
+                      continue
+                  print('COMBO_OK','blobs',blobs,'b64chars',len(compact),'gzbytes',len(payload),'rawbytes',len(raw),'rawsha',hashlib.sha256(raw).hexdigest())
           PY
