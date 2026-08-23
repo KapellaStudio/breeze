@@ -16,6 +16,8 @@ directories:
   buildResources: build
 
 files:
+  - bootstrap.js
+  - launch.js
   - main.js
   - preload.js
   - security.js
