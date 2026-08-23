@@ -21,7 +21,8 @@
     "mediatest": "node mediatest.js",
     "browsercoretest": "node browsercoretest.js",
     "documenttest": "node documenttest.js",
-    "launchtest": "node launchtest.js"
+    "launchtest": "node launchtest.js",
+    "producttest": "node producttest.js"
   },
   "devDependencies": {
     "electron": "^43.0.0",
