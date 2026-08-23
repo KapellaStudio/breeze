@@ -27,6 +27,7 @@ def _write(path, text):
 tokens = _read(SRC / 'breeze-tokens.css')
 core   = _read(SRC / 'breeze-core.js')
 adapter= _read(SRC / 'breeze-shell-adapter.js')
+launch = _read(SRC / 'breeze-launch.js')
 
 # Breeze 19 keeps its browser mark as the Kapella-owned vector master in src/.
 # Kapella wordmarks are tracked as base64 PNG source files under site/ so the
@@ -66,6 +67,14 @@ for name in SHELLS:
     html = html.replace('__TOKENS__', tokens)
     html = html.replace('__CORE__', core)
     html = html.replace('__ADAPTER__', adapter if name == 'breeze-desktop.html' else '')
+    # First-run and migration UI is a desktop-shell concern. Inject it as a
+    # separate source module rather than growing the already-large desktop HTML
+    # template or exposing setup APIs to the standalone preview.
+    if name == 'breeze-desktop.html':
+        if '</body>' not in html:
+            print(f'  !! {name}: missing </body> for launch injection'); fail = True
+        else:
+            html = html.replace('</body>', '<script>\n' + launch + '\n</script>\n</body>', 1)
     # Existing templates wrap __LOGO__ in an image/png data URI. Replace the
     # complete URI first so the canonical SVG is served with the correct MIME.
     html = html.replace('data:image/png;base64,__LOGO__', 'data:image/svg+xml;base64,' + logo_svg_b64)
