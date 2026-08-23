@@ -21,28 +21,35 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import base64, gzip, tarfile, zipfile
+          import base64, gzip, tarfile, zipfile, traceback
 
           def decode_parts(label, paths):
-              text=''.join(Path(p).read_text() for p in paths)
-              compact=''.join(text.split())
-              bad=[(i,ch) for i,ch in enumerate(compact) if ch not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=']
-              print(label, 'chars=', len(compact), 'mod4=', len(compact)%4, 'bad=', bad[:5])
-              compact += '=' * ((-len(compact)) % 4)
-              raw=base64.b64decode(compact, validate=True)
-              print(label, 'decoded=', len(raw), 'head=', repr(raw[:24]))
-              out=gzip.decompress(raw)
-              p=Path('/tmp/'+label+'.raw'); p.write_bytes(out)
-              print(label, 'gunzipped=', len(out), 'head=', repr(out[:300]))
-              if tarfile.is_tarfile(p):
-                  with tarfile.open(p) as t: print(label, 'tar=', t.getnames())
-              elif zipfile.is_zipfile(p):
-                  with zipfile.ZipFile(p) as z: print(label, 'zip=', z.namelist())
-              else:
-                  try: print(label, 'utf8=', repr(out.decode('utf-8')[:2000]))
-                  except Exception as e: print(label, 'binary=', e)
+              try:
+                  text=''.join(Path(p).read_text() for p in paths)
+                  compact=''.join(text.split())
+                  bad=[(i,ch) for i,ch in enumerate(compact) if ch not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=']
+                  print(label, 'chars=', len(compact), 'mod4=', len(compact)%4, 'bad=', bad[:5])
+                  compact += '=' * ((-len(compact)) % 4)
+                  raw=base64.b64decode(compact, validate=True)
+                  print(label, 'decoded=', len(raw), 'head=', repr(raw[:24]), 'tail=', repr(raw[-24:]))
+                  out=gzip.decompress(raw)
+                  p=Path('/tmp/'+label+'.raw'); p.write_bytes(out)
+                  print(label, 'gunzipped=', len(out), 'head=', repr(out[:300]))
+                  if tarfile.is_tarfile(p):
+                      with tarfile.open(p) as t: print(label, 'tar=', t.getnames())
+                  elif zipfile.is_zipfile(p):
+                      with zipfile.ZipFile(p) as z: print(label, 'zip=', z.namelist())
+                  else:
+                      try: print(label, 'utf8=', repr(out.decode('utf-8')[:4000]))
+                      except Exception as e: print(label, 'binary=', e)
+              except Exception as e:
+                  print(label, 'ERROR', repr(e))
+                  traceback.print_exc()
 
           bundle=sorted(str(p) for p in Path('.sourceparts').glob('assetsbundle.*.part'))
           decode_parts('assetsbundle', bundle)
           decode_parts('assetsfix', ['.sourceparts/assetsfix.00.part'])
+          for p in bundle:
+              s=''.join(Path(p).read_text().split())
+              print('PART', p, 'chars=', len(s), 'head=', s[:40], 'tail=', s[-40:])
           PY
