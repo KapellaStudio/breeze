@@ -1,0 +1,36 @@
+{
+  "name": "breeze-shell",
+  "productName": "Breeze",
+  "version": "1.3.0",
+  "description": "Breeze — the desktop shell. Real Chromium, real tabs, real search.",
+  "main": "main.js",
+  "author": "Kapella — Venture Technology Studio",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "xvfb-run -a electron . --smoke-test",
+    "breach": "xvfb-run -a electron shellbreach.js",
+    "integration": "xvfb-run -a electron integration.js",
+    "searchtest": "xvfb-run -a electron searchtest.js",
+    "prebuild": "cd .. && python3 build.py",
+    "pack": "npm run prebuild && electron-builder --dir",
+    "dist": "npm run prebuild && electron-builder",
+    "dist:linux": "npm run prebuild && electron-builder --linux",
+    "dist:win": "npm run prebuild && electron-builder --win",
+    "dist:mac": "npm run prebuild && electron-builder --mac",
+    "mediatest": "node mediatest.js",
+    "browsercoretest": "node browsercoretest.js",
+    "documenttest": "node documenttest.js"
+  },
+  "devDependencies": {
+    "electron": "^43.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "desktopName": "breeze.desktop",
+  "homepage": "https://kapellaholdings.com/breeze",
+  "dependencies": {
+    "ffmpeg-static": "5.3.0",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.2.108"
+  }
+}
