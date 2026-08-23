@@ -1,13 +1,14 @@
 /* Breeze desktop bootstrap.
-   Keeps first-run/import/preferences/workspace/context IPC separate from the
-   browser runtime so product setup can evolve without widening page surfaces. */
+   Keeps first-run/import/preferences/workspace/context/vault IPC separate from
+   the browser runtime so product setup can evolve without widening page surfaces. */
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, clipboard } = require('electron');
 const path = require('node:path');
 const launch = require('./launch');
 const preferences = require('./preferences');
 const workspaces = require('./workspaces');
 const workspaceData = require('./workspace-data');
+const vault = require('./vault');
 
 let initialized = false;
 function ensureInit(){
@@ -17,6 +18,7 @@ function ensureInit(){
     preferences.init(userDataPath);
     workspaces.init(userDataPath);
     workspaceData.init(userDataPath);
+    vault.init(userDataPath,safeStorage,clipboard,process.platform);
     initialized = true;
   }
 }
@@ -46,8 +48,7 @@ handle('launch:sources', () => launch.detectSources());
 handle('launch:importBrowser', (browser, options={}) => launch.importBrowserData(String(browser||''), options || {}));
 handle('launch:importBookmarksHtml', async () => {
   const picked = await dialog.showOpenDialog({
-    title: 'Import bookmarks into Breeze',
-    properties: ['openFile'],
+    title: 'Import bookmarks into Breeze', properties: ['openFile'],
     filters: [{ name:'Bookmarks HTML', extensions:['html','htm'] }]
   });
   if (picked.canceled || !picked.filePaths[0]) return { canceled:true };
@@ -55,8 +56,7 @@ handle('launch:importBookmarksHtml', async () => {
 });
 handle('launch:exportBookmarksHtml', async () => {
   const picked = await dialog.showSaveDialog({
-    title: 'Export Breeze bookmarks',
-    defaultPath: path.join(app.getPath('documents'), 'Breeze Bookmarks.html'),
+    title: 'Export Breeze bookmarks', defaultPath: path.join(app.getPath('documents'), 'Breeze Bookmarks.html'),
     filters: [{ name:'Bookmarks HTML', extensions:['html'] }]
   });
   if (picked.canceled || !picked.filePath) return { canceled:true };
@@ -89,6 +89,20 @@ handle('note:remove', id => workspaceData.removeNote(String(id||'')));
 handle('snapshot:list', workspace => workspaceData.listSnapshots(workspace));
 handle('snapshot:save', item => workspaceData.saveSnapshot(item || {}));
 handle('snapshot:remove', id => workspaceData.removeSnapshot(String(id||'')));
+
+/* Breeze Vault: passwords never cross back into the chrome renderer. */
+handle('vault:status', () => vault.securityStatus());
+handle('vault:list', q => vault.list(String(q||'')));
+handle('vault:add', item => vault.add(item || {}));
+handle('vault:update', (id,patch) => vault.update(String(id||''),patch || {}));
+handle('vault:remove', id => vault.remove(String(id||'')));
+handle('vault:copyUsername', id => vault.copyField(String(id||''),'username'));
+handle('vault:copyPassword', id => vault.copyField(String(id||''),'password'));
+handle('vault:importCsv', async () => {
+  const picked=await dialog.showOpenDialog({title:'Import passwords into Breeze Vault',properties:['openFile'],filters:[{name:'Password CSV',extensions:['csv']}]});
+  if(picked.canceled||!picked.filePaths[0])return{canceled:true};
+  return vault.importCsv(path.resolve(picked.filePaths[0]));
+});
 
 app.whenReady().then(() => ensureInit());
 require('./main');
