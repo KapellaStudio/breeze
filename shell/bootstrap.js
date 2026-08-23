@@ -1,12 +1,13 @@
 /* Breeze desktop bootstrap.
-   Keeps first-run/import/preferences/workspace IPC separate from the browser
-   runtime so product setup can evolve without widening page-facing surfaces. */
+   Keeps first-run/import/preferences/workspace/context IPC separate from the
+   browser runtime so product setup can evolve without widening page surfaces. */
 'use strict';
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('node:path');
 const launch = require('./launch');
 const preferences = require('./preferences');
 const workspaces = require('./workspaces');
+const workspaceData = require('./workspace-data');
 
 let initialized = false;
 function ensureInit(){
@@ -15,6 +16,7 @@ function ensureInit(){
     launch.init(userDataPath);
     preferences.init(userDataPath);
     workspaces.init(userDataPath);
+    workspaceData.init(userDataPath);
     initialized = true;
   }
 }
@@ -74,6 +76,19 @@ handle('workspace:get', id => workspaces.get(String(id||'')));
 handle('workspace:create', opts => workspaces.create(opts || {}));
 handle('workspace:update', (id,patch) => workspaces.update(String(id||''),patch || {}));
 handle('workspace:remove', id => workspaces.remove(String(id||'')));
+
+handle('queue:list', workspace => workspaceData.listQueue(workspace));
+handle('queue:add', item => workspaceData.addQueue(item || {}));
+handle('queue:remove', id => workspaceData.removeQueue(String(id||'')));
+handle('queue:top', id => workspaceData.moveQueueTop(String(id||'')));
+handle('queue:clear', workspace => workspaceData.clearQueue(workspace));
+handle('note:list', workspace => workspaceData.listNotes(workspace));
+handle('note:add', item => workspaceData.addNote(item || {}));
+handle('note:update', (id,body) => workspaceData.updateNote(String(id||''),body));
+handle('note:remove', id => workspaceData.removeNote(String(id||'')));
+handle('snapshot:list', workspace => workspaceData.listSnapshots(workspace));
+handle('snapshot:save', item => workspaceData.saveSnapshot(item || {}));
+handle('snapshot:remove', id => workspaceData.removeSnapshot(String(id||'')));
 
 app.whenReady().then(() => ensureInit());
 require('./main');
