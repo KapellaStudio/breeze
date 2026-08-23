@@ -1,0 +1,87 @@
+name: verify
+on: [push, pull_request]
+
+defaults:
+  run:
+    # pipefail matters here. The security step used to pipe each suite into
+    # `tee`, which meant the step's exit code was tee's, not the suite's — a
+    # suite that crashed produced no "***" marker, grep found nothing, and CI
+    # went green *because the tests died*. Suites now exit non-zero themselves
+    # and nothing is piped, so a crash and a breach both fail the build.
+    shell: bash -euo pipefail {0}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Install Playwright
+        run: pip install playwright && playwright install --with-deps chromium
+
+      - name: Build
+        run: python3 build.py
+
+      - name: Syntax check both shells
+        run: |
+          python3 - <<'PY'
+          import re
+          for f in ['breeze-desktop.html','breeze-mobile.html']:
+              s = open(f).read()
+              open('/tmp/'+f+'.js','w').write(re.findall(r'<script>(.*?)</script>', s, re.S)[-1])
+          PY
+          node --check /tmp/breeze-desktop.html.js
+          node --check /tmp/breeze-mobile.html.js
+
+      - name: Syntax check shell and functions
+        run: |
+          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js; do
+            node --check "$f"
+          done
+
+      - name: Regression — desktop 1440/1180/1024
+        run: python3 src/regress.py
+
+      - name: Regression — mobile 360-430, overflow and 44px touch targets
+        run: python3 src/mob.py
+
+      - name: Download site — both pre-launch and published states
+        run: python3 src/sitecheck.py
+
+      - name: Breeze Flow — product contract
+        run: python3 src/flowcheck.py
+
+      - name: Backend — least-privilege contract
+        run: python3 src/backendcheck.py
+
+      - name: Private browsing + mobile architecture contract
+        run: python3 src/privatecheck.py
+
+      - name: Security — all 41 vectors must fail to exploit
+        run: |
+          python3 src/breach.py
+          python3 src/breach2.py
+          python3 src/breach3.py
+          python3 src/mbreach.py
+
+      # The shell suites need Electron and a display. They were previously
+      # left to be run by hand, which meant "12/12" in the docs was a claim
+      # about some past machine rather than about this commit.
+      - name: Install shell dependencies
+        working-directory: shell
+        run: npm install --no-audit --no-fund
+
+      - name: Shell — smoke, breach, integration, search
+        working-directory: shell
+        run: |
+          xvfb-run -a npx electron . --smoke-test --no-sandbox
+          xvfb-run -a npx electron shellbreach.js --no-sandbox
+          xvfb-run -a npx electron integration.js --no-sandbox
+          xvfb-run -a npx electron searchtest.js --no-sandbox
+          npm run mediatest
+          npm run browsercoretest
+          npm run documenttest
