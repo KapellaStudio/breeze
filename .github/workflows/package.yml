@@ -1,11 +1,13 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# BREEZE — INSTALLER BUILD
+# BREEZE — INSTALLER BUILD + RELEASE CANDIDATE PUBLICATION
 #
 # Builds macOS, Windows and Linux installers on GitHub's runners. The canonical
-# release merge to main packages once automatically; future v* tags package
+# release merge to main packages once automatically; future v* tags can package
 # versioned releases, and workflow_dispatch remains available for maintainers.
 #
-# Nothing here is signed yet. DEPLOY.md documents the signing/notarisation gate.
+# Windows/macOS outputs are currently unsigned, so the automatic main-merge
+# publication is explicitly a prerelease. Stable public launch stays gated on
+# platform signing/notarisation rather than hiding those OS trust warnings.
 # ═══════════════════════════════════════════════════════════════════════════
 
 name: package
@@ -15,6 +17,9 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+
+permissions:
+  contents: write
 
 defaults:
   run:
@@ -65,7 +70,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: breeze-${{ matrix.name }}
-          retention-days: 14
+          retention-days: 30
           path: |
             shell/dist/*.dmg
             shell/dist/*.zip
@@ -77,3 +82,32 @@ jobs:
         working-directory: shell/dist
         run: |
           shasum -a 256 *.dmg *.zip *.exe *.AppImage *.deb 2>/dev/null || true
+
+  publish-rc:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: breeze-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Build release checksum manifest
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish Breeze 1.3.0 RC
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag='v1.3.0-rc.1'
+          notes='Breeze 1.3.0 release candidate. Linux, Windows and macOS desktop packages built directly from the canonical KapellaStudio/breeze main branch. Windows and macOS packages are not yet production code-signed/notarised; verify SHA256SUMS.txt before testing.'
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release-assets/* --clobber
+          else
+            gh release create "$tag" release-assets/* --target "$GITHUB_SHA" --title 'Breeze 1.3.0 RC 1' --notes "$notes" --prerelease
+          fi
