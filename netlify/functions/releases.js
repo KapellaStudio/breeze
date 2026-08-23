@@ -1,19 +1,25 @@
 /* ───────────────────────────────────────────────────────────────────────────
    GET /api/releases[?channel=stable]
 
-   Returns the newest published build per platform. The browser never receives
-   a Supabase key; this function performs the least-privilege read server-side.
+   Returns the newest published build per platform. The browser never talks to
+   Supabase directly; this function performs the least-privilege read server-
+   side. The fallback URL/key below are intentionally public Supabase client
+   credentials, not secrets, and keep production reads available if Netlify
+   runtime environment injection is unavailable.
    ─────────────────────────────────────────────────────────────────────────── */
 const CHANNELS = ['stable', 'beta'];
+const PUBLIC_SUPABASE_URL = 'https://iyyuxzfjkrtqqixqzsrr.supabase.co';
+const PUBLIC_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_BuhqH2ZOrhsQCQN60EDsCw_JO6AdpT5';
 
 export default async (req) => {
   const url = new URL(req.url);
   const channel = url.searchParams.get('channel') || 'stable';
   if (!CHANNELS.includes(channel)) return json({ error: 'unknown channel' }, 400);
 
-  const base = Netlify.env.get('SUPABASE_URL');
-  const key = Netlify.env.get('SUPABASE_PUBLISHABLE_KEY') || Netlify.env.get('SUPABASE_ANON_KEY');
-  if (!base || !key) return json({ error: 'server not configured' }, 500);
+  const base = Netlify.env.get('SUPABASE_URL') || PUBLIC_SUPABASE_URL;
+  const key = Netlify.env.get('SUPABASE_PUBLISHABLE_KEY')
+    || Netlify.env.get('SUPABASE_ANON_KEY')
+    || PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
   const q = `${base}/rest/v1/releases`
     + `?select=version,codename,platform,file_size,sha256,release_notes,released_at`
