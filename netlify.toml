@@ -1,52 +1,37 @@
 # ─────────────────────────────────────────────────────────────────────────────
-#  Breeze — Netlify configuration
-#  Serves the download site at kapella.<tld>/breeze and hosts the two
-#  serverless functions the site needs. No build step: the site is static and
-#  the prototypes are pre-built by build.py before commit.
+# Breeze — Netlify configuration
+# Static release site plus native Netlify Functions from the canonical repo.
 # ─────────────────────────────────────────────────────────────────────────────
 [build]
-  publish  = "site"
-  command  = "python3 build.py"
-  functions = "netlify/functions"
+  publish = "site"
+  command = "python3 build.py"
+
+[functions]
+  directory = "netlify/functions"
 
 [build.environment]
   PYTHON_VERSION = "3.11"
 
-# Security headers. A download page that ships malware-adjacent binaries needs
-# to be beyond reproach about its own posture.
+# Security headers. A download page that ships executable binaries needs a
+# deliberately narrow browser surface.
 [[headers]]
   for = "/*"
   [headers.values]
     Content-Security-Policy = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-    X-Frame-Options         = "DENY"
-    X-Content-Type-Options  = "nosniff"
-    Referrer-Policy         = "strict-origin-when-cross-origin"
-    Permissions-Policy      = "geolocation=(), microphone=(), camera=(), payment=()"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(), payment=()"
     Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
 
 [[headers]]
   for = "/preview/*"
   [headers.values]
-    # The prototypes inline everything, so they need looser style/script rules
-    # than the marketing site. Scoped to this path only.
     Content-Security-Policy = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline'; font-src https://fonts.gstatic.com; connect-src 'self'"
 
-[[redirects]]
-  from = "/download"
-  to   = "/.netlify/functions/download"
-  status = 200
-
-[[redirects]]
-  from = "/api/waitlist"
-  to   = "/.netlify/functions/waitlist"
-  status = 200
-
-[[redirects]]
-  from = "/api/releases"
-  to   = "/.netlify/functions/releases"
-  status = 200
-
+# API/download routes are declared by each function's exported Netlify config.
+# The final rewrite is only for ordinary static-site navigation.
 [[redirects]]
   from = "/*"
-  to   = "/index.html"
+  to = "/index.html"
   status = 200
