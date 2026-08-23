@@ -1,4 +1,4 @@
 shell/main.js|gz64|2f57bf5f82ccafd3c4e67f6b92cf2c243a49d94c776003c357fb0641f3ad9e42|mainz.00.part
 src/breeze-shell-adapter.js|gz64|977508a0138f95d2201c46a90ed567e3090725fff5bb44c1accdd24c17faa519|adapter.00.part
-src/breeze-mobile.html|gz64|1a063f3ee382c75d09a690f19ca587588938cd56bb383dee819434c990f0a99b|mobile.00.part,mobile.01.part
+src/breeze-mobile.html|gz64|1a063f3ee382c75d09a690f19ca587588938cd56bb383dee819434c990f0a99b|mobilefix.00.part,mobilefix.01.part,mobilefix.02.part,mobilefix.03.part
 src/breeze-desktop.html|gz64|d308ca800a4af266fe1cf9a042c4bd93e6b51b022faff5ba8ad7555ccfca71e6|desktop.00.part,desktop.02.part,desktop.02true.part,desktop.03.part,desktop.04.part,desktop.05.part
