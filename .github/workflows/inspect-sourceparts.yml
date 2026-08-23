@@ -1,9 +1,11 @@
 name: inspect-sourceparts
 
 on:
-  push:
-    branches: [release/breeze-19-source]
-    paths: ['.github/workflows/inspect-sourceparts.yml']
+  pull_request:
+    branches: [main]
+    paths:
+      - '.sourceparts/**'
+      - '.github/workflows/inspect-sourceparts.yml'
 
 permissions:
   contents: read
@@ -13,8 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: release/breeze-19-source
       - name: Inspect staged asset payloads
         shell: bash
         run: |
