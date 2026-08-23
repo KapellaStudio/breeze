@@ -1,0 +1,70 @@
+name: production-smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'netlify/**'
+      - 'supabase/**'
+      - 'netlify.toml'
+      - 'RELEASE_STATUS.md'
+      - '.github/workflows/production-smoke.yml'
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: production-smoke-main
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify live Netlify production surface
+        env:
+          BASE: https://kapella-breeze.netlify.app
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in $(seq 1 18); do
+            if curl --fail --silent --show-error --max-time 15 "$BASE/api/releases?channel=beta" -o /tmp/releases.json \
+              && curl --fail --silent --show-error --max-time 15 "$BASE/" -o /tmp/site.html; then
+              if python3 - <<'PY'
+          import json, pathlib, sys
+          data=json.loads(pathlib.Path('/tmp/releases.json').read_text())
+          platforms={b.get('platform') for b in data.get('builds',[])}
+          required={'macos-arm','macos-x64','windows-x64','linux-x64'}
+          site=pathlib.Path('/tmp/site.html').read_text()
+          good=(data.get('version')=='1.3.0' and data.get('codename')=='McCloskey'
+                and required.issubset(platforms)
+                and 'Breeze 1.3.0 RC' in site
+                and '/api/releases?channel=beta' in site
+                and '/download?channel=beta&platform=' in site)
+          if not good:
+              print({'version':data.get('version'),'codename':data.get('codename'),'platforms':sorted(platforms)})
+              sys.exit(1)
+          print('Live beta release API and RC site verified:', sorted(platforms))
+          PY
+              then ok=1; break; fi
+            fi
+            sleep 5
+          done
+          test "$ok" = 1
+
+          headers="$(curl --silent --show-error --max-time 15 --head "$BASE/download?channel=beta&platform=linux-x64")"
+          printf '%s\n' "$headers"
+          printf '%s\n' "$headers" | grep -Eq '^HTTP/[^ ]+ 30[1278]'
+          printf '%s\n' "$headers" | grep -qi '^location: https://github.com/KapellaStudio/breeze/releases/download/v1.3.0-rc.1/'
+          printf '%s\n' "$headers" | grep -qi '^x-breeze-sha256: 830995f9733923e7a09e5c8cdb7cb7ce1e53b17086fe3ef66cba013836735e1a'
+
+      - name: Report production smoke result
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze production smoke: **${{ job.status }}** — Netlify live site/API/download redirect, run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
