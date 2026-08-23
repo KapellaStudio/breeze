@@ -1,9 +1,8 @@
 /* ───────────────────────────────────────────────────────────────────────────
    POST /api/waitlist   { email, platform_hint? }
 
-   Stores an email and nothing else. Netlify does NOT hold a Supabase admin
-   key. It calls the narrow Breeze Ops Edge Function with a Breeze-only token;
-   the Edge Function owns the privileged database write.
+   Stores an email and nothing else. Netlify holds no Supabase admin key; it
+   calls the narrow Breeze Ops Edge Function with a Breeze-only token.
    ─────────────────────────────────────────────────────────────────────────── */
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const HINTS = ['macos', 'windows', 'linux', 'mobile'];
@@ -16,11 +15,11 @@ export default async (req) => {
   catch { return json({ error: 'bad request' }, 400); }
 
   const email = String(body.email || '').trim().toLowerCase();
-  const hint  = HINTS.includes(body.platform_hint) ? body.platform_hint : null;
+  const hint = HINTS.includes(body.platform_hint) ? body.platform_hint : null;
   if (email.length > 254 || !EMAIL.test(email)) return json({ error: 'invalid email' }, 400);
 
-  const base = process.env.SUPABASE_URL;
-  const token = process.env.BREEZE_OPS_TOKEN;
+  const base = Netlify.env.get('SUPABASE_URL');
+  const token = Netlify.env.get('BREEZE_OPS_TOKEN');
   if (!base || !token) return json({ error: 'server not configured' }, 500);
 
   let res;
@@ -37,6 +36,8 @@ export default async (req) => {
   if (!res.ok) return json({ error: 'could not save' }, 502);
   return json({ ok: true }, 200);
 };
+
+export const config = { path: '/api/waitlist' };
 
 const json = (body, status) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
