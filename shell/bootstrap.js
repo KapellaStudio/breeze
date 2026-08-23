@@ -1,15 +1,18 @@
 /* Breeze desktop bootstrap.
-   Keeps first-run/import IPC separate from the browser runtime so setup work can
-   evolve without widening main.js's page-facing surface. */
+   Keeps first-run/import/preferences IPC separate from the browser runtime so
+   setup work can evolve without widening main.js's page-facing surface. */
 'use strict';
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('node:path');
 const launch = require('./launch');
+const preferences = require('./preferences');
 
 let initialized = false;
 function ensureInit(){
   if (!initialized){
-    launch.init(app.getPath('userData'));
+    const userDataPath=app.getPath('userData');
+    launch.init(userDataPath);
+    preferences.init(userDataPath);
     initialized = true;
   }
 }
@@ -58,6 +61,11 @@ handle('launch:exportBookmarksHtml', async () => {
 handle('launch:defaultStatus', () => launch.defaultBrowserStatus(app));
 handle('launch:requestDefault', () => launch.requestDefaultBrowser(app));
 handle('launch:openDefaultSettings', () => launch.openDefaultBrowserSettings(shell));
+
+handle('prefs:get', () => preferences.get());
+handle('prefs:set', (key,value) => preferences.set(String(key||''),value));
+handle('prefs:setMany', patch => preferences.setMany(patch || {}));
+handle('prefs:reset', () => preferences.reset());
 
 app.whenReady().then(() => ensureInit());
 require('./main');
