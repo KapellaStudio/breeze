@@ -1,16 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════════════
 # BREEZE — INSTALLER BUILD
 #
-# Builds macOS, Windows and Linux installers on GitHub's runners, so nobody
-# has to own a Mac or a Windows licence to ship. On a PUBLIC repository these
-# runners are free and unmetered. On a private repo the Free plan gives 2,000
-# Linux-equivalent minutes a month and macOS burns them at 10x, which is
-# roughly a dozen Mac builds — workable, but public is the free path.
+# Builds macOS, Windows and Linux installers on GitHub's runners. The canonical
+# release merge to main packages once automatically; future v* tags package
+# versioned releases, and workflow_dispatch remains available for maintainers.
 #
-# Nothing here is signed. See HANDOFF.md §7B before pointing anyone at the
-# output. These artifacts are for you and for testers.
-#
-# Run it: Actions tab → "package" → Run workflow. Or push a v* tag.
+# Nothing here is signed yet. DEPLOY.md documents the signing/notarisation gate.
 # ═══════════════════════════════════════════════════════════════════════════
 
 name: package
@@ -18,6 +13,7 @@ name: package
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ['v*']
 
 defaults:
@@ -27,9 +23,6 @@ defaults:
 jobs:
   build:
     strategy:
-      # One platform failing should not delete the artifacts of the two that
-      # worked — you still want the Linux build when notarisation-free macOS
-      # packaging breaks.
       fail-fast: false
       matrix:
         include:
@@ -55,9 +48,6 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
 
-      # ui/breeze-desktop.html is generated and gitignored. Without this the
-      # installer packages an app with no interface — it builds fine, launches
-      # to a blank window, and you find out by hand. Ask how we know.
       - name: Build the UI
         run: python3 build.py
 
@@ -67,8 +57,6 @@ jobs:
 
       - name: Package
         working-directory: shell
-        # CSC_IDENTITY_AUTO_DISCOVERY=false stops electron-builder hunting the
-        # runner keychain for a certificate that is not there.
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder ${{ matrix.args }} --publish never
@@ -85,9 +73,6 @@ jobs:
             shell/dist/*.AppImage
             shell/dist/*.deb
 
-      # Publishing the checksum matters more than usual here: an unsigned
-      # installer gives the user nothing else to verify against. DEPLOY.md §3
-      # already says to publish the SHA-256 alongside every release.
       - name: Checksums
         working-directory: shell/dist
         run: |
