@@ -25,50 +25,55 @@ jobs:
           import base64, hashlib, re, struct, zlib
 
           for name in ['site/kapella-word-dark.png.b64','site/kapella-word-light.png.b64']:
-              s=Path(name).read_text().strip()
-              raw=base64.b64decode(s)
+              s=Path(name).read_text().strip(); raw=base64.b64decode(s)
               print('TRACKED', name, 'text_bytes=', len(s), 'text_sha256=', hashlib.sha256(s.encode()).hexdigest(), 'png_bytes=',len(raw),'png_sha256=',hashlib.sha256(raw).hexdigest())
 
+          def b64prefix(text):
+              compact=''.join(text.split()); m=re.match(r'[A-Za-z0-9+/=]*', compact); clean=m.group(0)
+              usable=len(clean)-(len(clean)%4)
+              return compact,clean,base64.b64decode(clean[:usable])
+
+          def salvage_gzip(label, data):
+              d=zlib.decompressobj(16+zlib.MAX_WBITS); out=bytearray(); fail=None
+              for i,b in enumerate(data):
+                  try: out.extend(d.decompress(bytes([b])))
+                  except Exception as e: fail=(i,repr(e)); break
+              print('GZIP_SALVAGE',label,'compressed=',len(data),'out=',len(out),'fail=',fail,'head=',repr(bytes(out[:600])),'tail=',repr(bytes(out[-300:])))
+              text=bytes(out).decode('utf-8','ignore')
+              for j,m in enumerate(re.finditer(r'iVBORw0KGgo[0-9A-Za-z+/=]{80,}',text)):
+                  s=m.group(0)
+                  try: png=base64.b64decode(s+'===')
+                  except: continue
+                  print('SALVAGED_PNG',label,j,'text_len=',len(s),'text_sha256=',hashlib.sha256(s.encode()).hexdigest(),'png_len=',len(png),'png_sha256=',hashlib.sha256(png).hexdigest(),'pos=',m.start())
+
+          bundle=''.join(Path(p).read_text() for p in sorted(Path('.sourceparts').glob('assetsbundle.*.part')))
+          c,clean,braw=b64prefix(bundle); print('ASSET_BUNDLE_CHARS',len(c),'CLEAN',len(clean),'FIRST_BAD',repr(c[len(clean):len(clean)+40])); salvage_gzip('assetsbundle',braw)
+          fix=Path('.sourceparts/assetsfix.00.part').read_text(); c,clean,fraw=b64prefix(fix); print('ASSET_FIX_CHARS',len(c),'CLEAN',len(clean),'FIRST_BAD',repr(c[len(clean):len(clean)+40])); salvage_gzip('assetsfix',fraw)
+
           p=Path('.bootstrap/part00.b64')
-          if not p.exists():
-              print('NO_BOOTSTRAP')
-              raise SystemExit(0)
-          compact=''.join(p.read_text().split())
-          m=re.match(r'[A-Za-z0-9+/=]*', compact)
-          clean=m.group(0)
-          print('BOOTSTRAP_CHARS',len(compact),'CLEAN_PREFIX',len(clean),'FIRST_BAD',repr(compact[len(clean):len(clean)+80]))
-          usable=len(clean)-(len(clean)%4)
-          raw=base64.b64decode(clean[:usable])
-          print('BOOTSTRAP_BYTES', len(raw), hashlib.sha256(raw).hexdigest())
-          off=0
-          while off+30 <= len(raw) and raw[off:off+4] == b'PK\x03\x04':
-              sig,ver,flags,method,mtime,mdate,crc,csize,usize,nlen,xlen=struct.unpack_from('<IHHHHHIIIHH', raw, off)
-              name=raw[off+30:off+30+nlen].decode('utf-8','replace')
-              data_start=off+30+nlen+xlen
-              avail=max(0,min(csize,len(raw)-data_start))
-              chunk=raw[data_start:data_start+avail]
-              print('ZIP_ENTRY', name, 'method=',method,'csize=',csize,'usize=',usize,'available=',avail)
-              out=b''
-              if method==0:
-                  out=chunk
-              elif method==8:
-                  d=zlib.decompressobj(-15)
-                  try: out=d.decompress(chunk)
-                  except Exception as e: print('INFLATE_ERROR', name, repr(e))
-              if out:
-                  print('RECOVERED_PREFIX', name, 'bytes=',len(out),'sha256=',hashlib.sha256(out).hexdigest())
-                  if name.endswith('.html'):
+          if p.exists():
+              compact,clean,raw=b64prefix(p.read_text())
+              print('BOOTSTRAP_CHARS',len(compact),'CLEAN_PREFIX',len(clean),'FIRST_BAD',repr(compact[len(clean):len(clean)+80]),'BOOTSTRAP_BYTES',len(raw))
+              off=0
+              while off+30 <= len(raw) and raw[off:off+4] == b'PK\x03\x04':
+                  sig,ver,flags,method,mtime,mdate,crc,csize,usize,nlen,xlen=struct.unpack_from('<IHHHHHIIIHH', raw, off)
+                  name=raw[off+30:off+30+nlen].decode('utf-8','replace'); data_start=off+30+nlen+xlen
+                  avail=max(0,min(csize,len(raw)-data_start)); chunk=raw[data_start:data_start+avail]
+                  print('ZIP_ENTRY',name,'method=',method,'csize=',csize,'usize=',usize,'available=',avail)
+                  out=b''
+                  if method==0: out=chunk
+                  elif method==8:
+                      d=zlib.decompressobj(-15)
+                      try: out=d.decompress(chunk)
+                      except Exception as e: print('INFLATE_ERROR',name,repr(e))
+                  if out:
+                      print('RECOVERED_PREFIX',name,'bytes=',len(out),'head=',repr(out[:300]),'tail=',repr(out[-300:]))
                       text=out.decode('utf-8','ignore')
-                      print('HTML_HEAD', repr(text[:500]))
-                      print('HTML_TAIL', repr(text[-500:]))
-                      for i,m2 in enumerate(re.finditer(r'iVBORw0KGgo[0-9A-Za-z+/=]{80,}', text)):
+                      for i,m2 in enumerate(re.finditer(r'iVBORw0KGgo[0-9A-Za-z+/=]{80,}',text)):
                           s=m2.group(0)
-                          try: png=base64.b64decode(s + '===')
-                          except Exception: continue
-                          print('PNG_CANDIDATE', i, 'text_len=',len(s),'text_sha256=',hashlib.sha256(s.encode()).hexdigest(),'png_len=',len(png),'png_sha256=',hashlib.sha256(png).hexdigest(),'pos=',m2.start())
-              if avail < csize: break
-              off=data_start+csize
-              if flags & 0x08:
-                  print('DATA_DESCRIPTOR_FLAG', name)
-                  break
+                          try: png=base64.b64decode(s+'===')
+                          except: continue
+                          print('BOOTSTRAP_PNG',i,'text_len=',len(s),'text_sha256=',hashlib.sha256(s.encode()).hexdigest(),'png_len=',len(png),'png_sha256=',hashlib.sha256(png).hexdigest(),'pos=',m2.start())
+                  if avail<csize: break
+                  off=data_start+csize
           PY
