@@ -26,11 +26,13 @@ jobs:
         run: |
           while IFS='|' read -r target mode expected parts; do
             [ -n "$target" ] || continue
+            echo "Reconstructing $target"
             mkdir -p "$(dirname "$target")"
             tmp="/tmp/$(basename "$target").payload"
             : > "$tmp"
             IFS=',' read -ra chunk_list <<< "$parts"
             for part in "${chunk_list[@]}"; do
+              echo "  chunk: $part"
               cat ".sourceparts/$part" >> "$tmp"
             done
             case "${mode:-raw}" in
