@@ -36,16 +36,17 @@ product; edit `src/` and run `python3 build.py`.
 - Supabase project: Breeze (`iyyuxzfjkrtqqixqzsrr`) — healthy
 - Breeze Ops Edge Function: active; privileged surface is limited to waitlist
   insert and aggregate download counting
-- Netlify project: `kapella-breeze` exists and the required Breeze/Supabase
-  environment variables have been configured
-- Netlify is now configured to build the canonical GitHub repository from
-  production branch `main` with `python3 build.py`, publish directory `site`,
-  and Functions directory `netlify/functions`
-- A fresh `main` commit was intentionally created after repository linkage to
-  trigger the first canonical production deploy and the external production
-  smoke workflow
-- Netlify may only be called live after `production-smoke.yml` passes the real
-  production site, Functions API, beta release API, and download redirect.
+- Netlify project: `kapella-breeze` is connected to the canonical GitHub repo
+  and production branch `main`
+- Netlify build settings are `python3 build.py`, publish directory `site`, and
+  Functions directory `netlify/functions`
+- Production deploy `6a8b6d0d330442e670ca1e20` completed READY from canonical
+  commit `ada99883e9b47e619d5c863dcc57fd584f58d326`
+- The production deploy published the Breeze site and all four serverless
+  functions: `download`, `health`, `releases`, and `waitlist`
+- Netlify secret scanning reported no matches on the production deploy
+- Final public-RC hosting verification remains the external
+  `production-smoke.yml` pass against the published production alias
 
 ## Published release candidate
 
@@ -70,10 +71,9 @@ for the eventual signed production channel.
 ## Public launch gates
 
 ### Hosting gate
-The repository connection is configured. Require the new canonical production
-deploy from `main` and `production-smoke.yml` to pass the live site,
-`/api/health`, beta release API, and download redirect checks before closing this
-gate.
+The canonical Netlify production deploy is now READY and includes all expected
+Functions. Require `production-smoke.yml` to pass the live site, `/api/health`,
+beta release API, and download redirect checks before closing this gate.
 
 ### Stable desktop signing gate
 Windows and macOS code signing/notarization remain external credential/account
@@ -83,9 +83,10 @@ release until production signing is configured. Linux does not have the same
 platform-signing gate.
 
 Breeze is past the source/CI/package phase: canonical source, backend, CI-built
-desktop packages, checksums, release metadata and Supabase beta rows are in
-place. The remaining launch work is production smoke verification followed by
-Windows/macOS signing/notarization and final signed-build regression.
+desktop packages, checksums, release metadata, Supabase beta rows, and a real
+Netlify production deploy are in place. The remaining launch work is the final
+live production smoke followed by Windows/macOS signing/notarization and signed-
+build regression.
 
 ## Engine milestone after Breeze 19
 
