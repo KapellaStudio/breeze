@@ -1,0 +1,295 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# BREEZE — SIGNED STABLE RELEASE
+#
+# Manual-only by design. Verification-only is the default. A stable GitHub
+# release is created only when every platform build passes and publish=true.
+# Supabase stable rows are registered separately from the resulting manifest,
+# so no database admin credential is stored in GitHub Actions.
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: stable-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish v1.3.0 after all signing checks pass'
+        required: true
+        default: false
+        type: boolean
+      expected_windows_publisher:
+        description: 'Substring required in the Windows signer subject'
+        required: true
+        default: 'Kapella'
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: breeze-stable-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  windows:
+    name: windows-signed
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Require Windows signing credentials
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)) { throw 'Missing WIN_CSC_LINK GitHub Actions secret' }
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) { throw 'Missing WIN_CSC_KEY_PASSWORD GitHub Actions secret' }
+
+      - name: Build Breeze UI
+        run: python3 build.py
+
+      - name: Install shell dependencies
+        working-directory: shell
+        run: npm install --no-audit --no-fund
+
+      - name: Package signed Windows build
+        working-directory: shell
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: npx electron-builder --win --config electron-builder.production.yml --publish never
+
+      - name: Verify Authenticode signatures
+        shell: pwsh
+        env:
+          EXPECTED_PUBLISHER: ${{ inputs.expected_windows_publisher }}
+        run: |
+          $files = @(Get-ChildItem -Path shell/dist -Recurse -File -Filter *.exe | Where-Object {
+            $_.Name -like 'Breeze-Setup-*.exe' -or $_.Name -ieq 'breeze.exe'
+          })
+          if ($files.Count -lt 2) { throw "Expected signed installer and application executable; found $($files.Count)" }
+          foreach ($file in $files) {
+            $sig = Get-AuthenticodeSignature -FilePath $file.FullName
+            Write-Host "$($file.FullName): status=$($sig.Status) signer=$($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne 'Valid') { throw "Invalid Authenticode signature: $($file.FullName)" }
+            if ($sig.SignerCertificate.Subject -notlike "*$env:EXPECTED_PUBLISHER*") {
+              throw "Signer subject does not contain expected publisher '$env:EXPECTED_PUBLISHER'"
+            }
+          }
+
+      - name: Upload signed Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: breeze-stable-windows
+          retention-days: 30
+          path: shell/dist/*.exe
+
+  macos:
+    name: macos-signed-notarized
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Require macOS signing/notarization credentials
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          test -n "$MAC_CSC_LINK" || { echo '::error::Missing MAC_CSC_LINK GitHub Actions secret'; exit 1; }
+          test -n "$MAC_CSC_KEY_PASSWORD" || { echo '::error::Missing MAC_CSC_KEY_PASSWORD GitHub Actions secret'; exit 1; }
+          test -n "$APPLE_API_KEY_BASE64" || { echo '::error::Missing APPLE_API_KEY_BASE64 GitHub Actions secret'; exit 1; }
+          test -n "$APPLE_API_KEY_ID" || { echo '::error::Missing APPLE_API_KEY_ID GitHub Actions secret'; exit 1; }
+          test -n "$APPLE_API_ISSUER" || { echo '::error::Missing APPLE_API_ISSUER GitHub Actions secret'; exit 1; }
+
+      - name: Materialize App Store Connect API key
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import base64, os, pathlib
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'Breeze_Notarization_Key.p8'
+          out.write_bytes(base64.b64decode(os.environ['APPLE_API_KEY_BASE64'], validate=True))
+          print(f'APPLE_API_KEY={out}')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
+              f.write(f'APPLE_API_KEY={out}\n')
+          PY
+          chmod 600 "$APPLE_API_KEY"
+
+      - name: Build Breeze UI
+        run: python3 build.py
+
+      - name: Install shell dependencies
+        working-directory: shell
+        run: npm install --no-audit --no-fund
+
+      - name: Package signed and notarized macOS builds
+        working-directory: shell
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: npx electron-builder --mac --config electron-builder.production.yml --publish never
+
+      - name: Verify code signing, Gatekeeper and notarization staple
+        run: |
+          mapfile -d '' apps < <(find shell/dist -type d -name 'Breeze.app' -print0)
+          test "${#apps[@]}" -ge 2 || { echo '::error::Expected both arm64 and x64 Breeze.app outputs'; exit 1; }
+          for app in "${apps[@]}"; do
+            echo "Verifying $app"
+            codesign --verify --deep --strict --verbose=2 "$app"
+            spctl --assess --type execute --verbose=4 "$app"
+            xcrun stapler validate "$app"
+          done
+
+      - name: Upload signed macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: breeze-stable-macos
+          retention-days: 30
+          path: |
+            shell/dist/*.dmg
+            shell/dist/*.zip
+
+  linux:
+    name: linux-production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Build Breeze UI
+        run: python3 build.py
+
+      - name: Install shell dependencies
+        working-directory: shell
+        run: npm install --no-audit --no-fund
+
+      - name: Package Linux production build
+        working-directory: shell
+        run: npx electron-builder --linux --config electron-builder.production.yml --publish never
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: breeze-stable-linux
+          retention-days: 30
+          path: |
+            shell/dist/*.AppImage
+            shell/dist/*.deb
+
+  manifest:
+    name: final-manifest
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: breeze-stable-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate post-signing checksums and manifest
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          root = pathlib.Path('.')
+          files = []
+          for p in sorted(root.iterdir()):
+              if not p.is_file() or p.name in {'SHA256SUMS.txt', 'release-manifest.json'}:
+                  continue
+              h = hashlib.sha256()
+              with p.open('rb') as f:
+                  for chunk in iter(lambda: f.read(1 << 20), b''):
+                      h.update(chunk)
+              files.append({'name': p.name, 'size': p.stat().st_size, 'sha256': h.hexdigest()})
+          manifest = {
+              'version': '1.3.0',
+              'tag': 'v1.3.0',
+              'channel': 'stable',
+              'source_sha': '${{ github.sha }}',
+              'signed_windows': True,
+              'signed_notarized_macos': True,
+              'files': files,
+          }
+          pathlib.Path('release-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(manifest, indent=2))
+          PY
+          cat SHA256SUMS.txt
+
+      - name: Upload final stable manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: breeze-stable-release-assets
+          retention-days: 90
+          path: release-assets/*
+
+  publish:
+    name: publish-stable
+    if: ${{ inputs.publish == true }}
+    needs: manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: breeze-stable-release-assets
+          path: release-assets
+
+      - name: Refuse to overwrite an existing stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.3.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo '::error::Stable release v1.3.0 already exists; refusing to overwrite signed release bytes.'
+            exit 1
+          fi
+
+      - name: Publish Breeze 1.3.0 stable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.3.0 release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title 'Breeze 1.3.0' \
+            --notes 'Breeze 1.3.0 stable desktop release. Windows artifacts are Authenticode-signed. macOS artifacts are Developer ID signed, hardened-runtime enabled, notarized and validated. SHA256SUMS.txt and release-manifest.json describe the exact published bytes.'
+
+  report:
+    name: report
+    if: ${{ always() }}
+    needs: [windows, macos, linux, manifest, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report stable release pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 2 --repo "$GITHUB_REPOSITORY" --body "Stable-release run \`${{ github.run_id }}\`: Windows **${{ needs.windows.result }}**, macOS **${{ needs.macos.result }}**, Linux **${{ needs.linux.result }}**, final manifest **${{ needs.manifest.result }}**, publish **${{ needs.publish.result }}**. Source: \`$GITHUB_SHA\`."
