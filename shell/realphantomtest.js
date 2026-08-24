@@ -10,6 +10,22 @@ let pass=0, fail=0;
 function ok(name,cond,detail=''){console.log(`${cond?'PASS':'FAIL'}  ${name}${detail?`  [${detail}]`:''}`);cond?pass++:fail++;}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,res)=>{res.writeHead(200,{'content-type':'text/html','cache-control':'no-store'});res.end('<!doctype html><html><head><title>Breeze Phantom dapp</title></head><body><h1>Breeze Phantom dapp</h1></body></html>');});srv.listen(0,'127.0.0.1',()=>resolve(srv));});}
+async function findRenderedExtensionSurface(origin,exclude=new Set(),timeout=40000){
+  const until=Date.now()+timeout;
+  let last={};
+  while(Date.now()<until){
+    for(const candidate of BrowserWindow.getAllWindows()){
+      if(!candidate||candidate.isDestroyed()||exclude.has(candidate.id))continue;
+      const href=String(candidate.webContents.getURL()||'');
+      if(!href.startsWith(origin))continue;
+      const state=await candidate.webContents.executeJavaScript(`({ready:document.readyState,body:(document.body?.innerText||'').trim().slice(0,1000),title:document.title||'',href:location.href})`).catch(()=>({href}));
+      last=state;
+      if(state.ready==='complete'&&state.body)return{window:candidate,state};
+    }
+    await sleep(250);
+  }
+  return{window:null,state:last};
+}
 
 (async()=>{
   const source=path.resolve(String(process.env.PHANTOM_EXTENSION_DIR||''));
@@ -17,7 +33,7 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
   const manifest=JSON.parse(fs.readFileSync(path.join(source,'manifest.json'),'utf8'));
   const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'breeze-real-phantom-'));
   const userData=path.join(tmp,'user-data');
-  let srv=null, win=null, popup=null, ses=null;
+  let srv=null, win=null, popup=null, surface=null, ses=null;
   try{
     ok('official Phantom package has a supported manifest version',[2,3].includes(Number(manifest.manifest_version)),String(manifest.manifest_version));
     ok('official Phantom package has an extension name',typeof manifest.name==='string'&&!!manifest.name,String(manifest.name||''));
@@ -59,15 +75,15 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
       const action=await runtime.openAction(localId,{workspaceId:'default',sealed:false});
       ok('Breeze opens the official Phantom action through production runtime',action?.ok===true&&Number.isInteger(action?.windowId),JSON.stringify(action||{}));
       if(action?.ok&&Number.isInteger(action.windowId))popup=BrowserWindow.fromId(action.windowId);
-      if(popup){
-        let ui={};
-        for(let i=0;i<160;i++){
-          if(popup.isDestroyed())break;
-          ui=await popup.webContents.executeJavaScript(`({ready:document.readyState,body:(document.body?.innerText||'').trim().slice(0,800),title:document.title||'',href:location.href})`).catch(()=>({}));
-          if(ui.ready==='complete'&&ui.body)break;
-          await sleep(250);
-        }
-        ok('official Phantom extension UI renders in Breeze',ui.ready==='complete'&&!!ui.body,JSON.stringify(ui));
+      const extOrigin=`chrome-extension://${loaded.runtimeId}/`;
+      // Phantom can use the tiny action popup only as a fresh-install launcher
+      // and create a separate extension page for onboarding. Follow the real
+      // extension-origin surface rather than requiring the launcher to remain.
+      const rendered=await findRenderedExtensionSurface(extOrigin,new Set([win.id]),40000);
+      surface=rendered.window;
+      ok('official Phantom extension UI or onboarding renders in Breeze',!!surface&&rendered.state?.ready==='complete'&&!!rendered.state?.body,JSON.stringify(rendered.state||{}));
+      if(surface){
+        ok('Phantom rendered surface stays inside its own extension origin',String(rendered.state.href||'').startsWith(extOrigin),String(rendered.state.href||''));
       }
     }
 
@@ -76,7 +92,7 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     await runtime.remove(localId,[{ses,workspaceId:'default'}]);
   }catch(err){console.error(err);fail++;}
   finally{
-    try{if(popup&&!popup.isDestroyed())popup.destroy();}catch{}
+    try{for(const w of BrowserWindow.getAllWindows()){if(w!==win&&!w.isDestroyed())w.destroy();}}catch{}
     try{if(win&&!win.isDestroyed())win.destroy();}catch{}
     try{if(srv)srv.close();}catch{}
     try{fs.rmSync(tmp,{recursive:true,force:true});}catch{}
