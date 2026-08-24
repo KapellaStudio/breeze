@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    BREEZE — CHROME ↔ SHELL INTEGRATION
-   Does the UI actually drive real Chromium tabs? Boots the real window, loads
-   real local pages through the same bridge the UI uses, and asserts the
-   sidebar, address bar and nav buttons reflect real state.
+   Boots the packaged bootstrap, real chrome and real local HTTP pages. This
+   catches the dangerous class of bug where a polished prototype handler still
+   toasts success instead of driving Chromium.
 
      xvfb-run -a electron integration.js --no-sandbox --disable-gpu
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -12,9 +12,6 @@ const path = require('path');
 const http = require('http');
 const fs   = require('fs');
 
-/* Real pages over real HTTP. file:// is deliberately refused by the shell
-   (it is a local-file read from the omnibox), so testing with file:// would
-   be testing a path users can never take. */
 let PORT = 0;
 const server = http.createServer((req, res) => {
   const name = (req.url || '/').split('?')[0].replace(/^\//, '') || 'alpha.html';
@@ -30,11 +27,11 @@ const results = [];
 const ok = (n, c, x = '') => results.push([c ? 'PASS' : 'FAIL', n, x]);
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-require('./main.js');            // boots the real shell
+require('./bootstrap.js');       // same entry point the packaged app uses
 
 app.whenReady().then(async () => {
   await new Promise(r => server.listen(0, '127.0.0.1', () => { PORT = server.address().port; r(); }));
-  await wait(1800);
+  await wait(1900);
   const win = BrowserWindow.getAllWindows()[0];
   if (!win) { ok('window exists', false); return finish(); }
   ok('window exists', true);
@@ -44,52 +41,72 @@ app.whenReady().then(async () => {
   const titles = () => exec(`[...document.querySelectorAll('.tab .t')].map(e=>e.textContent).join('|')`);
 
   try {
-    ok('adapter engaged (data-shell="1")',
-       await exec(`document.documentElement.dataset.shell === '1'`));
-
-    ok('bridge reachable from the chrome',
-       await exec(`typeof window.__BREEZE_SHELL__ === 'object'`));
+    ok('adapter engaged (data-shell="1")', await exec(`document.documentElement.dataset.shell === '1'`));
+    ok('trusted bridge reachable', await exec(`typeof window.__BREEZE_SHELL__ === 'object'`));
+    ok('packaged first-run service reachable', await exec(`window.__BREEZE_SHELL__.firstRunStatus().then(x=>typeof x.firstRunComplete==='boolean')`));
+    ok('fake home weather is removed', await exec(`document.querySelector('.homebar .wx') === null`));
+    ok('unsupported split control is hidden', await exec(`getComputedStyle(document.querySelector('#splitBtn')).display === 'none'`));
 
     const id = await exec(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(site('alpha'))}})`);
     await wait(1400);
     ok('newTab returns a real id', typeof id === 'number', 'id=' + id);
-
     const t1 = await titles();
     ok('sidebar shows the REAL page title', /Alpha Site/.test(t1), t1.slice(0, 55));
-
     const addr = await exec(`document.querySelector('#urlText').textContent`);
     ok('address bar shows the real URL', /alpha\.html/.test(addr), addr.slice(0, 45));
 
     await exec(`window.__BREEZE_SHELL__.navigate(${id}, ${JSON.stringify(site('beta'))})`);
-    await wait(1400);
+    await wait(1200);
     ok('navigation updates the sidebar', /Beta Site/.test(await titles()));
-
-    ok('back enabled after navigating',
-       await exec(`!document.querySelector('#navBack').disabled`));
-
+    ok('back enabled after navigating', await exec(`!document.querySelector('#navBack').disabled`));
     await exec(`window.__BREEZE_SHELL__.back(${id})`);
-    await wait(1100);
-    ok('back returns to the previous real page', /Alpha Site/.test(await titles()));
+    await wait(1000);
+    ok('back returns to previous real page', /Alpha Site/.test(await titles()));
 
     const hits = await exec(`window.__BREEZE_SHELL__.find(${id},'browser')`);
     ok('findInPage runs against real content', typeof hits === 'number', 'req=' + hits);
 
-    const geo = await exec(`(()=>{const r=document.querySelector('#content').getBoundingClientRect();
-      return Math.round(r.left)+','+Math.round(r.top);})()`);
+    const geo = await exec(`(()=>{const r=document.querySelector('#content').getBoundingClientRect();return Math.round(r.left)+','+Math.round(r.top);})()`);
     ok('chrome reports a real content gap', /^\d+,\d+$/.test(geo) && !geo.startsWith('0,'), geo);
 
+    /* Persistent settings must drive the actual packaged DOM, not just JSON. */
+    await exec(`document.querySelector('[data-seg="rail"] [data-v="off"]').click()`);
+    await wait(180);
+    ok('Sidebar Hidden setting changes real layout', await exec(`document.documentElement.dataset.sidebar==='off' && getComputedStyle(document.querySelector('.side')).display==='none'`));
+    ok('Sidebar preference persisted', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>p.sidebar==='off')`));
+    await exec(`document.querySelector('[data-seg="rail"] [data-v="on"]').click()`);
+    await wait(120);
+
+    /* Native-result rendering used to leave prototype toast-only handlers in
+       place. Render a known local result, verify Queue persists it, then verify
+       clicking the result navigates the real active WebContentsView. */
+    await exec(`(()=>{
+      SR_DATA.length=0;
+      SR_DATA.push({title:'Beta Search Hit',dom:'127.0.0.1',path:'/beta.html',url:${JSON.stringify(site('beta'))},kind:'Web',snip:'A local integration search result',k:null,read:null,tr:null,kb:null});
+      renderSearch();
+    })()`);
+    await wait(250);
+    ok('prototype Glance/Split search actions removed', await exec(`![...document.querySelectorAll('#srList .srAct')].some(b=>['Glance','Split'].includes(b.textContent.trim()))`));
+    await exec(`([...document.querySelectorAll('#srList .srAct')].find(b=>b.textContent.trim()==='Queue'))?.click()`);
+    await wait(220);
+    ok('search Queue action persists real URL', await exec(`window.__BREEZE_SHELL__.listQueue('default').then(x=>x.some(q=>q.url===${JSON.stringify(site('beta'))}))`));
+    await exec(`document.querySelector('#srList .sr').click()`);
+    await wait(1200);
+    ok('clicking native search result navigates Chromium', /Beta Site/.test(await titles()));
+
     await exec(`window.__BREEZE_SHELL__.closeTab(${id})`);
-    await wait(900);
-    ok('closing removes it from the sidebar', !/Alpha/.test(await titles()));
+    await wait(800);
+    ok('closing removes it from sidebar', !/Beta Site/.test(await titles()));
   } catch (err) {
-    results.push(['FAIL', 'integration threw', String(err.message || err).slice(0, 90)]);
+    results.push(['FAIL', 'integration threw', String(err.message || err).slice(0, 120)]);
   }
   finish();
 });
 
 function finish(){
+  try{server.close();}catch{}
   const failed = results.filter(r => r[0] === 'FAIL');
-  console.log('\n── BREEZE CHROME↔SHELL INTEGRATION ──');
+  console.log('\n── BREEZE PACKAGED INTEGRATION ──');
   results.forEach(([s, n, x]) => console.log(`  ${s}  ${n}${x ? '  [' + x + ']' : ''}`));
   console.log(`\n  ${results.length - failed.length}/${results.length} passed\n`);
   app.exit(failed.length ? 1 : 0);
