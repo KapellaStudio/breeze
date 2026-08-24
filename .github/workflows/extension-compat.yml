@@ -3,11 +3,12 @@ name: extension-compat
 on:
   push:
     branches:
-      - feature/extension-compat-mv3
+      - 'feature/extension-*'
   pull_request:
     paths:
       - 'shell/extensions.js'
       - 'shell/extensiontest.js'
+      - 'shell/metamaskcompat.js'
       - 'shell/package.json'
       - '.github/workflows/extension-compat.yml'
 
@@ -29,5 +30,7 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Probe Electron MV3 service-worker runtime
         run: xvfb-run -a npx electron extensiontest.js --no-sandbox
+      - name: Probe MetaMask-class extension surface
+        run: xvfb-run -a npx electron metamaskcompat.js --no-sandbox
       - name: Keep existing browser-core contracts green
         run: npm run browsercoretest
