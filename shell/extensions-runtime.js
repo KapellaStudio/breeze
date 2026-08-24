@@ -96,7 +96,10 @@ function createExtensionWindow(ctx,details={}){
     return {action:'deny'};
   });
   w.once('ready-to-show',()=>{ if(!w.isDestroyed()&&details.focused!==false) w.show(); });
-  w.on('closed',()=>extensionWindows.delete(w));
+  w.on('closed',()=>{
+    extensionWindows.delete(w);
+    emitWorkerEvent(ctx,'windows.onRemoved',[w.id]);
+  });
   w.loadURL(url).catch(()=>{});
   return w;
 }
@@ -178,6 +181,20 @@ function serviceWorkerRuntimeId(ses,versionId,worker){
     return u.protocol==='chrome-extension:'?u.hostname:'';
   }catch{return '';}
 }
+function emitWorkerEvent(ctx,name,args=[]){
+  const state=serviceWorkerSessions.get(ctx?.ses);
+  if(!state)return;
+  const eventName=String(name||'');
+  const eventArgs=Array.isArray(args)?args:[];
+  for(const worker of state.workers){
+    try{
+      if(!worker||worker.isDestroyed?.())continue;
+      const runtimeId=serviceWorkerRuntimeId(ctx.ses,worker.versionId,worker);
+      if(runtimeId!==String(ctx.runtimeId||''))continue;
+      worker.send('breeze:extension-event',eventName,eventArgs);
+    }catch{}
+  }
+}
 async function waitForWorkerContext(ses,runtimeId){
   const id=String(runtimeId||'');
   for(let i=0;i<100;i++){
@@ -216,10 +233,13 @@ function ensureServiceWorkerBridge(ses){
   let preloadId='';
   try{preloadId=ses.registerPreloadScript({type:'service-worker',filePath:serviceWorkerPreload});}
   catch{return null;}
-  const state={preloadId,workers:new WeakSet()};
+  const state={preloadId,workers:new Set()};
   serviceWorkerSessions.set(ses,state);
   const onStatus=({versionId,runningStatus})=>{
     if(runningStatus==='starting'||runningStatus==='running')attachServiceWorkerBridge(ses,versionId);
+    if(runningStatus==='stopped'||runningStatus==='redundant'){
+      for(const worker of state.workers) if(Number(worker?.versionId)===Number(versionId)) state.workers.delete(worker);
+    }
   };
   try{ses.serviceWorkers.on('running-status-changed',onStatus);}catch{}
   try{
