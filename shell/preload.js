@@ -125,6 +125,9 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   installUnpacked: () => call('extension:installUnpacked'),
   setExtensionEnabled:(id,on) => call('extension:setEnabled', id, !!on),
   removeExtension: id => call('extension:remove', id),
+  openExtensionAction: id => activePrivate
+    ? Promise.resolve({ error:'Extensions are disabled in Private browsing' })
+    : call('extension:openAction', id, activeWorkspace),
 
   listDownloads: () => call('download:list'),
   openDownload: id => call('download:open', id),
