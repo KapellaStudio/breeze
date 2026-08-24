@@ -33,9 +33,7 @@ jobs:
             tmp="/tmp/$(basename "$target").payload"
             : > "$tmp"
             IFS=',' read -ra chunk_list <<< "$parts"
-            for part in "${chunk_list[@]}"; do
-              cat ".sourceparts/$part" >> "$tmp"
-            done
+            for part in "${chunk_list[@]}"; do cat ".sourceparts/$part" >> "$tmp"; done
             case "${mode:-raw}" in
               gz64) base64 -d "$tmp" | gzip -d > "$target" ;;
               raw) cp "$tmp" "$target" ;;
@@ -69,10 +67,8 @@ jobs:
           out=pathlib.Path('/tmp/breeze-generated-js')
           for f in ['breeze-desktop.html','breeze-mobile.html']:
               scripts=re.findall(r'<script[^>]*>(.*?)</script>', pathlib.Path(f).read_text(encoding='utf-8'), re.S)
-              if not scripts:
-                  raise SystemExit(f'no scripts found in {f}')
-              for i,script in enumerate(scripts):
-                  (out/f'{f}.{i}.js').write_text(script,encoding='utf-8')
+              if not scripts: raise SystemExit(f'no scripts found in {f}')
+              for i,script in enumerate(scripts): (out/f'{f}.{i}.js').write_text(script,encoding='utf-8')
           PY
           for f in /tmp/breeze-generated-js/*.js; do node --check "$f"; done
 
@@ -82,9 +78,7 @@ jobs:
             src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js \
             src/breeze-product.js src/breeze-context.js src/breeze-vault.js \
             src/breeze-home.js src/breeze-runtime.js src/breeze-search-ui.js \
-            src/breeze-omni.js; do
-            node --check "$f"
-          done
+            src/breeze-omni.js; do node --check "$f"; done
 
       - name: Regression — desktop 1440/1180/1024
         run: python3 src/regress.py
@@ -130,6 +124,7 @@ jobs:
           npm run contexttest
           npm run vaulttest
           npm run weathertest
+          npm run omniboxtest
 
       - name: Finalize verified reconstructed source
         if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('.sourceparts/manifest') != '' }}
