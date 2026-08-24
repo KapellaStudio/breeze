@@ -16,7 +16,12 @@ checks=[]
 def check(name,cond): checks.append((name,bool(cond)))
 check('Private uses an in-memory Electron partition', 'breeze-private-' in main and 'fromPartition(partition,{cache:false})' in main)
 check('Private session storage is cleared at teardown', 'clearData()' in main and 'clearAuthCache()' in main and 'closeAllConnections()' in main)
-check('Private tabs never enter restart state', "filter(([,t]) => !t.private)" in main)
+# Check the behavior, not a particular formatting of stateSnapshot(): persisted
+# tab rows must originate from a filter that excludes t.private, and that
+# filtered collection must be the one assigned to the restart-state tabs key.
+private_restart_filter = re.search(r"filter\(\s*\(\s*\[,\s*t\s*\]\s*\)\s*=>\s*!\s*t\.private\s*\)", main)
+private_restart_sink = re.search(r"\btabs\s*:\s*persistable\b", main)
+check('Private tabs never enter restart state', private_restart_filter and private_restart_sink)
 check('Private tabs never enter reopen-closed recovery', 'recentlyClosed.push' in main and 'if (!t.private)' in main)
 check('Private navigation never enters Breeze history', 'if(privateMode) return null' in lib)
 check('Private permissions have an ephemeral decision map', 'privateMaps=new WeakMap()' in perms and 'never writes a site decision to disk' in perms)
