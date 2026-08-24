@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'shell/realmetamasktest.js'
+      - 'shell/patch-metamask-harness.js'
       - 'shell/extensions-runtime.js'
       - 'shell/extension-compat.js'
       - 'shell/extension-page-preload.js'
@@ -57,4 +58,6 @@ jobs:
         working-directory: shell
         env:
           METAMASK_EXTENSION_DIR: ${{ github.workspace }}/.vendor/metamask/dist/chrome
-        run: xvfb-run -a npx electron realmetamasktest.js --no-sandbox
+        run: |
+          node patch-metamask-harness.js
+          xvfb-run -a npx electron realmetamasktest.js --no-sandbox
