@@ -52,7 +52,8 @@ app.whenReady().then(async () => {
     ok('weather starts opt-in, not as a fake reading', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>p.weatherEnabled===false)`));
     ok('real tab sleeping defaults on', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>p.sleep===true)`));
     ok('search suggestions are a real persisted preference', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>typeof p.searchSuggestions==='boolean'&&typeof p.searchLibrary==='boolean')`));
-    ok('unsupported split control is hidden', await exec(`getComputedStyle(document.querySelector('#splitBtn')).display === 'none'`));
+    ok('real Split View bridge is present', await exec(`typeof window.__BREEZE_SHELL__.openSplit==='function'&&typeof window.__BREEZE_SHELL__.setSplitRatio==='function'`));
+    ok('Split View control is live', await exec(`getComputedStyle(document.querySelector('#splitBtn')).display !== 'none' && document.querySelector('#splitBtn').dataset.realSplit==='1'`));
 
     const id = await exec(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(site('alpha'))}})`);
     await wait(1400);
@@ -69,6 +70,28 @@ app.whenReady().then(async () => {
     await exec(`window.__BREEZE_SHELL__.back(${id})`);
     await wait(1000);
     ok('back returns to previous real page', /Alpha Site/.test(await titles()));
+
+    /* Split View must be two native Chromium views, not cloned browser chrome. */
+    const splitId=await exec(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(site('beta'))}})`);
+    await wait(850);
+    await exec(`window.__BREEZE_SHELL__.selectTab(${id})`);await wait(180);
+    const openedSplit=await exec(`window.__BREEZE_SHELL__.openSplit(${splitId})`);await wait(260);
+    ok('Split View opens two stable pane ids', openedSplit?.active===true&&openedSplit?.leftTabId===id&&openedSplit?.rightTabId===splitId);
+    let paneBounds=win.contentView.children.map(v=>v.getBounds()).filter(b=>b.width>0&&b.height>0).sort((a,b)=>a.x-b.x);
+    ok('Split View renders two genuine native WebContentsViews', paneBounds.length===2&&paneBounds[0].x+paneBounds[0].width<paneBounds[1].x, JSON.stringify(paneBounds));
+    const blockedSleep=await exec(`window.__BREEZE_SHELL__.sleepTab(${splitId})`);
+    ok('visible split pane cannot be put to sleep', blockedSleep?.error==='split pane', blockedSleep?.error||'');
+    const resized=await exec(`window.__BREEZE_SHELL__.setSplitRatio(.64)`);await wait(180);
+    paneBounds=win.contentView.children.map(v=>v.getBounds()).filter(b=>b.width>0&&b.height>0).sort((a,b)=>a.x-b.x);
+    const measuredRatio=paneBounds.length===2?paneBounds[0].width/(paneBounds[0].width+paneBounds[1].width):0;
+    ok('Split divider resizes real renderer bounds', resized?.ratio===.64&&measuredRatio>.62&&measuredRatio<.66, measuredRatio.toFixed(3));
+    await exec(`window.__BREEZE_SHELL__.selectTab(${splitId})`);await wait(160);
+    const focusedSplit=await exec(`window.__BREEZE_SHELL__.splitState()`);
+    ok('focus moves to right pane without swapping sides', focusedSplit?.leftTabId===id&&focusedSplit?.rightTabId===splitId&&focusedSplit?.focusedTabId===splitId);
+    await exec(`window.__BREEZE_SHELL__.closeSplit()`);await wait(180);
+    paneBounds=win.contentView.children.map(v=>v.getBounds()).filter(b=>b.width>0&&b.height>0);
+    ok('closing Split View returns to one native page', paneBounds.length===1);
+    await exec(`window.__BREEZE_SHELL__.closeTab(${splitId});window.__BREEZE_SHELL__.selectTab(${id})`);await wait(220);
 
     /* The visible omnibox must search the browser itself, not a canned array. */
     await exec(`(()=>{openOmni();const i=document.querySelector('#omniInput');i.value='@tabs Alpha';i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
