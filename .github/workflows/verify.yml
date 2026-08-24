@@ -76,9 +76,12 @@ jobs:
           PY
           for f in /tmp/breeze-generated-js/*.js; do node --check "$f"; done
 
-      - name: Syntax check shell and functions
+      - name: Syntax check shell and source modules
         run: |
-          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js src/breeze-product.js src/breeze-context.js src/breeze-vault.js; do
+          for f in shell/*.js netlify/functions/*.js \
+            src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js \
+            src/breeze-product.js src/breeze-context.js src/breeze-vault.js \
+            src/breeze-home.js src/breeze-runtime.js; do
             node --check "$f"
           done
 
