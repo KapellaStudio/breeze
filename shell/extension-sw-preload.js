@@ -33,6 +33,23 @@ try {
   try { ipcRenderer.send('breeze:preload-error', 'expose: '+String(err&&err.message||err)); } catch {}
 }
 
+// ServiceWorkerMain.send() lands here. Keep host event delivery one-way and
+// narrowly named; extension code never receives an IPC object or arbitrary
+// host channel. This is required for Chrome lifecycle events such as
+// windows.onRemoved, which wallet background workers use to release a closed
+// approval popup before opening the next request.
+ipcRenderer.on('breeze:extension-event', (_event, name, args) => {
+  try {
+    contextBridge.executeInMainWorld({
+      func: (eventName, eventArgs) => {
+        const dispatch = globalThis.__breezeDispatchExtensionEvent;
+        if (typeof dispatch === 'function') dispatch(String(eventName||''), ...(Array.isArray(eventArgs)?eventArgs:[]));
+      },
+      args: [String(name||''), Array.isArray(args)?args:[]]
+    });
+  } catch {}
+});
+
 function patchMainWorld(){
   try {
     const result=contextBridge.executeInMainWorld({
@@ -47,14 +64,30 @@ function patchMainWorld(){
         const manifest = (()=>{ try { return chrome.runtime.getManifest?.() || {}; } catch { return {}; } })();
         const permissions = new Set(Array.isArray(manifest.permissions) ? manifest.permissions : []);
         const bridgeReady = !!bridge && typeof bridge.invoke === 'function';
-        const event = () => {
+        const registry = globalThis.__breezeExtensionEventRegistry instanceof Map
+          ? globalThis.__breezeExtensionEventRegistry
+          : new Map();
+        globalThis.__breezeExtensionEventRegistry = registry;
+        globalThis.__breezeDispatchExtensionEvent = (name,...args) => {
+          const entry=registry.get(String(name||''));
+          if(!entry)return;
+          for(const fn of [...entry.listeners]){
+            try{fn(...args);}catch(err){queueMicrotask(()=>{throw err;});}
+          }
+        };
+        const event = name => {
+          const key=String(name||'');
+          const existing=registry.get(key);
+          if(existing?.api)return existing.api;
           const listeners=new Set();
-          return {
+          const api={
             addListener(fn){if(typeof fn==='function')listeners.add(fn);},
             removeListener(fn){listeners.delete(fn);},
             hasListener(fn){return listeners.has(fn);},
             hasListeners(){return listeners.size>0;}
           };
+          registry.set(key,{api,listeners});
+          return api;
         };
         const ensureOn = (root,name) => {
           if(!root)return null;
@@ -86,9 +119,9 @@ function patchMainWorld(){
 
         const tabs = ensureOn(chrome,'tabs');
         if(tabs){
-          if(!tabs.onRemoved)assign(tabs,'onRemoved',event());
-          if(!tabs.onUpdated)assign(tabs,'onUpdated',event());
-          if(!tabs.onActivated)assign(tabs,'onActivated',event());
+          if(!tabs.onRemoved)assign(tabs,'onRemoved',event('tabs.onRemoved'));
+          if(!tabs.onUpdated)assign(tabs,'onUpdated',event('tabs.onUpdated'));
+          if(!tabs.onActivated)assign(tabs,'onActivated',event('tabs.onActivated'));
           const tabMethods={
             create:wrap('tabs.create'),
             query:wrap('tabs.query'),
@@ -102,8 +135,8 @@ function patchMainWorld(){
 
         const windows = ensureOn(chrome,'windows');
         if(windows){
-          if(!windows.onRemoved)assign(windows,'onRemoved',event());
-          if(!windows.onFocusChanged)assign(windows,'onFocusChanged',event());
+          if(!windows.onRemoved)assign(windows,'onRemoved',event('windows.onRemoved'));
+          if(!windows.onFocusChanged)assign(windows,'onFocusChanged',event('windows.onFocusChanged'));
           if(windows.WINDOW_ID_NONE==null)assign(windows,'WINDOW_ID_NONE',-1);
           if(typeof windows.create!=='function')assign(windows,'create',wrap('windows.create'));
           for(const name of ['getAll','getCurrent','getLastFocused']) if(typeof windows[name]!=='function')assign(windows,name,wrap('windows.'+name));
@@ -122,7 +155,7 @@ function patchMainWorld(){
 
         const notifications = permissions.has('notifications') ? ensureOn(chrome,'notifications') : null;
         if(notifications){
-          if(!notifications.onClicked)assign(notifications,'onClicked',event());
+          if(!notifications.onClicked)assign(notifications,'onClicked',event('notifications.onClicked'));
           if(typeof notifications.create!=='function')assign(notifications,'create',function(id,options,cb){
             if(id&&typeof id==='object'){cb=options;options=id;id='';}
             const p=bridgeReady?bridge.invoke('notifications.create',{id:id||'',options:options&&typeof options==='object'?options:{}}):Promise.reject(new Error('Breeze extension host is not ready'));
