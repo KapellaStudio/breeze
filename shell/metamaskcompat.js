@@ -53,11 +53,11 @@ function serve(){
     sandbox:{pages:['sandbox.html']}
   };
   write(extDir,'manifest.json',JSON.stringify(manifest,null,2));
-  write(extDir,'worker.js',`const matrix={\n  runtime:!!chrome.runtime,\n  runtimeConnect:typeof chrome.runtime?.connect==='function',\n  storage:!!chrome.storage,\n  storageSession:!!chrome.storage?.session,\n  tabs:!!chrome.tabs,\n  tabsCreate:typeof chrome.tabs?.create==='function',\n  tabsQuery:typeof chrome.tabs?.query==='function',\n  windows:!!chrome.windows,\n  windowsCreate:typeof chrome.windows?.create==='function',\n  windowsGetAll:typeof chrome.windows?.getAll==='function',\n  alarms:!!chrome.alarms,\n  alarmsCreate:typeof chrome.alarms?.create==='function',\n  notifications:!!chrome.notifications,\n  scripting:!!chrome.scripting,\n  scriptingExecute:typeof chrome.scripting?.executeScript==='function',\n  webRequest:!!chrome.webRequest,\n  offscreen:!!chrome.offscreen,\n  offscreenCreate:typeof chrome.offscreen?.createDocument==='function',\n  identity:!!chrome.identity,\n  identityWebAuth:typeof chrome.identity?.launchWebAuthFlow==='function',\n  sidePanel:!!chrome.sidePanel,\n  cookies:!!chrome.cookies,\n  commands:!!chrome.commands\n};\nchrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{\n  if(msg&&msg.kind==='surface') { sendResponse({matrix}); return false; }\n});`);
-  write(extDir,'isolated.js',`chrome.runtime.sendMessage({kind:'surface'},response=>{\n  document.documentElement.dataset.breezeWalletWorker='ok';\n  document.documentElement.dataset.breezeWalletApis=JSON.stringify(response&&response.matrix||{});\n});`);
+  write(extDir,'worker.js',`const native={\n  runtime:!!chrome.runtime,runtimeConnect:typeof chrome.runtime?.connect==='function',\n  storage:!!chrome.storage,storageSession:!!chrome.storage?.session,\n  tabs:!!chrome.tabs,tabsCreate:typeof chrome.tabs?.create==='function',tabsQuery:typeof chrome.tabs?.query==='function',\n  windows:!!chrome.windows,windowsCreate:typeof chrome.windows?.create==='function',windowsGetAll:typeof chrome.windows?.getAll==='function',\n  alarms:!!chrome.alarms,alarmsCreate:typeof chrome.alarms?.create==='function',\n  notifications:!!chrome.notifications,scripting:!!chrome.scripting,scriptingExecute:typeof chrome.scripting?.executeScript==='function',\n  webRequest:!!chrome.webRequest,offscreen:!!chrome.offscreen,offscreenCreate:typeof chrome.offscreen?.createDocument==='function',\n  identity:!!chrome.identity,identityWebAuth:typeof chrome.identity?.launchWebAuthFlow==='function',\n  sidePanel:!!chrome.sidePanel,cookies:!!chrome.cookies,commands:!!chrome.commands\n};\nfunction ensureRoot(name){try{if(!chrome[name])chrome[name]={};return !!chrome[name];}catch{return false;}}\nfunction ensureFn(root,name){try{if(!root)return false;if(typeof root[name]!=='function')root[name]=()=>Promise.resolve(null);return typeof root[name]==='function';}catch{return false;}}\nconst shim={rootExtensible:Object.isExtensible(chrome)};\nshim.tabsCreate=ensureFn(chrome.tabs,'create');\nshim.windowsRoot=ensureRoot('windows');shim.windowsCreate=ensureFn(chrome.windows,'create');shim.windowsGetAll=ensureFn(chrome.windows,'getAll');\nshim.notificationsRoot=ensureRoot('notifications');shim.notificationsCreate=ensureFn(chrome.notifications,'create');\nshim.identityRoot=ensureRoot('identity');shim.identityWebAuth=ensureFn(chrome.identity,'launchWebAuthFlow');shim.identityRedirect=ensureFn(chrome.identity,'getRedirectURL');\nshim.sidePanelRoot=ensureRoot('sidePanel');shim.sidePanelOpen=ensureFn(chrome.sidePanel,'open');\nshim.cookiesRoot=ensureRoot('cookies');shim.cookiesGetAll=ensureFn(chrome.cookies,'getAll');\nshim.commandsRoot=ensureRoot('commands');shim.commandsGetAll=ensureFn(chrome.commands,'getAll');\nchrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{if(msg&&msg.kind==='surface'){sendResponse({native,shim});return false;}});`);
+  write(extDir,'isolated.js',`chrome.runtime.sendMessage({kind:'surface'},response=>{\n  document.documentElement.dataset.breezeWalletWorker='ok';\n  document.documentElement.dataset.breezeWalletApis=JSON.stringify(response||{});\n});`);
   write(extDir,'inpage.js',`window.ethereum={isBreezeMetaMaskProbe:true,request:async()=>({ok:true})};\ndocument.documentElement.dataset.breezeWalletMainWorld='ok';`);
   write(extDir,'popup.html','<!doctype html><html><body><div id="status">loading</div><pre id="apis"></pre><script src="popup.js"></script></body></html>');
-  write(extDir,'popup.js',`chrome.runtime.sendMessage({kind:'surface'},response=>{\n  document.getElementById('apis').textContent=JSON.stringify(response&&response.matrix||{});\n  document.getElementById('status').textContent='ready';\n});`);
+  write(extDir,'popup.js',`chrome.runtime.sendMessage({kind:'surface'},response=>{\n  document.getElementById('apis').textContent=JSON.stringify(response||{});\n  document.getElementById('status').textContent='ready';\n});`);
   write(extDir,'sandbox.html','<!doctype html><html><body>sandbox</body></html>');
 
   let srv, win, popupWin;
@@ -76,20 +76,23 @@ function serve(){
     await win.loadURL(`http://127.0.0.1:${port}/`);
     let page = null;
     for(let i=0;i<60;i++){
-      page = await win.webContents.executeJavaScript(`({\n        worker:document.documentElement.dataset.breezeWalletWorker||'',\n        mainWorld:document.documentElement.dataset.breezeWalletMainWorld||'',\n        provider:!!(window.ethereum&&window.ethereum.isBreezeMetaMaskProbe),\n        apis:document.documentElement.dataset.breezeWalletApis||''\n      })`);
+      page = await win.webContents.executeJavaScript(`({worker:document.documentElement.dataset.breezeWalletWorker||'',mainWorld:document.documentElement.dataset.breezeWalletMainWorld||'',provider:!!(window.ethereum&&window.ethereum.isBreezeMetaMaskProbe),apis:document.documentElement.dataset.breezeWalletApis||''})`);
       if(page.worker && page.mainWorld) break;
       await new Promise(r=>setTimeout(r,100));
     }
     ok('MetaMask-style isolated content script reaches the service worker', page?.worker==='ok', JSON.stringify(page));
     ok('MV3 content_scripts world MAIN executes in the page world', page?.mainWorld==='ok' && page?.provider===true, JSON.stringify(page));
 
-    let apiMatrix = {};
-    try { apiMatrix = JSON.parse(page?.apis || '{}'); } catch {}
-    console.log('API_MATRIX ' + JSON.stringify(apiMatrix));
-    ok('core wallet runtime and storage APIs exist', !!apiMatrix.runtime && !!apiMatrix.runtimeConnect && !!apiMatrix.storage && !!apiMatrix.storageSession);
-    ok('MetaMask tab APIs exist', !!apiMatrix.tabs && !!apiMatrix.tabsCreate && !!apiMatrix.tabsQuery, JSON.stringify(apiMatrix));
-    ok('MetaMask window APIs exist', !!apiMatrix.windows && !!apiMatrix.windowsCreate && !!apiMatrix.windowsGetAll, JSON.stringify(apiMatrix));
-    ok('web request observation API exists', !!apiMatrix.webRequest, JSON.stringify(apiMatrix));
+    let report = {native:{},shim:{}};
+    try { report = JSON.parse(page?.apis || '{}'); } catch {}
+    console.log('NATIVE_API_MATRIX ' + JSON.stringify(report.native||{}));
+    console.log('SHIM_API_MATRIX ' + JSON.stringify(report.shim||{}));
+    const n=report.native||{}, s=report.shim||{};
+    ok('native wallet runtime/storage floor exists', !!n.runtime && !!n.runtimeConnect && !!n.storage && !!n.storageSession);
+    ok('native scripting/webRequest/offscreen floor exists', !!n.scriptingExecute && !!n.webRequest && !!n.offscreenCreate, JSON.stringify(n));
+    ok('missing tab/window methods are writable bridge slots', !!s.tabsCreate && !!s.windowsRoot && !!s.windowsCreate && !!s.windowsGetAll, JSON.stringify(s));
+    ok('missing notification/cookie APIs are writable bridge slots', !!s.notificationsCreate && !!s.cookiesGetAll, JSON.stringify(s));
+    ok('missing identity/commands/sidePanel APIs are writable bridge slots', !!s.identityWebAuth && !!s.identityRedirect && !!s.commandsGetAll && !!s.sidePanelOpen, JSON.stringify(s));
 
     popupWin = new BrowserWindow({show:false,width:390,height:600,webPreferences:{session:ses,contextIsolation:true,nodeIntegration:false,sandbox:true}});
     await popupWin.loadURL(loaded.url + 'popup.html');
