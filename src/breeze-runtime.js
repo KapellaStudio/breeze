@@ -53,18 +53,43 @@
   }
   function correctDownloadSettings(){configureSwitch('[data-pane="downloads"]','Detect newer versions',false,'Not active in this RC. Breeze will not simulate version detection.');}
   function correctTabSettings(){configureSwitch('[data-pane="tabs"]','Sleep inactive tabs',false,'Real renderer discard is not enabled in this RC, so Breeze does not report fictional memory savings.');}
+
+  async function createWorkspaceFromCommand(){
+    const name=prompt('Name this workspace','New workspace');if(!name||!name.trim())return;
+    const r=await S.createWorkspace({name:name.trim(),sealed:false,accent:'blue'});
+    if(r?.error){if(typeof toast==='function')toast(r.error);return;}
+    await S.newTab({workspaceId:r.workspace.id,sealed:false});
+    if(typeof toast==='function')toast(`Workspace ${r.workspace.name} created`);
+  }
+  function openClearData(){try{if(typeof closeAll==='function')closeAll();if(typeof openScrim==='function')openScrim('set');if(typeof setPane==='function')setPane('privacy');}catch{}}
+  function setSidebarMode(value){const b=document.querySelector(`[data-seg="rail"] [data-v="${value}"]`);if(b)b.click();}
+
   function removeUnsupportedControls(){
     const split=$('#splitBtn');if(split){split.style.display='none';split.title='Split view requires the next browser-core lane';}
     const transcript=$('[data-panel="transcript"]');if(transcript)transcript.style.display='none';
     const shot=$('.pvShot');if(shot)shot.dataset.shellHidden='1';
+
+    // Any leftover prototype Reading-mode trigger is replaced by the real
+    // Reading Queue. Cloning drops listeners that were attached by the design
+    // prototype before the packaged runtime took over.
+    $$('[data-read]').forEach(old=>{
+      const b=old.cloneNode(true);b.removeAttribute('data-read');
+      b.onclick=e=>{e.preventDefault();e.stopPropagation();try{if(typeof setView==='function')setView('browse');if(typeof openPanel==='function')openPanel('queue');}catch{}};
+      old.replaceWith(b);
+    });
+    if(document.documentElement.dataset.view==='read')document.documentElement.dataset.view='browse';
+
     try{
       if(typeof COMMANDS!=='undefined'){
         const remove=new Set(['Open the design system PDF','Open the talk','Simulate a stuck page','Split view']);
         for(let i=COMMANDS.length-1;i>=0;i--)if(remove.has(COMMANDS[i]?.t))COMMANDS.splice(i,1);
+        const nw=COMMANDS.find(x=>x?.t==='New workspace');if(nw){nw.u='Create a persistent local workspace';nw.run=createWorkspaceFromCommand;}
+        const snap=COMMANDS.find(x=>x?.t==='Save session snapshot');if(snap){snap.u='Save restorable web tabs in this workspace';snap.run=()=>window.saveBreezeSnapshot?window.saveBreezeSnapshot():openPanel('snapshots');}
+        const collapse=COMMANDS.find(x=>x?.t==='Collapse sidebar');if(collapse){collapse.t='Sidebar rail';collapse.u='Switch to the compact favicon rail';collapse.run=()=>setSidebarMode('auto');}
         const q=COMMANDS.find(x=>x?.t==='Open reading queue');if(q)q.u='Saved locally in this workspace';
         const d=COMMANDS.find(x=>x?.t==='Open downloads');if(d)d.u='Real Chromium downloads';
         const e=COMMANDS.find(x=>x?.t==='Manage extensions');if(e)e.u='Compatible unpacked extensions';
-        const snap=COMMANDS.find(x=>x?.t==='Save session snapshot');if(snap){snap.u='Save restorable web tabs in this workspace';snap.run=()=>window.saveBreezeSnapshot?window.saveBreezeSnapshot():openPanel('snapshots');}
+        const clear=COMMANDS.find(x=>x?.t==='Clear browsing data');if(clear){clear.u='Choose real local data to remove';clear.run=openClearData;}
       }
       if(typeof APP_MENU!=='undefined'){
         const save=APP_MENU.find(x=>x?.t==='Save and share');if(save){save.t='Downloads & saved files';save.more=false;save.i='down';save.act=()=>openPanel('downloads');}
