@@ -2,9 +2,7 @@ name: real-metamask-cert
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - 'feature/extension-certification'
+  pull_request:
     paths:
       - 'shell/realmetamasktest.js'
       - 'shell/extensions-runtime.js'
