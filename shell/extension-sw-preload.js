@@ -4,6 +4,7 @@
    extension code never receives ipcRenderer or arbitrary host IPC access. */
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
+const { setTimeout } = require('node:timers');
 
 try { ipcRenderer.send('breeze:preload-loaded', { type:process.type, isolated:!!process.contextIsolated }); } catch {}
 
