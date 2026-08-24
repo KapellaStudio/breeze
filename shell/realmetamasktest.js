@@ -29,8 +29,17 @@ async function waitSelector(win,selector,timeout=30000){
   return waitFor(()=>selectorState(win,selector),{timeout,label:selector});
 }
 async function clickSelector(win,selector){
-  await waitSelector(win,selector);
-  return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw new Error('missing selector');e.click();return true})()`);
+  const hit=await waitFor(async()=>{
+    if(!win||win.isDestroyed())return null;
+    return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const r=e.getBoundingClientRect();return r.width>0&&r.height>0?{x:r.left+r.width/2,y:r.top+r.height/2,disabled:!!e.disabled}:null})()`).catch(()=>null);
+  },{timeout:30000,label:`clickable ${selector}`});
+  if(hit.disabled)throw new Error(`selector is disabled: ${selector}`);
+  const x=Math.round(hit.x), y=Math.round(hit.y);
+  try{if(!win.isVisible())win.show();win.focus();}catch{}
+  win.webContents.sendInputEvent({type:'mouseMove',x,y});
+  win.webContents.sendInputEvent({type:'mouseDown',x,y,button:'left',clickCount:1});
+  win.webContents.sendInputEvent({type:'mouseUp',x,y,button:'left',clickCount:1});
+  return true;
 }
 async function fillSelector(win,selector,value){
   await waitSelector(win,selector);
