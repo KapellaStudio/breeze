@@ -6,6 +6,7 @@ on:
     paths:
       - 'shell/realmetamasktest.js'
       - 'shell/patch-metamask-harness.js'
+      - 'shell/patch-metamask-sequential-sign.js'
       - 'shell/extensions-runtime.js'
       - 'shell/extension-compat.js'
       - 'shell/extension-page-preload.js'
@@ -60,4 +61,5 @@ jobs:
           METAMASK_EXTENSION_DIR: ${{ github.workspace }}/.vendor/metamask/dist/chrome
         run: |
           node patch-metamask-harness.js
+          node patch-metamask-sequential-sign.js
           xvfb-run -a npx electron realmetamasktest.js --no-sandbox
