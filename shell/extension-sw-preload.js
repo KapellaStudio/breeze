@@ -4,6 +4,8 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 
+try { ipcRenderer.send('breeze:preload-loaded', { type:process.type, isolated:!!process.contextIsolated }); } catch {}
+
 const ALLOWED = new Set([
   'tabs.create','windows.create','windows.getAll','windows.getCurrent','windows.getLastFocused',
   'windows.update','windows.remove','cookies.get','cookies.getAll','cookies.set','cookies.remove'
@@ -23,12 +25,12 @@ try {
   });
   bridgeExposed = true;
 } catch (err) {
-  console.error('BREEZE_SW_PRELOAD expose failed:', err && err.message || err);
+  try { ipcRenderer.send('breeze:preload-error', 'expose: '+String(err&&err.message||err)); } catch {}
 }
 
 function patchMainWorld(){
   try {
-    return contextBridge.executeInMainWorld({
+    const result=contextBridge.executeInMainWorld({
       func: (preloadBridgeExposed) => {
         globalThis.__breezePreloadMarker = 'loaded';
         globalThis.__breezePreloadBridgeExposed = !!preloadBridgeExposed;
@@ -77,8 +79,10 @@ function patchMainWorld(){
       },
       args: [bridgeExposed]
     });
+    try { ipcRenderer.send('breeze:preload-patch', { result:!!result, bridgeExposed }); } catch {}
+    return result;
   } catch (err) {
-    console.error('BREEZE_SW_PRELOAD patch failed:', err && err.message || err);
+    try { ipcRenderer.send('breeze:preload-error', 'patch: '+String(err&&err.message||err)); } catch {}
     return false;
   }
 }
