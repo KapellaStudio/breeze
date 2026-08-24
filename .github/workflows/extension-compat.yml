@@ -7,10 +7,13 @@ on:
   pull_request:
     paths:
       - 'shell/extensions.js'
+      - 'shell/extensions-runtime.js'
       - 'shell/extension-compat.js'
       - 'shell/extensiontest.js'
       - 'shell/metamaskcompat.js'
       - 'shell/extensioncompattest.js'
+      - 'shell/extensionruntimetest.js'
+      - 'shell/bootstrap.js'
       - 'shell/package.json'
       - '.github/workflows/extension-compat.yml'
 
@@ -36,5 +39,7 @@ jobs:
         run: xvfb-run -a npx electron metamaskcompat.js --no-sandbox
       - name: Probe managed extension compatibility layer
         run: xvfb-run -a npx electron extensioncompattest.js --no-sandbox
+      - name: Probe production extension runtime adapter
+        run: xvfb-run -a npx electron extensionruntimetest.js --no-sandbox
       - name: Keep existing browser-core contracts green
         run: npm run browsercoretest
