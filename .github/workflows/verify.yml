@@ -78,7 +78,7 @@ jobs:
 
       - name: Syntax check shell and functions
         run: |
-          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js src/breeze-product.js src/breeze-context.js; do
+          for f in shell/*.js netlify/functions/*.js src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js src/breeze-product.js src/breeze-context.js src/breeze-vault.js; do
             node --check "$f"
           done
 
@@ -124,6 +124,7 @@ jobs:
           npm run launchtest
           npm run producttest
           npm run contexttest
+          npm run vaulttest
 
       - name: Finalize verified reconstructed source
         if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('.sourceparts/manifest') != '' }}
