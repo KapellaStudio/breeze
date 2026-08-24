@@ -1,14 +1,19 @@
 /* Breeze MV3 service-worker compatibility preload.
-   Runs in Electron's isolated service-worker preload realm. The compatibility
-   bridge is deliberately narrow: extension code never receives ipcRenderer. */
+   Runs in Electron's isolated service-worker preload realm before an extension
+   worker's module graph is evaluated. The bridge is deliberately narrow:
+   extension code never receives ipcRenderer or arbitrary host IPC access. */
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 
 try { ipcRenderer.send('breeze:preload-loaded', { type:process.type, isolated:!!process.contextIsolated }); } catch {}
 
 const ALLOWED = new Set([
-  'tabs.create','windows.create','windows.getAll','windows.getCurrent','windows.getLastFocused',
-  'windows.update','windows.remove','cookies.get','cookies.getAll','cookies.set','cookies.remove'
+  'tabs.create','tabs.query','tabs.get','tabs.getCurrent','tabs.update','tabs.remove',
+  'windows.create','windows.getAll','windows.getCurrent','windows.getLastFocused',
+  'windows.update','windows.remove',
+  'cookies.get','cookies.getAll','cookies.set','cookies.remove',
+  'notifications.create','notifications.clear',
+  'identity.launchWebAuthFlow'
 ]);
 
 function compatInvoke(method, params){
@@ -20,9 +25,9 @@ function compatInvoke(method, params){
 
 let bridgeExposed = false;
 try {
-  contextBridge.exposeInMainWorld('__breezeExtensionCompat', {
+  contextBridge.exposeInMainWorld('__breezeExtensionCompat', Object.freeze({
     invoke: (method, params) => compatInvoke(method, params)
-  });
+  }));
   bridgeExposed = true;
 } catch (err) {
   try { ipcRenderer.send('breeze:preload-error', 'expose: '+String(err&&err.message||err)); } catch {}
@@ -37,44 +42,137 @@ function patchMainWorld(){
         const bridge = globalThis.__breezeExtensionCompat;
         globalThis.__breezePreloadBridgeVisible = !!bridge && typeof bridge.invoke === 'function';
         globalThis.__breezePreloadSawChrome = !!globalThis.chrome;
-        if (!bridge || typeof bridge.invoke !== 'function' || !globalThis.chrome) return false;
-        const ensure = name => {
-          try { if (!chrome[name]) chrome[name] = {}; return chrome[name]; } catch { return null; }
+        if (!globalThis.chrome || !chrome.runtime || !chrome.runtime.id) return false;
+
+        const manifest = (()=>{ try { return chrome.runtime.getManifest?.() || {}; } catch { return {}; } })();
+        const permissions = new Set(Array.isArray(manifest.permissions) ? manifest.permissions : []);
+        const bridgeReady = !!bridge && typeof bridge.invoke === 'function';
+        const event = () => {
+          const listeners=new Set();
+          return {
+            addListener(fn){if(typeof fn==='function')listeners.add(fn);},
+            removeListener(fn){listeners.delete(fn);},
+            hasListener(fn){return listeners.has(fn);},
+            hasListeners(){return listeners.size>0;}
+          };
+        };
+        const ensureOn = (root,name) => {
+          if(!root)return null;
+          try{
+            if(!root[name]){
+              try{root[name]={};}catch{}
+              if(!root[name]){
+                try{Object.defineProperty(root,name,{value:{},writable:true,configurable:true,enumerable:true});}catch{}
+              }
+            }
+            return root[name] || null;
+          }catch{return null;}
+        };
+        const assign = (target,name,value) => {
+          if(!target)return false;
+          try{target[name]=value;if(target[name]===value)return true;}catch{}
+          try{Object.defineProperty(target,name,{value,writable:true,configurable:true,enumerable:true});return target[name]===value;}catch{return false;}
         };
         const wrap = method => function(details, callback){
           let params = details;
           let cb = callback;
           if (typeof details === 'function') { cb = details; params = {}; }
-          const promise = bridge.invoke(method, params && typeof params === 'object' ? params : {});
+          const promise = bridgeReady
+            ? bridge.invoke(method, params && typeof params === 'object' ? params : {})
+            : Promise.reject(new Error('Breeze extension host is not ready'));
           if (typeof cb === 'function') promise.then(value => cb(value)).catch(() => cb(undefined));
           return promise;
         };
-        const tabs = ensure('tabs');
-        const windows = ensure('windows');
-        const cookies = ensure('cookies');
-        if (tabs && typeof tabs.create !== 'function') tabs.create = wrap('tabs.create');
-        if (windows) {
-          if (typeof windows.create !== 'function') windows.create = wrap('windows.create');
-          if (typeof windows.getAll !== 'function') windows.getAll = wrap('windows.getAll');
-          if (typeof windows.getCurrent !== 'function') windows.getCurrent = wrap('windows.getCurrent');
-          if (typeof windows.getLastFocused !== 'function') windows.getLastFocused = wrap('windows.getLastFocused');
-          if (typeof windows.update !== 'function') windows.update = function(id, details, cb){
-            const promise = bridge.invoke('windows.update', { id, ...(details || {}) });
-            if (typeof cb === 'function') promise.then(v => cb(v)).catch(() => cb(undefined));
-            return promise;
+
+        const tabs = ensureOn(chrome,'tabs');
+        if(tabs){
+          if(!tabs.onRemoved)assign(tabs,'onRemoved',event());
+          if(!tabs.onUpdated)assign(tabs,'onUpdated',event());
+          if(!tabs.onActivated)assign(tabs,'onActivated',event());
+          const tabMethods={
+            create:wrap('tabs.create'),
+            query:wrap('tabs.query'),
+            get:(id,cb)=>{const p=bridgeReady?bridge.invoke('tabs.get',{tabId:id}):Promise.reject(new Error('Breeze extension host is not ready'));if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;},
+            getCurrent:(cb)=>{const p=bridgeReady?bridge.invoke('tabs.getCurrent',{}):Promise.reject(new Error('Breeze extension host is not ready'));if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;},
+            update:(id,details,cb)=>{if(id&&typeof id==='object'){cb=details;details=id;id=null;}const p=bridgeReady?bridge.invoke('tabs.update',{tabId:id,props:details&&typeof details==='object'?details:{}}):Promise.reject(new Error('Breeze extension host is not ready'));if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;},
+            remove:(ids,cb)=>{const p=bridgeReady?bridge.invoke('tabs.remove',{tabIds:ids}):Promise.reject(new Error('Breeze extension host is not ready'));if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;}
           };
-          if (typeof windows.remove !== 'function') windows.remove = function(id, cb){
-            const promise = bridge.invoke('windows.remove', { id });
-            if (typeof cb === 'function') promise.then(v => cb(v)).catch(() => cb(undefined));
-            return promise;
-          };
+          for(const [name,fn] of Object.entries(tabMethods)) if(typeof tabs[name]!=='function')assign(tabs,name,fn);
         }
-        if (cookies) {
-          for (const name of ['get','getAll','set','remove']) {
-            if (typeof cookies[name] !== 'function') cookies[name] = wrap('cookies.' + name);
-          }
+
+        const windows = ensureOn(chrome,'windows');
+        if(windows){
+          if(!windows.onRemoved)assign(windows,'onRemoved',event());
+          if(!windows.onFocusChanged)assign(windows,'onFocusChanged',event());
+          if(windows.WINDOW_ID_NONE==null)assign(windows,'WINDOW_ID_NONE',-1);
+          if(typeof windows.create!=='function')assign(windows,'create',wrap('windows.create'));
+          for(const name of ['getAll','getCurrent','getLastFocused']) if(typeof windows[name]!=='function')assign(windows,name,wrap('windows.'+name));
+          if(typeof windows.update!=='function')assign(windows,'update',function(id, details, cb){
+            const p=bridgeReady?bridge.invoke('windows.update',{id,...(details||{})}):Promise.reject(new Error('Breeze extension host is not ready'));
+            if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;
+          });
+          if(typeof windows.remove!=='function')assign(windows,'remove',function(id, cb){
+            const p=bridgeReady?bridge.invoke('windows.remove',{id}):Promise.reject(new Error('Breeze extension host is not ready'));
+            if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;
+          });
         }
-        globalThis.__breezePreloadPatched = typeof chrome.tabs?.create === 'function' && typeof chrome.windows?.create === 'function';
+
+        const cookies = permissions.has('cookies') ? ensureOn(chrome,'cookies') : null;
+        if(cookies) for(const name of ['get','getAll','set','remove']) if(typeof cookies[name]!=='function')assign(cookies,name,wrap('cookies.'+name));
+
+        const notifications = permissions.has('notifications') ? ensureOn(chrome,'notifications') : null;
+        if(notifications){
+          if(!notifications.onClicked)assign(notifications,'onClicked',event());
+          if(typeof notifications.create!=='function')assign(notifications,'create',function(id,options,cb){
+            if(id&&typeof id==='object'){cb=options;options=id;id='';}
+            const p=bridgeReady?bridge.invoke('notifications.create',{id:id||'',options:options&&typeof options==='object'?options:{}}):Promise.reject(new Error('Breeze extension host is not ready'));
+            if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;
+          });
+          if(typeof notifications.clear!=='function')assign(notifications,'clear',function(id,cb){
+            const p=bridgeReady?bridge.invoke('notifications.clear',{id}):Promise.reject(new Error('Breeze extension host is not ready'));
+            if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;
+          });
+        }
+
+        // Chrome's identity.getRedirectURL is synchronous and deterministic.
+        // Patch it before MV3 module imports run; Phantom currently reads it
+        // during imported-module evaluation, before its worker body executes.
+        const identity = permissions.has('identity') ? ensureOn(chrome,'identity') : null;
+        if(identity){
+          if(typeof identity.getRedirectURL!=='function')assign(identity,'getRedirectURL',(suffix='')=>'https://'+chrome.runtime.id+'.chromiumapp.org/'+String(suffix||'').replace(/^\/+/,''));
+          if(typeof identity.launchWebAuthFlow!=='function')assign(identity,'launchWebAuthFlow',wrap('identity.launchWebAuthFlow'));
+        }
+
+        const commands = ensureOn(chrome,'commands');
+        if(commands&&typeof commands.getAll!=='function')assign(commands,'getAll',(cb)=>{
+          const declared=manifest.commands||{};
+          const rows=Object.entries(declared).map(([name,v])=>({name,description:v&&v.description||'',shortcut:v&&v.suggested_key&&(v.suggested_key.default||v.suggested_key.windows||v.suggested_key.mac)||''}));
+          if(typeof cb==='function')queueMicrotask(()=>cb(rows));
+          return Promise.resolve(rows);
+        });
+
+        // Electron can expose a partial `browser` namespace. If it exists,
+        // make the same certified APIs visible there before webextension
+        // polyfills or imported wallet modules inspect it.
+        const browserApi = globalThis.browser;
+        const mirror = (name,props) => {
+          if(!browserApi)return;
+          const source=chrome[name]; if(!source)return;
+          const target=ensureOn(browserApi,name); if(!target)return;
+          for(const prop of props) if(source[prop]!==undefined&&target[prop]===undefined)assign(target,prop,source[prop]);
+        };
+        mirror('tabs',['create','query','get','getCurrent','update','remove','onRemoved','onUpdated','onActivated']);
+        mirror('windows',['create','getAll','getCurrent','getLastFocused','update','remove','onRemoved','onFocusChanged','WINDOW_ID_NONE']);
+        if(permissions.has('cookies'))mirror('cookies',['get','getAll','set','remove']);
+        if(permissions.has('notifications'))mirror('notifications',['create','clear','onClicked']);
+        if(permissions.has('identity'))mirror('identity',['getRedirectURL','launchWebAuthFlow']);
+        mirror('commands',['getAll']);
+
+        globalThis.__breezePreloadIdentity = {
+          chrome:typeof chrome.identity?.getRedirectURL,
+          browser:globalThis.browser ? typeof globalThis.browser.identity?.getRedirectURL : 'absent'
+        };
+        globalThis.__breezePreloadPatched = typeof chrome.tabs?.create === 'function' && typeof chrome.windows?.create === 'function' && (!permissions.has('identity') || typeof chrome.identity?.getRedirectURL === 'function');
         return globalThis.__breezePreloadPatched;
       },
       args: [bridgeExposed]
@@ -87,6 +185,9 @@ function patchMainWorld(){
   }
 }
 
+// The first call is the important one: it runs before the worker module graph.
+// Retries cover Electron builds where extension namespaces finish initializing
+// a tick later without widening the exposed bridge.
 patchMainWorld();
 setTimeout(patchMainWorld, 0);
 setTimeout(patchMainWorld, 25);
