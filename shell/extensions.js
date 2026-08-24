@@ -8,7 +8,15 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { BrowserWindow, ipcMain, shell } = require('electron');
+let BrowserWindow = null, ipcMain = null, electronShell = null;
+try {
+  const electron = require('electron');
+  if (electron && typeof electron === 'object') {
+    BrowserWindow = electron.BrowserWindow || null;
+    ipcMain = electron.ipcMain || null;
+    electronShell = electron.shell || null;
+  }
+} catch {}
 
 const MAX_MANIFEST = 1024 * 1024;
 const META_KEYS = new Set(['name','version','description','author','icons','short_name','default_locale','minimum_chrome_version']);
@@ -67,7 +75,7 @@ function actionPopupFor(manifest){
   return popup.replace(/^\/+/, '');
 }
 function installActionIpc(){
-  if (actionIpcReady) return;
+  if (actionIpcReady || !ipcMain || typeof ipcMain.handle !== 'function') return;
   actionIpcReady = true;
   ipcMain.handle('extension:openAction', (_event, localId, context) => openAction(String(localId||''), context || {}));
 }
@@ -235,6 +243,7 @@ function chooseSession(workspaceId='default', sealed=false){
   return candidates.find(x => x.sealed === !!sealed) || candidates[0] || null;
 }
 async function openAction(localId, context={}){
+  if (!BrowserWindow) return { error:'extension action UI requires the Breeze desktop runtime' };
   const r = get(localId);
   if (!r) return { error:'extension not found' };
   if (r.enabled === false) return { error:'extension is disabled' };
@@ -272,13 +281,19 @@ async function openAction(localId, context={}){
     if (typeof url === 'string' && url.startsWith(ext.url)){
       return { action:'allow', overrideBrowserWindowOptions:{ autoHideMenuBar:true, webPreferences:{ session:ref.ses, contextIsolation:true, nodeIntegration:false, sandbox:true, webSecurity:true } } };
     }
-    try { const u=new URL(url); if(['http:','https:'].includes(u.protocol)) shell.openExternal(u.toString()); } catch {}
+    try {
+      const u=new URL(url);
+      if(electronShell && ['http:','https:'].includes(u.protocol)) electronShell.openExternal(u.toString());
+    } catch {}
     return { action:'deny' };
   });
   popup.webContents.on('will-navigate', (event,url) => {
     if (typeof url === 'string' && url.startsWith(ext.url)) return;
     event.preventDefault();
-    try { const u=new URL(url); if(['http:','https:'].includes(u.protocol)) shell.openExternal(u.toString()); } catch {}
+    try {
+      const u=new URL(url);
+      if(electronShell && ['http:','https:'].includes(u.protocol)) electronShell.openExternal(u.toString());
+    } catch {}
   });
   popup.once('ready-to-show', () => { if(!popup.isDestroyed()) popup.show(); });
   popup.on('closed', () => popupWindows.delete(popup));
