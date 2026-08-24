@@ -668,9 +668,13 @@ async function runSmokeTest(){
 
     const beforeSleep=tabs.get(id2).view.webContents;
     const beforeSleepId=beforeSleep.id;
+    const destroyedPromise=beforeSleep.isDestroyed()
+      ? Promise.resolve(true)
+      : new Promise(resolve => beforeSleep.once('destroyed', () => resolve(true)));
     const slept=sleepTab(id2);
     ok('inactive tab releases its renderer', slept.ok===true && tabs.get(id2).sleeping===true && tabs.get(id2).view===null, slept.error||'');
-    ok('released WebContents is destroyed', beforeSleep.isDestroyed()===true);
+    const destroyed=await Promise.race([destroyedPromise,new Promise(r=>setTimeout(()=>r(false),1000))]);
+    ok('released WebContents is destroyed', destroyed===true && beforeSleep.isDestroyed()===true);
     const woke=await wakeTab(id2);
     const afterWake=liveWebContents(tabs.get(id2));
     ok('sleeping tab reconstructs a new renderer', woke.ok===true && !!afterWake && afterWake.id!==beforeSleepId);
