@@ -13,9 +13,15 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
 (async()=>{
   const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'breeze-sw-preload-'));
   const extDir=path.join(tmp,'extension'); fs.mkdirSync(extDir,{recursive:true});
-  const manifest={manifest_version:3,name:'Breeze SW Preload Probe',version:'1.0.0',permissions:['storage'],host_permissions:['http://127.0.0.1/*'],background:{service_worker:'worker.js'},content_scripts:[{matches:['http://127.0.0.1/*'],js:['content.js'],run_at:'document_idle'}]};
+  const manifest={
+    manifest_version:3,name:'Breeze SW Preload Probe',version:'1.0.0',
+    permissions:['storage','cookies','identity'],host_permissions:['http://127.0.0.1/*'],
+    background:{service_worker:'worker.js',type:'module'},
+    content_scripts:[{matches:['http://127.0.0.1/*'],js:['content.js'],run_at:'document_idle'}]
+  };
   write(extDir,'manifest.json',JSON.stringify(manifest,null,2));
-  write(extDir,'worker.js',`chrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{if(msg?.kind!=='exercise')return;const diag={marker:globalThis.__breezePreloadMarker||'',bridgeExposed:globalThis.__breezePreloadBridgeExposed,bridgeVisible:globalThis.__breezePreloadBridgeVisible,sawChrome:globalThis.__breezePreloadSawChrome,patched:globalThis.__breezePreloadPatched,tabsCreate:typeof chrome.tabs?.create,windowsCreate:typeof chrome.windows?.create,cookiesGetAll:typeof chrome.cookies?.getAll};if(typeof chrome.tabs?.create!=='function'||typeof chrome.windows?.create!=='function'||typeof chrome.cookies?.getAll!=='function'){sendResponse({ok:false,error:'compatibility APIs missing',diag});return false;}Promise.all([chrome.tabs.create({url:'https://example.com/from-worker'}),chrome.windows.create({url:'chrome-extension://'+chrome.runtime.id+'/home.html'}),chrome.cookies.getAll({domain:'example.com'})]).then(([tab,win,cookies])=>sendResponse({ok:true,tab,win,cookies,shim:true,diag})).catch(err=>sendResponse({ok:false,error:String(err&&err.message||err),diag}));return true;});`);
+  write(extDir,'early.js',`const chromeRedirect=chrome.identity.getRedirectURL('module-early');\nconst browserPresent=!!globalThis.browser;\nconst browserRedirect=browserPresent?globalThis.browser?.identity?.getRedirectURL?.('browser-early')||'':'';\nif(!chromeRedirect)throw new Error('chrome.identity.getRedirectURL missing during module evaluation');\nif(browserPresent&&!browserRedirect)throw new Error('browser.identity.getRedirectURL missing during module evaluation');\nglobalThis.__breezeEarlyIdentity={chromeRedirect,browserPresent,browserRedirect};`);
+  write(extDir,'worker.js',`import './early.js';\nchrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{if(msg?.kind!=='exercise')return;const diag={marker:globalThis.__breezePreloadMarker||'',bridgeExposed:globalThis.__breezePreloadBridgeExposed,bridgeVisible:globalThis.__breezePreloadBridgeVisible,sawChrome:globalThis.__breezePreloadSawChrome,patched:globalThis.__breezePreloadPatched,identity:globalThis.__breezePreloadIdentity||{},earlyIdentity:globalThis.__breezeEarlyIdentity||{},tabsCreate:typeof chrome.tabs?.create,windowsCreate:typeof chrome.windows?.create,cookiesGetAll:typeof chrome.cookies?.getAll,identityRedirect:typeof chrome.identity?.getRedirectURL,identityAuth:typeof chrome.identity?.launchWebAuthFlow};if(typeof chrome.tabs?.create!=='function'||typeof chrome.windows?.create!=='function'||typeof chrome.cookies?.getAll!=='function'||typeof chrome.identity?.getRedirectURL!=='function'||typeof chrome.identity?.launchWebAuthFlow!=='function'){sendResponse({ok:false,error:'compatibility APIs missing',diag});return false;}Promise.all([chrome.tabs.create({url:'https://example.com/from-worker'}),chrome.windows.create({url:'chrome-extension://'+chrome.runtime.id+'/home.html'}),chrome.cookies.getAll({domain:'example.com'}),chrome.identity.launchWebAuthFlow({url:'https://example.com/oauth',interactive:false})]).then(([tab,win,cookies,auth])=>sendResponse({ok:true,tab,win,cookies,auth,shim:true,diag})).catch(err=>sendResponse({ok:false,error:String(err&&err.message||err),diag}));return true;});`);
   write(extDir,'content.js',`setTimeout(()=>chrome.runtime.sendMessage({kind:'exercise'},response=>{document.documentElement.dataset.breezeSwPreload=JSON.stringify(response||{});}),400);`);
   write(extDir,'home.html','<!doctype html><html><body>extension home</body></html>');
 
@@ -42,7 +48,7 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
     ok('Electron registers a service-worker preload script',!!preloadId,preloadError||preloadId||'');
 
     loaded=await ses.extensions.loadExtension(extDir,{allowFileAccess:false});
-    ok('MV3 probe loads with SW preload registered',!!loaded,loaded?.id||'');
+    ok('MV3 module probe loads with SW preload registered',!!loaded,loaded?.id||'');
 
     for(let i=0;i<60;i++){
       const running=ses.serviceWorkers.getAllRunning();
@@ -58,7 +64,7 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
     if(!worker) throw new Error('extension service worker did not become visible');
 
     await new Promise(r=>setTimeout(r,150));
-    ok('registered preload actually executes for extension service workers',preloadEvents.some(e=>e.kind==='loaded'),JSON.stringify(preloadEvents));
+    ok('registered preload actually executes before extension worker code',preloadEvents.some(e=>e.kind==='loaded'),JSON.stringify(preloadEvents));
 
     const calls=[];
     worker.ipc.handle('breeze:extension-compat',(_event,method,params)=>{
@@ -66,21 +72,25 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
       if(method==='tabs.create') return {id:101,url:params?.url||'',active:true};
       if(method==='windows.create') return {id:201,focused:true,tabs:[{id:102,url:params?.url||''}]};
       if(method==='cookies.getAll') return [{name:'probe',value:'ok',domain:'example.com',path:'/'}];
+      if(method==='identity.launchWebAuthFlow') return 'https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.chromiumapp.org/test-complete';
       throw new Error('unexpected method '+method);
     });
 
     win=new BrowserWindow({show:false,webPreferences:{session:ses,contextIsolation:true,nodeIntegration:false,sandbox:true}});
     await win.loadURL(`http://127.0.0.1:${port}/`);
     let raw='';
-    for(let i=0;i<80;i++){ raw=await win.webContents.executeJavaScript('document.documentElement.dataset.breezeSwPreload||""'); if(raw)break; await new Promise(r=>setTimeout(r,100)); }
+    for(let i=0;i<100;i++){ raw=await win.webContents.executeJavaScript('document.documentElement.dataset.breezeSwPreload||""'); if(raw)break; await new Promise(r=>setTimeout(r,100)); }
     let result={}; try{result=JSON.parse(raw||'{}');}catch{}
     console.log('SW_PRELOAD_DIAG '+JSON.stringify(result.diag||{}));
     ok('service-worker preload reaches the extension worker main world',result.diag?.marker==='loaded',JSON.stringify(result.diag||{}));
-    ok('service-worker preload injects missing Chrome APIs into extension worker',result.ok===true&&result.shim===true,JSON.stringify(result));
+    ok('identity.getRedirectURL exists during static imported-module evaluation',String(result.diag?.earlyIdentity?.chromeRedirect||'').includes('.chromiumapp.org/module-early'),JSON.stringify(result.diag?.earlyIdentity||{}));
+    ok('native browser namespace receives identity early when present',result.diag?.earlyIdentity?.browserPresent!==true||String(result.diag?.earlyIdentity?.browserRedirect||'').includes('.chromiumapp.org/browser-early'),JSON.stringify(result.diag?.earlyIdentity||{}));
+    ok('service-worker preload injects certified Chrome APIs into extension worker',result.ok===true&&result.shim===true,JSON.stringify(result));
     ok('injected chrome.tabs.create reaches ServiceWorkerMain IPC',result.tab?.id===101&&calls.some(c=>c.method==='tabs.create'),JSON.stringify(calls));
     ok('injected chrome.windows.create reaches ServiceWorkerMain IPC',result.win?.id===201&&calls.some(c=>c.method==='windows.create'),JSON.stringify(calls));
     ok('injected chrome.cookies.getAll reaches ServiceWorkerMain IPC',result.cookies?.[0]?.name==='probe'&&calls.some(c=>c.method==='cookies.getAll'),JSON.stringify(calls));
-    ok('only the named compatibility methods crossed IPC',calls.length===3,JSON.stringify(calls));
+    ok('identity.launchWebAuthFlow reaches ServiceWorkerMain IPC',String(result.auth||'').includes('.chromiumapp.org/')&&calls.some(c=>c.method==='identity.launchWebAuthFlow'),String(result.auth||''));
+    ok('only the named compatibility methods crossed IPC',calls.length===4,JSON.stringify(calls));
 
     try{worker.ipc.removeHandler('breeze:extension-compat');}catch{}
     try{ses.unregisterPreloadScript(preloadId);}catch{}
