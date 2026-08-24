@@ -109,13 +109,14 @@ jobs:
         working-directory: shell
         run: npm install --no-audit --no-fund
 
-      - name: Shell — smoke, breach, integration, search and product state
+      - name: Shell — smoke, breach, integration, search, extensions and product state
         working-directory: shell
         run: |
           xvfb-run -a npx electron . --smoke-test --no-sandbox
           xvfb-run -a npx electron shellbreach.js --no-sandbox
           xvfb-run -a npx electron integration.js --no-sandbox
           xvfb-run -a npx electron searchtest.js --no-sandbox
+          xvfb-run -a npx electron extensiontest.js --no-sandbox
           npm run mediatest
           npm run browsercoretest
           npm run documenttest

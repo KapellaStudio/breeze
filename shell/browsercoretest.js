@@ -9,12 +9,13 @@ const mv2={manifest_version:2,name:'Breeze Test',version:'1.0.0',permissions:['s
 const mv3={manifest_version:3,name:'Wallet Test',version:'1.0.0',background:{service_worker:'worker.js'},permissions:['storage']};
 const partial={manifest_version:2,name:'History Tool',version:'1.0.0',permissions:['history']};
 let r=ext.analyzeManifest(mv2); ok('MV2 compatible manifest accepted',r.status==='compatible');
-r=ext.analyzeManifest(mv3); ok('MV3 service-worker extension blocked honestly',r.status==='blocked' && r.reasons.some(x=>/service worker/i.test(x)));
+r=ext.analyzeManifest(mv3); ok('MV3 service-worker extension is admitted with an explicit partial tier',r.status==='partial' && r.backgroundKind==='mv3-service-worker' && r.warnings.some(x=>/service-worker runtime/i.test(x)));
 r=ext.analyzeManifest(partial); ok('uncertified permission marked partial',r.status==='partial');
 ext.init(path.join(tmp,'user'));
 r=ext.importDirectory(fixture('good',mv2)); ok('compatible unpacked extension imports',r.installed===true && !!r.extension.localId);
 ok('extension registry lists imported extension',ext.list().length===1 && ext.list()[0].name==='Breeze Test');
-r=ext.importDirectory(fixture('wallet',mv3)); ok('blocked extension is not copied into registry',r.installed===false && ext.list().length===1);
+r=ext.importDirectory(fixture('wallet',mv3)); ok('MV3 service-worker extension is copied into managed registry',r.installed===true && r.extension.compatibility==='partial' && ext.list().length===2);
+ok('registry preserves MV3 background runtime classification',ext.list().some(x=>x.name==='Wallet Test' && x.backgroundKind==='mv3-service-worker'));
 state.init(path.join(tmp,'state-user')); fs.mkdirSync(path.join(tmp,'state-user'),{recursive:true});
 const snap={version:1,tabs:[{url:'https://example.com',workspaceId:'default',sealed:false,active:true}]}; state.write(snap);
 ok('session snapshot round-trips locally',state.read()?.tabs?.[0]?.url==='https://example.com');
