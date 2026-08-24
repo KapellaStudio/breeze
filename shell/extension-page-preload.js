@@ -22,20 +22,33 @@ if (typeof contextBridge.executeInMainWorld === 'function') {
         try { if (!chrome[name]) chrome[name] = {}; return chrome[name]; }
         catch { return null; }
       };
+      const normalizeUrl = value => {
+        if (typeof value !== 'string') return value;
+        const raw=value.trim();
+        if (!raw) return raw;
+        if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return raw;
+        try { return chrome.runtime.getURL(raw.replace(/^\/+/,'')); } catch { return raw; }
+      };
+      const normalizeDetails = details => {
+        const out=details&&typeof details==='object'?{...details}:{};
+        if (typeof out.url === 'string') out.url=normalizeUrl(out.url);
+        if (Array.isArray(out.url)) out.url=out.url.map(normalizeUrl);
+        return out;
+      };
 
       const tabs = root('tabs');
       if (tabs) {
-        tabs.create = (details,cb) => dual('tabs.create', details||{}, cb);
+        tabs.create = (details,cb) => dual('tabs.create', normalizeDetails(details), cb);
         tabs.query = (details,cb) => { if(typeof details==='function'){cb=details;details={};} return dual('tabs.query', details||{}, cb); };
         tabs.get = (id,cb) => dual('tabs.get',{tabId:id},cb);
         tabs.getCurrent = cb => dual('tabs.getCurrent',{},cb);
-        tabs.update = (id,details,cb) => { if(id&&typeof id==='object'){cb=details;details=id;id=null;} return dual('tabs.update',{tabId:id,props:details||{}},cb); };
+        tabs.update = (id,details,cb) => { if(id&&typeof id==='object'){cb=details;details=id;id=null;} return dual('tabs.update',{tabId:id,props:normalizeDetails(details)},cb); };
         tabs.remove = (ids,cb) => dual('tabs.remove',{tabIds:ids},cb);
       }
 
       const windows = root('windows');
       if (windows) {
-        windows.create = (details,cb) => dual('windows.create',details||{},cb);
+        windows.create = (details,cb) => dual('windows.create',normalizeDetails(details),cb);
         for (const name of ['getAll','getCurrent','getLastFocused']) {
           windows[name] = (details,cb) => { if(typeof details==='function'){cb=details;details={};} return dual('windows.'+name,details||{},cb); };
         }
