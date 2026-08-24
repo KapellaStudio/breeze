@@ -1,0 +1,33 @@
+name: tab-sleep-refactor
+on:
+  push:
+    branches: [next/tab-sleeping]
+    paths:
+      - 'tools/enable_tab_sleep.py'
+      - '.github/workflows/tab-sleep-refactor.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: next/tab-sleeping
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Refactor renderer lifecycle
+        run: python3 tools/enable_tab_sleep.py
+      - name: Syntax-check refactored main process
+        run: node --check shell/main.js
+      - name: Commit the generated refactor and remove staging helpers
+        run: |
+          rm -f tools/enable_tab_sleep.py .github/workflows/tab-sleep-refactor.yml
+          git config user.name "Kapella Venture Studio"
+          git config user.email "goldenmonkeyindex@gmail.com"
+          git add -A
+          git commit -m "Make inactive tabs release and restore Chromium renderers"
+          git push origin HEAD:next/tab-sleeping
