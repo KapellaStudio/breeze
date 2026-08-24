@@ -73,10 +73,11 @@ if (typeof contextBridge.executeInMainWorld === 'function') {
         windows.getAll = (details,cb) => { if(typeof details==='function'){cb=details;details={};} return dual('windows.getAll',details||{},cb); };
         windows.getCurrent = (details,cb) => {
           if(typeof details==='function'){cb=details;details={};}
+          const clean=details||{};
           const promise=host.call('__breezeGetSelfWindow',{}).then(row=>{
             if(row&&row.error) throw new Error(row.error);
             return row;
-          });
+          }).catch(()=>host.call('windows.getCurrent',clean));
           if(typeof cb==='function') promise.then(v=>cb(v),()=>cb(undefined));
           return promise;
         };
