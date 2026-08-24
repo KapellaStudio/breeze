@@ -53,7 +53,7 @@ function serve(){
     sandbox:{pages:['sandbox.html']}
   };
   write(extDir,'manifest.json',JSON.stringify(manifest,null,2));
-  write(extDir,'worker.js',`const names=['runtime','storage','alarms','notifications','scripting','webRequest','offscreen','identity','sidePanel','cookies','commands'];\nconst matrix=Object.fromEntries(names.map(name=>[name,!!chrome[name]]));\nchrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{\n  if(msg&&msg.kind==='surface') { sendResponse({matrix}); return false; }\n});`);
+  write(extDir,'worker.js',`const matrix={\n  runtime:!!chrome.runtime,\n  runtimeConnect:typeof chrome.runtime?.connect==='function',\n  storage:!!chrome.storage,\n  storageSession:!!chrome.storage?.session,\n  tabs:!!chrome.tabs,\n  tabsCreate:typeof chrome.tabs?.create==='function',\n  tabsQuery:typeof chrome.tabs?.query==='function',\n  windows:!!chrome.windows,\n  windowsCreate:typeof chrome.windows?.create==='function',\n  windowsGetAll:typeof chrome.windows?.getAll==='function',\n  alarms:!!chrome.alarms,\n  alarmsCreate:typeof chrome.alarms?.create==='function',\n  notifications:!!chrome.notifications,\n  scripting:!!chrome.scripting,\n  scriptingExecute:typeof chrome.scripting?.executeScript==='function',\n  webRequest:!!chrome.webRequest,\n  offscreen:!!chrome.offscreen,\n  offscreenCreate:typeof chrome.offscreen?.createDocument==='function',\n  identity:!!chrome.identity,\n  identityWebAuth:typeof chrome.identity?.launchWebAuthFlow==='function',\n  sidePanel:!!chrome.sidePanel,\n  cookies:!!chrome.cookies,\n  commands:!!chrome.commands\n};\nchrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{\n  if(msg&&msg.kind==='surface') { sendResponse({matrix}); return false; }\n});`);
   write(extDir,'isolated.js',`chrome.runtime.sendMessage({kind:'surface'},response=>{\n  document.documentElement.dataset.breezeWalletWorker='ok';\n  document.documentElement.dataset.breezeWalletApis=JSON.stringify(response&&response.matrix||{});\n});`);
   write(extDir,'inpage.js',`window.ethereum={isBreezeMetaMaskProbe:true,request:async()=>({ok:true})};\ndocument.documentElement.dataset.breezeWalletMainWorld='ok';`);
   write(extDir,'popup.html','<!doctype html><html><body><div id="status">loading</div><pre id="apis"></pre><script src="popup.js"></script></body></html>');
@@ -86,7 +86,9 @@ function serve(){
     let apiMatrix = {};
     try { apiMatrix = JSON.parse(page?.apis || '{}'); } catch {}
     console.log('API_MATRIX ' + JSON.stringify(apiMatrix));
-    ok('core wallet runtime APIs exist', !!apiMatrix.runtime && !!apiMatrix.storage);
+    ok('core wallet runtime and storage APIs exist', !!apiMatrix.runtime && !!apiMatrix.runtimeConnect && !!apiMatrix.storage && !!apiMatrix.storageSession);
+    ok('MetaMask tab APIs exist', !!apiMatrix.tabs && !!apiMatrix.tabsCreate && !!apiMatrix.tabsQuery, JSON.stringify(apiMatrix));
+    ok('MetaMask window APIs exist', !!apiMatrix.windows && !!apiMatrix.windowsCreate && !!apiMatrix.windowsGetAll, JSON.stringify(apiMatrix));
     ok('web request observation API exists', !!apiMatrix.webRequest, JSON.stringify(apiMatrix));
 
     popupWin = new BrowserWindow({show:false,width:390,height:600,webPreferences:{session:ses,contextIsolation:true,nodeIntegration:false,sandbox:true}});
