@@ -30,6 +30,7 @@ product = _read(SRC / 'breeze-product.js')
 context = _read(SRC / 'breeze-context.js')
 vaultui = _read(SRC / 'breeze-vault.js')
 homeui  = _read(SRC / 'breeze-home.js')
+runtime = _read(SRC / 'breeze-runtime.js')
 
 def _b64_text(*paths):
     for path in paths:
@@ -65,7 +66,7 @@ for name in SHELLS:
         if '</body>' not in html:
             print(f'  !! {name}: missing </body> for desktop module injection'); fail = True
         else:
-            modules = ''.join('<script>\n' + module + '\n</script>\n' for module in (launch, product, context, vaultui, homeui))
+            modules = ''.join('<script>\n' + module + '\n</script>\n' for module in (launch, product, context, vaultui, homeui, runtime))
             html = html.replace('</body>', modules + '</body>', 1)
     html = html.replace('data:image/png;base64,__LOGO__', 'data:image/svg+xml;base64,' + logo_svg_b64)
     html = html.replace('__LOGO__', logo_svg_b64)
