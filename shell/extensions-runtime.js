@@ -25,7 +25,9 @@ const extensionWindows = new Set();
 const oauthWindows = new Set();
 const notifications = new Map();
 const runtimeContexts = new Map();
+const serviceWorkerSessions = new WeakMap();
 const pagePreload = path.join(__dirname,'extension-page-preload.js');
+const serviceWorkerPreload = path.join(__dirname,'extension-sw-preload.js');
 
 function safeWorkspace(value){ return String(value||'default').replace(/[^a-z0-9_-]/gi,'-').slice(0,80)||'default'; }
 function sealedSession(ses,workspaceId='default'){
@@ -163,6 +165,69 @@ async function dispatchPageApi(sender,method,params={}){
   if(typeof fn!=='function'){const err=new Error('extension page API is not implemented');err.status=501;throw err;}
   return fn(ctx,params&&typeof params==='object'?params:{});
 }
+
+function serviceWorkerRuntimeId(ses,versionId,worker){
+  let scope='';
+  try{
+    const running=ses?.serviceWorkers?.getAllRunning?.()||{};
+    const info=running[String(versionId)]||running[Number(versionId)]||null;
+    scope=String(info?.scope||worker?.scope||worker?.scriptURL||'');
+  }catch{}
+  try{
+    const u=new URL(scope);
+    return u.protocol==='chrome-extension:'?u.hostname:'';
+  }catch{return '';}
+}
+async function waitForWorkerContext(ses,runtimeId){
+  const id=String(runtimeId||'');
+  for(let i=0;i<100;i++){
+    const ctx=runtimeContexts.get(ses)?.get(id)||null;
+    if(ctx)return ctx;
+    await new Promise(resolve=>setTimeout(resolve,25));
+  }
+  return null;
+}
+async function dispatchWorkerApi(ses,versionId,worker,method,params={}){
+  const runtimeId=serviceWorkerRuntimeId(ses,versionId,worker);
+  if(!runtimeId){const err=new Error('unregistered extension service worker');err.status=403;throw err;}
+  const ctx=await waitForWorkerContext(ses,runtimeId);
+  if(!ctx){const err=new Error('extension service-worker context is not ready');err.status=503;throw err;}
+  const name=String(method||'');
+  if(!pageMethodAllowed(ctx,name)){const err=new Error('extension service-worker API is not permitted');err.status=403;throw err;}
+  const fn=handlers?.[name];
+  if(typeof fn!=='function'){const err=new Error('extension service-worker API is not implemented');err.status=501;throw err;}
+  return fn(ctx,params&&typeof params==='object'?params:{});
+}
+function attachServiceWorkerBridge(ses,versionId){
+  const state=serviceWorkerSessions.get(ses);
+  if(!state||!ses?.serviceWorkers)return;
+  let worker=null;
+  try{worker=ses.serviceWorkers.getWorkerFromVersionID(Number(versionId));}catch{}
+  if(!worker||state.workers.has(worker))return;
+  state.workers.add(worker);
+  try{worker.ipc.removeHandler('breeze:extension-compat');}catch{}
+  try{
+    worker.ipc.handle('breeze:extension-compat',(_event,method,params)=>dispatchWorkerApi(ses,versionId,worker,method,params));
+  }catch{}
+}
+function ensureServiceWorkerBridge(ses){
+  if(!ses||serviceWorkerSessions.has(ses))return serviceWorkerSessions.get(ses)||null;
+  if(typeof ses.registerPreloadScript!=='function'||!ses.serviceWorkers)return null;
+  let preloadId='';
+  try{preloadId=ses.registerPreloadScript({type:'service-worker',filePath:serviceWorkerPreload});}
+  catch{return null;}
+  const state={preloadId,workers:new WeakSet()};
+  serviceWorkerSessions.set(ses,state);
+  const onStatus=({versionId,runningStatus})=>{
+    if(runningStatus==='starting'||runningStatus==='running')attachServiceWorkerBridge(ses,versionId);
+  };
+  try{ses.serviceWorkers.on('running-status-changed',onStatus);}catch{}
+  try{
+    for(const versionId of Object.keys(ses.serviceWorkers.getAllRunning?.()||{}))attachServiceWorkerBridge(ses,versionId);
+  }catch{}
+  return state;
+}
+
 function actionPopupPath(localId){
   try{
     const manifest=JSON.parse(fs.readFileSync(path.join(managedDir(localId),'manifest.json'),'utf8'));
@@ -343,6 +408,7 @@ function init(userDataPath){
 }
 function list(){ return base.list().map(row=>({...row,compatibilityBridge:compat.status(row.localId)})); }
 async function loadIntoSession(ses,workspaceId='default'){
+  ensureServiceWorkerBridge(ses);
   for(const row of base.list()) if(row.enabled!==false) await prepare(row);
   const result=await base.loadIntoSession(ses,workspaceId);
   for(const item of result||[]){
@@ -351,11 +417,15 @@ async function loadIntoSession(ses,workspaceId='default'){
       rememberRuntime(item.localId,item.runtimeId,ses,workspaceId);
     }
   }
+  // Workers can already be running by the time loadExtension resolves. Attach
+  // any handler that was not visible during the earlier `starting` event.
+  try{for(const versionId of Object.keys(ses?.serviceWorkers?.getAllRunning?.()||{}))attachServiceWorkerBridge(ses,versionId);}catch{}
   return result;
 }
 async function setEnabled(localId,enabled,sessionEntries=[]){
   const row=base.list().find(x=>x.localId===localId);
   if(enabled&&row) await prepare(row);
+  if(enabled) for(const {ses} of sessionEntries)ensureServiceWorkerBridge(ses);
   const result=await base.setEnabled(localId,enabled,sessionEntries);
   if(enabled){
     for(const {ses,workspaceId} of sessionEntries){
@@ -364,6 +434,7 @@ async function setEnabled(localId,enabled,sessionEntries=[]){
         compat.registerRuntime(localId,item.runtimeId,{ses,workspaceId:safeWorkspace(workspaceId),sealed:sealedSession(ses,workspaceId),private:false});
         rememberRuntime(localId,item.runtimeId,ses,workspaceId);
       }
+      try{for(const versionId of Object.keys(ses?.serviceWorkers?.getAllRunning?.()||{}))attachServiceWorkerBridge(ses,versionId);}catch{}
     }
   }else{
     for(const {ses,workspaceId} of sessionEntries){compat.unregisterRuntime(localId,{ses,workspaceId});forgetRuntime(localId,ses);}
