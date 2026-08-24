@@ -1,0 +1,75 @@
+name: real-phantom-cert
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'shell/realphantomtest.js'
+      - 'shell/extensions-runtime.js'
+      - 'shell/extension-compat.js'
+      - 'shell/extension-page-preload.js'
+      - '.github/workflows/real-phantom-cert.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  official-phantom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Breeze
+        uses: actions/checkout@v4
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+
+      - name: Download official Phantom Chrome Web Store package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vendor/phantom
+          url='https://clients2.google.com/service/update2/crx?response=redirect&prodversion=140.0.0.0&acceptformat=crx2,crx3&x=id%3Dbfnaelmomeimhlpmgjnjophhpkkoljpa%26uc'
+          curl --fail --location --retry 3 --retry-delay 2 --user-agent 'Mozilla/5.0 Chrome/140.0.0.0' "$url" -o .vendor/phantom.crx
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import io, json, zipfile
+          src=Path('.vendor/phantom.crx').read_bytes()
+          if src[:4] != b'Cr24':
+              raise SystemExit('not a CRX package')
+          version=int.from_bytes(src[4:8],'little')
+          if version == 2:
+              pub=int.from_bytes(src[8:12],'little')
+              sig=int.from_bytes(src[12:16],'little')
+              offset=16+pub+sig
+          elif version == 3:
+              header=int.from_bytes(src[8:12],'little')
+              offset=12+header
+          else:
+              raise SystemExit(f'unsupported CRX version {version}')
+          payload=src[offset:]
+          if payload[:2] != b'PK':
+              raise SystemExit('CRX ZIP payload missing')
+          dest=Path('.vendor/phantom')
+          with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+              for info in zf.infolist():
+                  p=PurePosixPath(info.filename)
+                  if p.is_absolute() or '..' in p.parts:
+                      raise SystemExit(f'unsafe ZIP member: {info.filename}')
+              zf.extractall(dest)
+          manifest=json.loads((dest/'manifest.json').read_text())
+          print('Phantom CWS build',manifest.get('version'),'MV'+str(manifest.get('manifest_version')),manifest.get('action',{}).get('default_popup'))
+          PY
+          test -f .vendor/phantom/manifest.json
+
+      - name: Install Breeze shell dependencies
+        working-directory: shell
+        run: npm install --no-audit --no-fund
+
+      - name: Run official Phantom inside Breeze
+        working-directory: shell
+        env:
+          PHANTOM_EXTENSION_DIR: ${{ github.workspace }}/.vendor/phantom
+        run: xvfb-run -a npx electron realphantomtest.js --no-sandbox
