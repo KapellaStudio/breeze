@@ -81,7 +81,7 @@ jobs:
           for f in shell/*.js netlify/functions/*.js \
             src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js \
             src/breeze-product.js src/breeze-context.js src/breeze-vault.js \
-            src/breeze-home.js src/breeze-runtime.js; do
+            src/breeze-home.js src/breeze-runtime.js src/breeze-search-ui.js; do
             node --check "$f"
           done
 
