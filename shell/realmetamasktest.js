@@ -59,7 +59,16 @@ async function routeClickSelector(win,selector){
 }
 async function fillSelector(win,selector,value){
   await waitSelector(win,selector);
-  return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw new Error('missing selector');const p=e instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;const s=Object.getOwnPropertyDescriptor(p,'value')?.set;if(s)s.call(e,${JSON.stringify(value)});else e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return e.value})()`);
+  const focused=await win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;e.scrollIntoView({block:'center',inline:'nearest'});e.focus();if(typeof e.select==='function')e.select();else if(typeof e.setSelectionRange==='function')e.setSelectionRange(0,String(e.value||'').length);return {tag:e.tagName,disabled:!!e.disabled,value:String(e.value||'')};})()`).catch(()=>null);
+  if(!focused)throw new Error(`unable to focus ${selector}`);
+  if(focused.disabled)throw new Error(`selector is disabled: ${selector}`);
+  // Type through Chromium's native editing path instead of mutating React's
+  // controlled input value from executeJavaScript. This matches MetaMask's
+  // own WebDriver fill behavior and fires the real input/change machinery.
+  try{if(!win.isVisible())win.show();win.focus();}catch{}
+  win.webContents.insertText(String(value));
+  await sleep(150);
+  return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});return e?String(e.value||''):''})()`).catch(()=>null);
 }
 async function pasteSelector(win,selector,value){
   await waitSelector(win,selector);
