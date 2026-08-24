@@ -28,6 +28,8 @@ jobs:
       - name: Verify live Netlify production surface
         env:
           BASE: https://kapella-breeze.netlify.app
+          EXPECTED_BETA_TAG: v1.3.0-rc.3
+          EXPECTED_LINUX_SHA256: ae800631d215354b91151f72408f31c1de95761fcf389c30644f87b2d12a4420
         run: |
           set -euo pipefail
           ok=0
@@ -65,8 +67,8 @@ jobs:
             "$BASE/download?channel=beta&platform=linux-x64"
           cat /tmp/download-headers.txt
           grep -Eq '^HTTP/[^ ]+ 30[1278]' /tmp/download-headers.txt
-          grep -qi '^location: https://github.com/KapellaStudio/breeze/releases/download/v1.3.0-rc.1/' /tmp/download-headers.txt
-          grep -qi '^x-breeze-sha256: 830995f9733923e7a09e5c8cdb7cb7ce1e53b17086fe3ef66cba013836735e1a' /tmp/download-headers.txt
+          grep -qi "^location: https://github.com/KapellaStudio/breeze/releases/download/${EXPECTED_BETA_TAG}/" /tmp/download-headers.txt
+          grep -qi "^x-breeze-sha256: ${EXPECTED_LINUX_SHA256}" /tmp/download-headers.txt
 
       - name: Report production smoke result
         if: ${{ always() }}
