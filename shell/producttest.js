@@ -12,12 +12,15 @@ try{
   assert.equal(prefs.get().theme,'light');
   assert.equal(prefs.get().sidebar,'on');
   assert.equal(prefs.get().sleep,true,'real tab sleeping defaults on');
+  assert.equal(prefs.get().searchSuggestions,true,'browser-grade search suggestions default on');
+  assert.equal(prefs.get().searchLibrary,true,'local browser library suggestions default on');
   assert.equal(prefs.get().versionDetection,false,'unsupported version detection defaults off');
   assert.equal(prefs.set('theme','dark').ok,true);
   assert.equal(prefs.set('comfort','dim').ok,true);
   assert.equal(prefs.set('sidebar','auto').ok,true);
   assert.equal(prefs.set('askwhere',true).ok,true);
   assert.equal(prefs.set('sleep',false).preferences.sleep,false,'tab sleeping can be disabled');
+  assert.equal(prefs.set('searchSuggestions',false).preferences.searchSuggestions,false,'remote autocomplete can be disabled');
   assert.equal(prefs.set('theme','neon').error,'invalid preference value');
   assert.equal(prefs.set('comfort','warm').error,'invalid preference value');
   assert.equal(prefs.set('sidebar','floating').error,'invalid preference value');
@@ -29,13 +32,19 @@ try{
   assert.equal(prefs.get().sidebar,'auto','sidebar mode persists');
   assert.equal(prefs.get().askwhere,true,'download preference persists');
   assert.equal(prefs.get().sleep,false,'explicit tab sleep choice persists');
+  assert.equal(prefs.get().searchSuggestions,false,'autocomplete privacy choice persists');
   assert.equal(prefs.set('sleep',true).preferences.sleep,true,'tab sleeping can be enabled');
-  assert.equal(prefs.setMany({accent:'mint',tabs:'classic',provenance:false,sidebar:'off',tint:false,group:false}).ok,true);
+  assert.equal(prefs.setMany({accent:'mint',tabs:'classic',provenance:false,sidebar:'off',tint:false,group:false,searchSuggestions:true,searchLibrary:false}).ok,true);
   assert.equal(prefs.get().accent,'mint');
   assert.equal(prefs.get().sidebar,'off');
   assert.equal(prefs.get().tint,false);
   assert.equal(prefs.get().group,false);
   assert.equal(prefs.get().provenance,false);
+  assert.equal(prefs.get().searchSuggestions,true,'autocomplete can be re-enabled');
+  assert.equal(prefs.get().searchLibrary,false,'local suggestion blending can be disabled');
+  prefs.init(root);
+  assert.equal(prefs.get().searchSuggestions,true,'re-enabled autocomplete persists');
+  assert.equal(prefs.get().searchLibrary,false,'library suggestion preference persists');
 
   workspaces.init(root);
   let list=workspaces.list();
