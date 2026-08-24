@@ -45,8 +45,10 @@ app.whenReady().then(async () => {
     ok('trusted bridge reachable', await exec(`typeof window.__BREEZE_SHELL__ === 'object'`));
     ok('packaged first-run service reachable', await exec(`window.__BREEZE_SHELL__.firstRunStatus().then(x=>typeof x.firstRunComplete==='boolean')`));
     ok('live weather bridge is present', await exec(`typeof window.__BREEZE_SHELL__.currentWeather === 'function'`));
+    ok('true tab sleep bridge is present', await exec(`typeof window.__BREEZE_SHELL__.sleepTab === 'function' && typeof window.__BREEZE_SHELL__.wakeTab === 'function'`));
     ok('New Tab keeps a real weather control', await exec(`!!document.querySelector('.homebar .wx') && /Weather/.test(document.querySelector('.homebar .wx').textContent)`));
     ok('weather starts opt-in, not as a fake reading', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>p.weatherEnabled===false)`));
+    ok('real tab sleeping defaults on', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>p.sleep===true)`));
     ok('unsupported split control is hidden', await exec(`getComputedStyle(document.querySelector('#splitBtn')).display === 'none'`));
 
     const id = await exec(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(site('alpha'))}})`);
@@ -64,6 +66,26 @@ app.whenReady().then(async () => {
     await exec(`window.__BREEZE_SHELL__.back(${id})`);
     await wait(1000);
     ok('back returns to previous real page', /Alpha Site/.test(await titles()));
+
+    /* Real sleeping must destroy the inactive renderer, keep the tab in the
+       chrome, then restore its navigation stack into a fresh renderer. */
+    const sleeper = await exec(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(site('beta'))}})`);
+    await wait(900);
+    await exec(`window.__BREEZE_SHELL__.selectTab(${id})`);
+    await wait(200);
+    const slept = await exec(`window.__BREEZE_SHELL__.sleepTab(${sleeper})`);
+    ok('inactive web tab actually enters sleep', slept?.ok===true && slept?.releasedRenderer===true);
+    ok('sleep state is observable from tab:list', await exec(`window.__BREEZE_SHELL__.listTabs().then(x=>x.some(t=>t.id===${sleeper}&&t.sleeping===true))`));
+    await wait(120);
+    ok('sidebar marks released renderer as sleeping', await exec(`!!document.querySelector('.tab[data-asleep="1"] .zzz')`));
+    ok('sleep status reports released renderers, not fake MB', await exec(`(()=>{const s=document.querySelector('.sleepStat');return !!s && /renderer/.test(s.textContent) && !/MB|GB/.test(s.textContent);})()`));
+    await exec(`window.__BREEZE_SHELL__.selectTab(${sleeper})`);
+    await wait(1200);
+    ok('selecting sleeping tab reconstructs Chromium', await exec(`window.__BREEZE_SHELL__.listTabs().then(x=>x.some(t=>t.id===${sleeper}&&!t.sleeping&&!t.waking))`));
+    ok('woken tab restores its real page', /Beta Site/.test(await titles()));
+    await exec(`window.__BREEZE_SHELL__.closeTab(${sleeper})`);
+    await wait(250);
+    await exec(`window.__BREEZE_SHELL__.selectTab(${id})`);
 
     const hits = await exec(`window.__BREEZE_SHELL__.find(${id},'browser')`);
     ok('findInPage runs against real content', typeof hits === 'number', 'req=' + hits);
