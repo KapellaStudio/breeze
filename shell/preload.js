@@ -76,6 +76,8 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   closeTab: id => call('tab:close', id),
   selectTab: id => call('tab:select', id),
   listTabs: () => call('tab:list'),
+  sleepTab: id => call('tab:sleep', id),
+  wakeTab: id => call('tab:wake', id),
   navigate: (id, input) => call('tab:navigate', id, input),
   back: id => call('tab:back', id),
   forward: id => call('tab:forward', id),
