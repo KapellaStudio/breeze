@@ -16,7 +16,7 @@ permissions:
 jobs:
   official-metamask:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout Breeze
         uses: actions/checkout@v4
@@ -34,22 +34,18 @@ jobs:
         with:
           node-version: '24.19.0'
 
-      - name: Obtain pinned official MetaMask Chromium test build
+      - name: Install and build pinned MetaMask Chromium test extension
         working-directory: .vendor/metamask
+        env:
+          CI: '1'
         run: |
           set -euo pipefail
-          SOURCE_VERSION="$(node -p "require('./package.json').version")"
-          test "$SOURCE_VERSION" = "13.46.0"
-          URL="https://diuv6g5fj9pvx.cloudfront.net/metamask-extension/26802049055/build-test-webpack/builds/metamask-chrome-13.46.0.zip"
-          rm -rf /tmp/metamask-unpack dist/chrome
-          mkdir -p /tmp/metamask-unpack dist
-          curl --fail --location --retry 5 --retry-delay 2 --retry-all-errors "$URL" -o /tmp/metamask-chrome.zip
-          unzip -q /tmp/metamask-chrome.zip -d /tmp/metamask-unpack
-          MANIFEST="$(find /tmp/metamask-unpack -maxdepth 5 -type f -name manifest.json -print -quit)"
-          test -n "$MANIFEST"
-          cp -a "$(dirname "$MANIFEST")" dist/chrome
+          corepack enable
+          cp .metamaskrc.dist .metamaskrc
+          yarn install --immutable
+          yarn build:test
           test -f dist/chrome/manifest.json
-          node -e "const p=require('./package.json'),m=require('./dist/chrome/manifest.json'); if(m.version!==p.version) throw new Error('source/build version mismatch: '+p.version+' vs '+m.version); console.log('MetaMask official build',m.version,'MV'+m.manifest_version,m.action&&m.action.default_popup)"
+          node -e "const p=require('./package.json'),m=require('./dist/chrome/manifest.json'); if(m.version!==p.version) throw new Error('source/build version mismatch: '+p.version+' vs '+m.version); console.log('MetaMask source build',m.version,'MV'+m.manifest_version,m.action&&m.action.default_popup)"
 
       - name: Install Breeze shell dependencies
         working-directory: shell
