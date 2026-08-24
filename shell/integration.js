@@ -76,6 +76,16 @@ app.whenReady().then(async () => {
     ok('@tabs renders the real open Alpha tab', await exec(`([...document.querySelectorAll('#omniList .ovRow .t')].some(x=>/Alpha Site/.test(x.textContent)))`));
     await exec(`closeAll()`);
 
+    /* Private browsing owns the remote-suggestion decision inside preload.
+       The chrome cannot pass a false flag to opt a Private tab into sending
+       partial queries to an autocomplete provider. */
+    const privateId=await exec(`window.__BREEZE_SHELL__.newPrivateTab({url:${JSON.stringify(site('beta'))}})`);
+    await wait(650);
+    const privateSuggest=await exec(`window.__BREEZE_SHELL__.omniboxSuggestions('private search text')`);
+    ok('Private browsing suppresses remote omnibox suggestions', privateSuggest?.reason==='private' && Array.isArray(privateSuggest?.suggestions) && privateSuggest.suggestions.length===0, privateSuggest?.reason||'');
+    await exec(`window.__BREEZE_SHELL__.closeTab(${privateId});window.__BREEZE_SHELL__.selectTab(${id})`);
+    await wait(300);
+
     /* Real sleeping destroys the inactive renderer, keeps the tab in chrome,
        then restores its navigation stack into a fresh renderer. */
     const sleeper = await exec(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(site('beta'))}})`);
