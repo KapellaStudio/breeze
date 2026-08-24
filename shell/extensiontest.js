@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
+const extensions = require('./extensions');
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail='') {
@@ -43,13 +44,20 @@ function serve(){
     srv = await serve();
     const port = srv.address().port;
     const ses = session.fromPartition('persist:breeze-extension-probe-' + Date.now());
-    let loaded = null, loadError = null;
-    try { loaded = await ses.extensions.loadExtension(extDir, {allowFileAccess:false}); }
-    catch (err) { loadError = String(err && (err.stack || err.message) || err); }
-    ok('Electron accepts an unpacked MV3 service-worker extension', !!loaded, loadError || loaded?.id || '');
+
+    extensions.init(path.join(tmp,'breeze-user'));
+    const imported = extensions.importDirectory(extDir);
+    ok('Breeze admits an MV3 service-worker extension', imported.installed === true, imported.error || imported.compatibility || '');
+    ok('Breeze labels MV3 runtime as partial rather than falsely complete', imported.extension?.compatibility === 'partial');
+    ok('Breeze records the MV3 background runtime kind', imported.extension?.backgroundKind === 'mv3-service-worker');
+
+    const loads = await extensions.loadIntoSession(ses,'default');
+    const runtime = loads.find(x=>x.localId===imported.extension?.localId);
+    ok('Breeze loads the managed MV3 extension into a persistent session', runtime?.ok === true, runtime?.error || runtime?.runtimeId || '');
+    const loaded = runtime?.runtimeId ? ses.extensions.getExtension(runtime.runtimeId) : null;
+    ok('managed extension is visible in Electron session registry', !!loaded && loaded.manifest?.manifest_version === 3);
+
     if (loaded) {
-      ok('loaded extension keeps its MV3 manifest', loaded.manifest?.manifest_version === 3);
-      ok('loaded extension is visible in the session registry', ses.extensions.getAllExtensions().some(x=>x.id===loaded.id));
       win = new BrowserWindow({show:false,webPreferences:{session:ses,contextIsolation:true,nodeIntegration:false,sandbox:true}});
       await win.loadURL(`http://127.0.0.1:${port}/`);
       let marker = '';
@@ -60,7 +68,8 @@ function serve(){
       }
       ok('MV3 content script runs on a real web page', !!marker, marker || 'no marker');
       ok('MV3 service worker answers runtime messaging', marker === 'mv3-worker', marker || 'no response');
-      try { ses.extensions.removeExtension(loaded.id); } catch {}
+      const removed = await extensions.remove(imported.extension.localId,[{ses,workspaceId:'default'}]);
+      ok('Breeze unload/remove path succeeds for MV3', removed?.ok === true);
       ok('extension unload removes it from the session', !ses.extensions.getExtension(loaded.id));
     }
   } catch (err) {
@@ -71,6 +80,6 @@ function serve(){
     try { if (srv) srv.close(); } catch {}
     try { fs.rmSync(tmp,{recursive:true,force:true}); } catch {}
   }
-  console.log(`\nMV3 extension runtime: ${pass}/${pass+fail}`);
+  console.log(`\nBreeze MV3 extension path: ${pass}/${pass+fail}`);
   app.exit(fail ? 1 : 0);
 })();
