@@ -16,15 +16,25 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
   const manifest={manifest_version:3,name:'Breeze SW Preload Probe',version:'1.0.0',permissions:['storage'],host_permissions:['http://127.0.0.1/*'],background:{service_worker:'worker.js'},content_scripts:[{matches:['http://127.0.0.1/*'],js:['content.js'],run_at:'document_idle'}]};
   write(extDir,'manifest.json',JSON.stringify(manifest,null,2));
   write(extDir,'worker.js',`chrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{if(msg?.kind!=='exercise')return;const diag={marker:globalThis.__breezePreloadMarker||'',bridgeExposed:globalThis.__breezePreloadBridgeExposed,bridgeVisible:globalThis.__breezePreloadBridgeVisible,sawChrome:globalThis.__breezePreloadSawChrome,patched:globalThis.__breezePreloadPatched,tabsCreate:typeof chrome.tabs?.create,windowsCreate:typeof chrome.windows?.create,cookiesGetAll:typeof chrome.cookies?.getAll};if(typeof chrome.tabs?.create!=='function'||typeof chrome.windows?.create!=='function'||typeof chrome.cookies?.getAll!=='function'){sendResponse({ok:false,error:'compatibility APIs missing',diag});return false;}Promise.all([chrome.tabs.create({url:'https://example.com/from-worker'}),chrome.windows.create({url:'chrome-extension://'+chrome.runtime.id+'/home.html'}),chrome.cookies.getAll({domain:'example.com'})]).then(([tab,win,cookies])=>sendResponse({ok:true,tab,win,cookies,shim:true,diag})).catch(err=>sendResponse({ok:false,error:String(err&&err.message||err),diag}));return true;});`);
-  write(extDir,'content.js',`setTimeout(()=>chrome.runtime.sendMessage({kind:'exercise'},response=>{document.documentElement.dataset.breezeSwPreload=JSON.stringify(response||{});}),350);`);
+  write(extDir,'content.js',`setTimeout(()=>chrome.runtime.sendMessage({kind:'exercise'},response=>{document.documentElement.dataset.breezeSwPreload=JSON.stringify(response||{});}),400);`);
   write(extDir,'home.html','<!doctype html><html><body>extension home</body></html>');
 
-  let srv,win,loaded;
+  let srv,win,loaded,worker=null;
+  const preloadEvents=[];
   try{
     await app.whenReady();
     srv=await serve(); const port=srv.address().port;
     const ses=session.fromPartition('persist:breeze-sw-preload-'+Date.now());
     ses.serviceWorkers.on('console-message',(_event,details)=>console.log('SW_CONSOLE',details.message));
+    ses.serviceWorkers.on('running-status-changed',({versionId,runningStatus})=>{
+      if(runningStatus!=='starting')return;
+      const sw=ses.serviceWorkers.getWorkerFromVersionID(Number(versionId));
+      if(!sw)return;
+      if(!worker)worker=sw;
+      sw.ipc.on('breeze:preload-loaded',(_event,payload)=>{preloadEvents.push({kind:'loaded',payload});console.log('SW_PRELOAD_EVENT loaded '+JSON.stringify(payload));});
+      sw.ipc.on('breeze:preload-patch',(_event,payload)=>{preloadEvents.push({kind:'patch',payload});console.log('SW_PRELOAD_EVENT patch '+JSON.stringify(payload));});
+      sw.ipc.on('breeze:preload-error',(_event,payload)=>{preloadEvents.push({kind:'error',payload});console.log('SW_PRELOAD_EVENT error '+JSON.stringify(payload));});
+    });
     const preloadPath=path.join(__dirname,'extension-sw-preload.js');
     let preloadId='', preloadError='';
     try{ preloadId=ses.registerPreloadScript({type:'service-worker',filePath:preloadPath}); }
@@ -34,18 +44,21 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
     loaded=await ses.extensions.loadExtension(extDir,{allowFileAccess:false});
     ok('MV3 probe loads with SW preload registered',!!loaded,loaded?.id||'');
 
-    let worker=null;
-    for(let i=0;i<60&&!worker;i++){
+    for(let i=0;i<60;i++){
       const running=ses.serviceWorkers.getAllRunning();
       for(const [versionId,info] of Object.entries(running)){
         if(String(info.scope||'').startsWith(loaded.url)){
           worker=ses.serviceWorkers.getWorkerFromVersionID(Number(versionId)); break;
         }
       }
-      if(!worker) await new Promise(r=>setTimeout(r,100));
+      if(worker)break;
+      await new Promise(r=>setTimeout(r,100));
     }
     ok('Breeze can resolve the running extension ServiceWorkerMain',!!worker,loaded.url);
     if(!worker) throw new Error('extension service worker did not become visible');
+
+    await new Promise(r=>setTimeout(r,150));
+    ok('registered preload actually executes for extension service workers',preloadEvents.some(e=>e.kind==='loaded'),JSON.stringify(preloadEvents));
 
     const calls=[];
     worker.ipc.handle('breeze:extension-compat',(_event,method,params)=>{
