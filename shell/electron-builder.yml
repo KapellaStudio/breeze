@@ -18,6 +18,7 @@ files:
   - workspace-data.js
   - vault.js
   - weather.js
+  - omnibox.js
   - main.js
   - preload.js
   - security.js
