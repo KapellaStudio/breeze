@@ -44,7 +44,9 @@ app.whenReady().then(async () => {
     ok('adapter engaged (data-shell="1")', await exec(`document.documentElement.dataset.shell === '1'`));
     ok('trusted bridge reachable', await exec(`typeof window.__BREEZE_SHELL__ === 'object'`));
     ok('packaged first-run service reachable', await exec(`window.__BREEZE_SHELL__.firstRunStatus().then(x=>typeof x.firstRunComplete==='boolean')`));
-    ok('fake home weather is removed', await exec(`document.querySelector('.homebar .wx') === null`));
+    ok('live weather bridge is present', await exec(`typeof window.__BREEZE_SHELL__.currentWeather === 'function'`));
+    ok('New Tab keeps a real weather control', await exec(`!!document.querySelector('.homebar .wx') && /Weather/.test(document.querySelector('.homebar .wx').textContent)`));
+    ok('weather starts opt-in, not as a fake reading', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>p.weatherEnabled===false)`));
     ok('unsupported split control is hidden', await exec(`getComputedStyle(document.querySelector('#splitBtn')).display === 'none'`));
 
     const id = await exec(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(site('alpha'))}})`);
