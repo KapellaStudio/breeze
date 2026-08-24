@@ -226,7 +226,7 @@ function backupPaths(localId, workerRel){
   const worker = safeRelativeFile(base,workerRel,'backup worker').full;
   return { base, manifest:path.join(base,'manifest.json'), worker };
 }
-function ensurePristineBackups(localId, managedDir, manifest, workerRel){
+function ensurePristineBackups(localId, managedDir, _manifest, workerRel){
   const backups = backupPaths(localId,workerRel);
   fs.mkdirSync(backups.base,{recursive:true});
   const managedManifest = path.join(managedDir,'manifest.json');
@@ -247,7 +247,47 @@ function ensurePristineBackups(localId, managedDir, manifest, workerRel){
 
 function bootstrapSource(endpointUrl, token, allowed){
   const methods=[...allowed];
-  return `${PATCH_MARKER}\n;(()=>{\n  'use strict';\n  const endpoint=${JSON.stringify(endpointUrl)};\n  const token=${JSON.stringify(token)};\n  const allowed=new Set(${JSON.stringify(methods)});\n  const invoke=async(method,params={})=>{\n    if(!allowed.has(method))throw new Error('Breeze compatibility method is not allowed: '+method);\n    const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+token},body:JSON.stringify({method,params,runtimeId:chrome.runtime&&chrome.runtime.id||''})});\n    const payload=await response.json().catch(()=>({error:'invalid Breeze compatibility response'}));\n    if(!response.ok)throw new Error(payload&&payload.error||('Breeze compatibility '+response.status));\n    return payload.result;\n  };\n  const callback=(promise,cb)=>{if(typeof cb==='function'){promise.then(v=>cb(v)).catch(()=>cb(undefined));}return promise;};\n  try{\n    if(!chrome.tabs)chrome.tabs={};\n    if(allowed.has('tabs.create'))chrome.tabs.create=(details,cb)=>callback(invoke('tabs.create',details&&typeof details==='object'?details:{}),cb);\n    if(allowed.has('tabs.query'))chrome.tabs.query=(details,cb)=>{if(typeof details==='function'){cb=details;details={};}return callback(invoke('tabs.query',details&&typeof details==='object'?details:{}),cb);};\n    if(allowed.has('tabs.get'))chrome.tabs.get=(id,cb)=>callback(invoke('tabs.get',{tabId:id}),cb);\n    if(allowed.has('tabs.getCurrent'))chrome.tabs.getCurrent=(cb)=>callback(invoke('tabs.getCurrent',{}),cb);\n    if(allowed.has('tabs.update'))chrome.tabs.update=(id,details,cb)=>{if(id&&typeof id==='object'){cb=details;details=id;id=null;}return callback(invoke('tabs.update',{tabId:id,props:details&&typeof details==='object'?details:{}}),cb);};\n    if(allowed.has('tabs.remove'))chrome.tabs.remove=(ids,cb)=>callback(invoke('tabs.remove',{tabIds:ids}),cb);\n    if(!chrome.windows)chrome.windows={};\n    for(const name of ['create','getAll','getCurrent','getLastFocused']){const method='windows.'+name;if(allowed.has(method)&&typeof chrome.windows[name]!=='function')chrome.windows[name]=(details,cb)=>{if(typeof details==='function'){cb=details;details={};}return callback(invoke(method,details&&typeof details==='object'?details:{}),cb);};}\n    if(allowed.has('windows.update')&&typeof chrome.windows.update!=='function')chrome.windows.update=(id,details,cb)=>callback(invoke('windows.update',{id,...(details||{})}),cb);\n    if(allowed.has('windows.remove')&&typeof chrome.windows.remove!=='function')chrome.windows.remove=(id,cb)=>callback(invoke('windows.remove',{id}),cb);\n    if(allowed.has('cookies.get')||allowed.has('cookies.getAll')||allowed.has('cookies.set')||allowed.has('cookies.remove')){if(!chrome.cookies)chrome.cookies={};for(const name of ['get','getAll','set','remove']){const method='cookies.'+name;if(allowed.has(method)&&typeof chrome.cookies[name]!=='function')chrome.cookies[name]=(details,cb)=>callback(invoke(method,details&&typeof details==='object'?details:{}),cb);}}\n    if(allowed.has('notifications.create')||allowed.has('notifications.clear')){if(!chrome.notifications)chrome.notifications={};if(allowed.has('notifications.create')&&typeof chrome.notifications.create!=='function')chrome.notifications.create=(id,options,cb)=>{if(id&&typeof id==='object'){cb=options;options=id;id='';}return callback(invoke('notifications.create',{id:id||'',options:options&&typeof options==='object'?options:{}}),cb);};if(allowed.has('notifications.clear')&&typeof chrome.notifications.clear!=='function')chrome.notifications.clear=(id,cb)=>callback(invoke('notifications.clear',{id}),cb);}\n    if(!chrome.commands)chrome.commands={};\n    if(typeof chrome.commands.getAll!=='function')chrome.commands.getAll=(cb)=>{const commands=chrome.runtime.getManifest().commands||{};const rows=Object.entries(commands).map(([name,v])=>({name,description:v&&v.description||'',shortcut:v&&v.suggested_key&&(v.suggested_key.default||v.suggested_key.windows||v.suggested_key.mac)||''}));if(typeof cb==='function')queueMicrotask(()=>cb(rows));return Promise.resolve(rows);};\n    if(allowed.has('identity.launchWebAuthFlow')){if(!chrome.identity)chrome.identity={};if(typeof chrome.identity.getRedirectURL!=='function')chrome.identity.getRedirectURL=(suffix='')=>'https://'+chrome.runtime.id+'.chromiumapp.org/'+String(suffix||'').replace(/^\\/+/, '');if(typeof chrome.identity.launchWebAuthFlow!=='function')chrome.identity.launchWebAuthFlow=(details,cb)=>callback(invoke('identity.launchWebAuthFlow',details&&typeof details==='object'?details:{}),cb);}\n  }catch{}\n})();\n`;
+  const lines = [
+    PATCH_MARKER,
+    ';(()=>{',
+    "  'use strict';",
+    `  const endpoint=${JSON.stringify(endpointUrl)};`,
+    `  const token=${JSON.stringify(token)};`,
+    `  const allowed=new Set(${JSON.stringify(methods)});`,
+    "  const invoke=async(method,params={})=>{",
+    "    if(!allowed.has(method))throw new Error('Breeze compatibility method is not allowed: '+method);",
+    "    const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+token},body:JSON.stringify({method,params,runtimeId:chrome.runtime&&chrome.runtime.id||''})});",
+    "    const payload=await response.json().catch(()=>({error:'invalid Breeze compatibility response'}));",
+    "    if(!response.ok)throw new Error(payload&&payload.error||('Breeze compatibility '+response.status));",
+    '    return payload.result;',
+    '  };',
+    "  const callback=(promise,cb)=>{if(typeof cb==='function'){promise.then(v=>cb(v)).catch(()=>cb(undefined));}return promise;};",
+    "  const event=()=>{const listeners=new Set();return{addListener(fn){if(typeof fn==='function')listeners.add(fn);},removeListener(fn){listeners.delete(fn);},hasListener(fn){return listeners.has(fn);},hasListeners(){return listeners.size>0;}};};",
+    '  try{',
+    '    if(!chrome.tabs)chrome.tabs={};',
+    '    if(!chrome.tabs.onRemoved)chrome.tabs.onRemoved=event();',
+    '    if(!chrome.tabs.onUpdated)chrome.tabs.onUpdated=event();',
+    "    if(allowed.has('tabs.create'))chrome.tabs.create=(details,cb)=>callback(invoke('tabs.create',details&&typeof details==='object'?details:{}),cb);",
+    "    if(allowed.has('tabs.query'))chrome.tabs.query=(details,cb)=>{if(typeof details==='function'){cb=details;details={};}return callback(invoke('tabs.query',details&&typeof details==='object'?details:{}),cb);};",
+    "    if(allowed.has('tabs.get'))chrome.tabs.get=(id,cb)=>callback(invoke('tabs.get',{tabId:id}),cb);",
+    "    if(allowed.has('tabs.getCurrent'))chrome.tabs.getCurrent=(cb)=>callback(invoke('tabs.getCurrent',{}),cb);",
+    "    if(allowed.has('tabs.update'))chrome.tabs.update=(id,details,cb)=>{if(id&&typeof id==='object'){cb=details;details=id;id=null;}return callback(invoke('tabs.update',{tabId:id,props:details&&typeof details==='object'?details:{}}),cb);};",
+    "    if(allowed.has('tabs.remove'))chrome.tabs.remove=(ids,cb)=>callback(invoke('tabs.remove',{tabIds:ids}),cb);",
+    '    if(!chrome.windows)chrome.windows={};',
+    '    if(!chrome.windows.onRemoved)chrome.windows.onRemoved=event();',
+    "    for(const name of ['create','getAll','getCurrent','getLastFocused']){const method='windows.'+name;if(allowed.has(method)&&typeof chrome.windows[name]!=='function')chrome.windows[name]=(details,cb)=>{if(typeof details==='function'){cb=details;details={};}return callback(invoke(method,details&&typeof details==='object'?details:{}),cb);};}",
+    "    if(allowed.has('windows.update')&&typeof chrome.windows.update!=='function')chrome.windows.update=(id,details,cb)=>callback(invoke('windows.update',{id,...(details||{})}),cb);",
+    "    if(allowed.has('windows.remove')&&typeof chrome.windows.remove!=='function')chrome.windows.remove=(id,cb)=>callback(invoke('windows.remove',{id}),cb);",
+    "    if(allowed.has('cookies.get')||allowed.has('cookies.getAll')||allowed.has('cookies.set')||allowed.has('cookies.remove')){if(!chrome.cookies)chrome.cookies={};for(const name of ['get','getAll','set','remove']){const method='cookies.'+name;if(allowed.has(method)&&typeof chrome.cookies[name]!=='function')chrome.cookies[name]=(details,cb)=>callback(invoke(method,details&&typeof details==='object'?details:{}),cb);}}",
+    "    if(allowed.has('notifications.create')||allowed.has('notifications.clear')){if(!chrome.notifications)chrome.notifications={};if(!chrome.notifications.onClicked)chrome.notifications.onClicked=event();if(allowed.has('notifications.create')&&typeof chrome.notifications.create!=='function')chrome.notifications.create=(id,options,cb)=>{if(id&&typeof id==='object'){cb=options;options=id;id='';}return callback(invoke('notifications.create',{id:id||'',options:options&&typeof options==='object'?options:{}}),cb);};if(allowed.has('notifications.clear')&&typeof chrome.notifications.clear!=='function')chrome.notifications.clear=(id,cb)=>callback(invoke('notifications.clear',{id}),cb);}",
+    '    if(!chrome.commands)chrome.commands={};',
+    "    if(typeof chrome.commands.getAll!=='function')chrome.commands.getAll=(cb)=>{const commands=chrome.runtime.getManifest().commands||{};const rows=Object.entries(commands).map(([name,v])=>({name,description:v&&v.description||'',shortcut:v&&v.suggested_key&&(v.suggested_key.default||v.suggested_key.windows||v.suggested_key.mac)||''}));if(typeof cb==='function')queueMicrotask(()=>cb(rows));return Promise.resolve(rows);};",
+    "    if(allowed.has('identity.launchWebAuthFlow')){if(!chrome.identity)chrome.identity={};if(typeof chrome.identity.getRedirectURL!=='function')chrome.identity.getRedirectURL=(suffix='')=>'https://'+chrome.runtime.id+'.chromiumapp.org/'+String(suffix||'').replace(/^\\/+/, '');if(typeof chrome.identity.launchWebAuthFlow!=='function')chrome.identity.launchWebAuthFlow=(details,cb)=>callback(invoke('identity.launchWebAuthFlow',details&&typeof details==='object'?details:{}),cb);}",
+    '  }catch{}',
+    '})();',
+    ''
+  ];
+  return lines.join('\n');
 }
 
 async function prepareManagedCopy(options={}){
