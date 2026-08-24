@@ -3,7 +3,7 @@
 #
 # Main-branch source changes exercise the unsigned package matrix. Publishing
 # RC bytes is explicit: workflow_dispatch(publish_rc=true), an RC tag push, or
-# the one-shot [publish-rc2] marker used by the RC2 promotion commit.
+# the intentional [publish-rc3] marker on the feature-complete promotion.
 # Stable tags are handled only by stable-release.yml so an unsigned build can
 # never become the stable release lane by accident.
 # ═══════════════════════════════════════════════════════════════════════════
@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       publish_rc:
-        description: 'Publish/update v1.3.0-rc.2 after the matrix passes'
+        description: 'Publish/update v1.3.0-rc.3 after the matrix passes'
         required: false
         default: false
         type: boolean
@@ -109,7 +109,7 @@ jobs:
           gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze package **${{ matrix.name }}**: **${{ job.status }}** — run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
 
   publish-rc:
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_rc == true) || startsWith(github.ref, 'refs/tags/') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-rc2]')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_rc == true) || startsWith(github.ref, 'refs/tags/') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-rc3]')) }}
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -118,7 +118,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             echo "RC_TAG=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
           else
-            echo "RC_TAG=v1.3.0-rc.2" >> "$GITHUB_ENV"
+            echo "RC_TAG=v1.3.0-rc.3" >> "$GITHUB_ENV"
           fi
 
       - uses: actions/download-artifact@v4
@@ -155,16 +155,16 @@ jobs:
           PY
           cat SHA256SUMS.txt
 
-      - name: Publish Breeze 1.3.0 RC
+      - name: Publish Breeze 1.3.0 RC3
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="$RC_TAG"
-          notes='Breeze 1.3.0 RC2 is the first daily-driver product pass: Move to Breeze import, persistent preferences and real workspaces, local Reading Queue/Notes/Snapshots, OS-encrypted Breeze Vault, real New Tab activity, factual privacy/runtime surfaces, and real native search/omnibox interactions. Linux, Windows and macOS packages are built directly from canonical KapellaStudio/breeze source. Windows and macOS packages are still test builds and are not production code-signed/notarised; verify SHA256SUMS.txt before testing.'
+          notes='Breeze 1.3.0 RC3 is the feature-complete daily-driver candidate: browser-grade omnibox search and scoped local search, opt-in live weather, true inactive-tab renderer sleeping with wake restoration, and real two-pane Split View using independent Chromium WebContentsViews. It also includes Move to Breeze import, persistent preferences/workspaces, local Reading Queue/Notes/Snapshots, OS-encrypted Breeze Vault, real downloads/history/bookmarks, Private browsing, permissions/display capture, Breeze Flow media tools, PDF Workspace, and compatible unpacked extensions. Linux, Windows and macOS packages are built directly from canonical KapellaStudio/breeze source. Windows and macOS RC packages remain intentionally unsigned/unnotarized test builds; verify SHA256SUMS.txt before testing.'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Breeze 1.3.0 RC 2' --notes "$notes" --prerelease
+            gh release create "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Breeze 1.3.0 RC 3' --notes "$notes" --prerelease
           fi
 
       - name: Report prerelease publication
