@@ -8,11 +8,13 @@ const call = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
 const EVENTS = ['tab:update','tab:loading','tab:closed','tab:favicon','tab:error','win:state','download:update','download:refresh','permission:request','display:request'];
 const listeners = new Map();
 let activeWorkspace = { workspaceId:'default', sealed:false };
+let activePrivate = false;
 
 EVENTS.forEach(ch => {
   ipcRenderer.on(ch, (_e, payload) => {
-    if(ch==='tab:update' && payload?.active && !payload.private){
-      activeWorkspace={workspaceId:String(payload.workspace||'default'),sealed:!!payload.sealed};
+    if(ch==='tab:update' && payload?.active){
+      activePrivate=!!payload.private;
+      if(!payload.private) activeWorkspace={workspaceId:String(payload.workspace||'default'),sealed:!!payload.sealed};
     }
     (listeners.get(ch) || []).forEach(fn => { try { fn(payload); } catch {} });
   });
@@ -39,6 +41,12 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   resetPreferences: () => call('prefs:reset'),
   currentWeather: unit => call('weather:current', unit),
 
+  /* Omnibox privacy state is captured from trusted main-process tab updates.
+     Callers cannot opt a Private tab into remote keystroke suggestions. */
+  resolveOmnibox: value => call('omnibox:resolve', value),
+  omniboxShortcuts: () => call('omnibox:shortcuts'),
+  omniboxSuggestions: query => call('omnibox:suggest', query, activePrivate),
+
   listWorkspaces: () => call('workspace:list'),
   getWorkspace: id => call('workspace:get', id),
   createWorkspace: opts => call('workspace:create', opts || {}),
@@ -58,8 +66,6 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   saveSnapshot: item => call('snapshot:save', item || {}),
   removeSnapshot: id => call('snapshot:remove', id),
 
-  /* Vault listing contains only metadata + usernames. Passwords never return
-     across the bridge; copyPassword writes directly to the OS clipboard. */
   vaultStatus: () => call('vault:status'),
   vaultList: q => call('vault:list', q || ''),
   vaultAdd: item => call('vault:add', item || {}),
