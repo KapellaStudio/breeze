@@ -1,8 +1,8 @@
 /* Breeze managed extension compatibility layer.
 
    Electron 43 supplies a strong MV3 floor, but browser-shaped products still
-   need a few Chrome APIs that Electron intentionally does not implement. This
-   module fills only missing methods for managed MV3 extension copies.
+   need Chrome APIs that Electron intentionally does not implement. This module
+   fills those gaps only inside Breeze's managed MV3 extension copies.
 
    Security rules:
    - Never mutate the user's source directory; only Breeze's managed copy.
@@ -22,13 +22,15 @@ const crypto = require('node:crypto');
 
 const LOOPBACK_PERMISSION = 'http://127.0.0.1/*';
 const MAX_BODY = 64 * 1024;
-const PATCH_MARKER = '/* BREEZE_EXTENSION_COMPAT_V1 */';
+const PATCH_MARKER = '/* BREEZE_EXTENSION_COMPAT_V2 */';
 const BASE_METHODS = new Set([
-  'tabs.create',
+  'tabs.create','tabs.query','tabs.get','tabs.getCurrent','tabs.update','tabs.remove',
   'windows.create','windows.getAll','windows.getCurrent','windows.getLastFocused',
   'windows.update','windows.remove'
 ]);
 const COOKIE_METHODS = new Set(['cookies.get','cookies.getAll','cookies.set','cookies.remove']);
+const NOTIFICATION_METHODS = new Set(['notifications.create','notifications.clear']);
+const IDENTITY_METHODS = new Set(['identity.launchWebAuthFlow']);
 
 let rootDir = null;
 let originalsDir = null;
@@ -74,6 +76,8 @@ function allowedMethodsForManifest(manifest){
   const out = new Set(BASE_METHODS);
   const perms = manifestPermissions(manifest);
   if (perms.has('cookies')) for (const method of COOKIE_METHODS) out.add(method);
+  if (perms.has('notifications')) for (const method of NOTIFICATION_METHODS) out.add(method);
+  if (perms.has('identity')) for (const method of IDENTITY_METHODS) out.add(method);
   return out;
 }
 function backgroundWorker(manifest){
@@ -229,20 +233,21 @@ function ensurePristineBackups(localId, managedDir, manifest, workerRel){
   const managedWorker = safeRelativeFile(managedDir,workerRel,'background worker').full;
   if (!fs.existsSync(backups.manifest)) {
     const currentWorker = fs.readFileSync(managedWorker,'utf8');
-    if (currentWorker.includes(PATCH_MARKER)) throw new Error('managed worker is patched but pristine backup is missing');
+    if (currentWorker.includes('BREEZE_EXTENSION_COMPAT_')) throw new Error('managed worker is patched but pristine backup is missing');
     fs.copyFileSync(managedManifest,backups.manifest);
   }
   if (!fs.existsSync(backups.worker)) {
     const currentWorker = fs.readFileSync(managedWorker,'utf8');
-    if (currentWorker.includes(PATCH_MARKER)) throw new Error('managed worker is patched but pristine backup is missing');
+    if (currentWorker.includes('BREEZE_EXTENSION_COMPAT_')) throw new Error('managed worker is patched but pristine backup is missing');
     mkdirFor(backups.worker);
     fs.copyFileSync(managedWorker,backups.worker);
   }
   return backups;
 }
 
-function bootstrapSource(endpointUrl, token){
-  return `${PATCH_MARKER}\n;(()=>{\n  'use strict';\n  const endpoint=${JSON.stringify(endpointUrl)};\n  const token=${JSON.stringify(token)};\n  const invoke=async(method,params={})=>{\n    const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+token},body:JSON.stringify({method,params,runtimeId:chrome.runtime&&chrome.runtime.id||''})});\n    const payload=await response.json().catch(()=>({error:'invalid Breeze compatibility response'}));\n    if(!response.ok)throw new Error(payload&&payload.error||('Breeze compatibility '+response.status));\n    return payload.result;\n  };\n  const callback=(promise,cb)=>{if(typeof cb==='function'){promise.then(v=>cb(v)).catch(()=>cb(undefined));}return promise;};\n  try{\n    if(!chrome.tabs)chrome.tabs={};\n    if(typeof chrome.tabs.create!=='function')chrome.tabs.create=(details,cb)=>callback(invoke('tabs.create',details&&typeof details==='object'?details:{}),cb);\n    if(!chrome.windows)chrome.windows={};\n    for(const name of ['create','getAll','getCurrent','getLastFocused']){if(typeof chrome.windows[name]!=='function')chrome.windows[name]=(details,cb)=>{if(typeof details==='function'){cb=details;details={};}return callback(invoke('windows.'+name,details&&typeof details==='object'?details:{}),cb);};}\n    if(typeof chrome.windows.update!=='function')chrome.windows.update=(id,details,cb)=>callback(invoke('windows.update',{id,...(details||{})}),cb);\n    if(typeof chrome.windows.remove!=='function')chrome.windows.remove=(id,cb)=>callback(invoke('windows.remove',{id}),cb);\n    if(!chrome.cookies)chrome.cookies={};\n    for(const name of ['get','getAll','set','remove']){if(typeof chrome.cookies[name]!=='function')chrome.cookies[name]=(details,cb)=>callback(invoke('cookies.'+name,details&&typeof details==='object'?details:{}),cb);}\n  }catch{}\n})();\n`;
+function bootstrapSource(endpointUrl, token, allowed){
+  const methods=[...allowed];
+  return `${PATCH_MARKER}\n;(()=>{\n  'use strict';\n  const endpoint=${JSON.stringify(endpointUrl)};\n  const token=${JSON.stringify(token)};\n  const allowed=new Set(${JSON.stringify(methods)});\n  const invoke=async(method,params={})=>{\n    if(!allowed.has(method))throw new Error('Breeze compatibility method is not allowed: '+method);\n    const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+token},body:JSON.stringify({method,params,runtimeId:chrome.runtime&&chrome.runtime.id||''})});\n    const payload=await response.json().catch(()=>({error:'invalid Breeze compatibility response'}));\n    if(!response.ok)throw new Error(payload&&payload.error||('Breeze compatibility '+response.status));\n    return payload.result;\n  };\n  const callback=(promise,cb)=>{if(typeof cb==='function'){promise.then(v=>cb(v)).catch(()=>cb(undefined));}return promise;};\n  try{\n    if(!chrome.tabs)chrome.tabs={};\n    if(allowed.has('tabs.create'))chrome.tabs.create=(details,cb)=>callback(invoke('tabs.create',details&&typeof details==='object'?details:{}),cb);\n    if(allowed.has('tabs.query'))chrome.tabs.query=(details,cb)=>{if(typeof details==='function'){cb=details;details={};}return callback(invoke('tabs.query',details&&typeof details==='object'?details:{}),cb);};\n    if(allowed.has('tabs.get'))chrome.tabs.get=(id,cb)=>callback(invoke('tabs.get',{tabId:id}),cb);\n    if(allowed.has('tabs.getCurrent'))chrome.tabs.getCurrent=(cb)=>callback(invoke('tabs.getCurrent',{}),cb);\n    if(allowed.has('tabs.update'))chrome.tabs.update=(id,details,cb)=>{if(id&&typeof id==='object'){cb=details;details=id;id=null;}return callback(invoke('tabs.update',{tabId:id,props:details&&typeof details==='object'?details:{}}),cb);};\n    if(allowed.has('tabs.remove'))chrome.tabs.remove=(ids,cb)=>callback(invoke('tabs.remove',{tabIds:ids}),cb);\n    if(!chrome.windows)chrome.windows={};\n    for(const name of ['create','getAll','getCurrent','getLastFocused']){const method='windows.'+name;if(allowed.has(method)&&typeof chrome.windows[name]!=='function')chrome.windows[name]=(details,cb)=>{if(typeof details==='function'){cb=details;details={};}return callback(invoke(method,details&&typeof details==='object'?details:{}),cb);};}\n    if(allowed.has('windows.update')&&typeof chrome.windows.update!=='function')chrome.windows.update=(id,details,cb)=>callback(invoke('windows.update',{id,...(details||{})}),cb);\n    if(allowed.has('windows.remove')&&typeof chrome.windows.remove!=='function')chrome.windows.remove=(id,cb)=>callback(invoke('windows.remove',{id}),cb);\n    if(allowed.has('cookies.get')||allowed.has('cookies.getAll')||allowed.has('cookies.set')||allowed.has('cookies.remove')){if(!chrome.cookies)chrome.cookies={};for(const name of ['get','getAll','set','remove']){const method='cookies.'+name;if(allowed.has(method)&&typeof chrome.cookies[name]!=='function')chrome.cookies[name]=(details,cb)=>callback(invoke(method,details&&typeof details==='object'?details:{}),cb);}}\n    if(allowed.has('notifications.create')||allowed.has('notifications.clear')){if(!chrome.notifications)chrome.notifications={};if(allowed.has('notifications.create')&&typeof chrome.notifications.create!=='function')chrome.notifications.create=(id,options,cb)=>{if(id&&typeof id==='object'){cb=options;options=id;id='';}return callback(invoke('notifications.create',{id:id||'',options:options&&typeof options==='object'?options:{}}),cb);};if(allowed.has('notifications.clear')&&typeof chrome.notifications.clear!=='function')chrome.notifications.clear=(id,cb)=>callback(invoke('notifications.clear',{id}),cb);}\n    if(!chrome.commands)chrome.commands={};\n    if(typeof chrome.commands.getAll!=='function')chrome.commands.getAll=(cb)=>{const commands=chrome.runtime.getManifest().commands||{};const rows=Object.entries(commands).map(([name,v])=>({name,description:v&&v.description||'',shortcut:v&&v.suggested_key&&(v.suggested_key.default||v.suggested_key.windows||v.suggested_key.mac)||''}));if(typeof cb==='function')queueMicrotask(()=>cb(rows));return Promise.resolve(rows);};\n    if(allowed.has('identity.launchWebAuthFlow')){if(!chrome.identity)chrome.identity={};if(typeof chrome.identity.getRedirectURL!=='function')chrome.identity.getRedirectURL=(suffix='')=>'https://'+chrome.runtime.id+'.chromiumapp.org/'+String(suffix||'').replace(/^\\/+/, '');if(typeof chrome.identity.launchWebAuthFlow!=='function')chrome.identity.launchWebAuthFlow=(details,cb)=>callback(invoke('identity.launchWebAuthFlow',details&&typeof details==='object'?details:{}),cb);}\n  }catch{}\n})();\n`;
 }
 
 async function prepareManagedCopy(options={}){
@@ -273,7 +278,7 @@ async function prepareManagedCopy(options={}){
 
   const token = crypto.randomBytes(32).toString('hex');
   writeJson(manifestFile,permissionManifest);
-  fs.writeFileSync(worker.full,bootstrapSource(bridgeEndpoint,token) + pristineWorker,'utf8');
+  fs.writeFileSync(worker.full,bootstrapSource(bridgeEndpoint,token,allowed) + pristineWorker,'utf8');
   const entry = { localId, managedDir, workerRel, token, allowed, runtimes:new Map() };
   entriesByLocalId.set(localId,entry);
   entriesByToken.set(token,entry);
@@ -309,7 +314,7 @@ function status(localId){
     localId:entry.localId,
     methods:[...entry.allowed].sort(),
     runtimeCount:entry.runtimes.size,
-    bridge:'loopback-v1'
+    bridge:'loopback-v2'
   };
 }
 function remove(localId){
