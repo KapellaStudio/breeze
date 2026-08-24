@@ -4,7 +4,6 @@
    extension code never receives ipcRenderer or arbitrary host IPC access. */
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
-const { setTimeout } = require('node:timers');
 
 try { ipcRenderer.send('breeze:preload-loaded', { type:process.type, isolated:!!process.contextIsolated }); } catch {}
 
@@ -36,11 +35,13 @@ try {
 
 // ServiceWorkerMain.send() lands here. Keep host event delivery one-way and
 // narrowly named; extension code never receives an IPC object or arbitrary
-// host channel. This is required for Chrome lifecycle events such as
-// windows.onRemoved, which wallet background workers use to release a closed
-// approval popup before opening the next request.
+// host channel. Re-run the main-world patch immediately before dispatch: this
+// gives workers whose Chrome namespace initialized after preload evaluation a
+// deterministic second chance without relying on timer globals that Electron's
+// service-worker preload realm does not expose.
 ipcRenderer.on('breeze:extension-event', (_event, name, args) => {
   try {
+    patchMainWorld();
     contextBridge.executeInMainWorld({
       func: (eventName, eventArgs) => {
         const dispatch = globalThis.__breezeDispatchExtensionEvent;
@@ -251,10 +252,10 @@ function patchMainWorld(){
   }
 }
 
-// The first call is the important one: it runs before the worker module graph.
-// Retries cover Electron builds where extension namespaces finish initializing
-// a tick later without widening the exposed bridge.
+// Patch immediately, then retry through microtask/nextTick queues that are
+// available in Electron's service-worker preload realm. Lifecycle events also
+// call patchMainWorld immediately before dispatch, so late namespace startup
+// cannot silently drop a host-delivered window event.
 patchMainWorld();
-setTimeout(patchMainWorld, 0);
-setTimeout(patchMainWorld, 25);
-setTimeout(patchMainWorld, 100);
+try { Promise.resolve().then(patchMainWorld).then(patchMainWorld).catch(()=>{}); } catch {}
+try { if (typeof process?.nextTick === 'function') process.nextTick(patchMainWorld); } catch {}
