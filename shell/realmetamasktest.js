@@ -157,8 +157,10 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     ok('official MetaMask UI renders in Breeze',surfaceState.ready==='complete'&&!!surfaceState.body,JSON.stringify(surfaceState));
     ok('fresh-install MetaMask lifecycle is handled',finalHref.includes('/home.html')||finalHref.includes('/popup.html'),finalHref);
 
-    await clickSelector(surface,'[data-testid="onboarding-import-wallet"]');
-    await clickSelector(surface,'[data-testid="onboarding-import-with-srp-button"]');
+    await routeClickSelector(surface,'[data-testid="onboarding-import-wallet"]');
+    await waitSelector(surface,'[data-testid="onboarding-import-with-srp-button"]',30000);
+    await routeClickSelector(surface,'[data-testid="onboarding-import-with-srp-button"]');
+    await waitSelector(surface,'[data-testid="srp-input-import__srp-note"]',30000);
     await pasteSelector(surface,'[data-testid="srp-input-import__srp-note"]',TEST_SRP);
     await waitFor(async()=>{
       const s=await selectorState(surface,'[data-testid="import-srp-confirm"]');
