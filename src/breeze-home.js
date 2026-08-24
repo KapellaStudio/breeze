@@ -1,6 +1,6 @@
 /* Breeze packaged New Tab bindings.
    Replaces prototype quick links and Continue cards with real local activity,
-   and upgrades the weather chip into a permissioned live local-weather view. */
+   and upgrades the weather chip into opt-in live local weather. */
 (function(){
   'use strict';
   const S=window.__BREEZE_SHELL__;
@@ -22,10 +22,10 @@
     .homebar .wx{height:30px;padding:0 9px;border-radius:999px;border:1px solid transparent;color:var(--tx2);font-size:12px;white-space:nowrap;transition:background .15s var(--ease),border-color .15s var(--ease),color .15s var(--ease)}
     .homebar .wx:hover,.homebar .wx[aria-expanded="true"]{background:var(--bg1);border-color:var(--line);color:var(--tx1)}
     .wxDot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accentSoft);flex:0 0 auto}.wxDot.off{background:var(--tx3);box-shadow:none}.wxDot.warn{background:var(--warn);box-shadow:none}
-    .weatherPop{position:fixed;z-index:90;width:280px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--card);box-shadow:var(--sh4);display:none}.weatherPop[data-on="1"]{display:block}
-    .weatherHead{display:flex;align-items:flex-start;gap:10px}.weatherHead .temp{font-size:30px;line-height:1;font-weight:600;letter-spacing:-1px}.weatherHead .main{flex:1}.weatherHead .cond{font-size:12.5px;font-weight:600}.weatherHead .sub{font-size:10.5px;color:var(--tx3);margin-top:2px}
+    .weatherPop{position:fixed;z-index:90;width:292px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--card);box-shadow:var(--sh4);display:none}.weatherPop[data-on="1"]{display:block}
+    .weatherHead{display:flex;align-items:flex-start;gap:10px}.weatherHead .temp{font-size:30px;line-height:1;font-weight:600;letter-spacing:-1px}.weatherHead .main{flex:1;min-width:0}.weatherHead .cond{font-size:12.5px;font-weight:600}.weatherHead .sub{font-size:10.5px;color:var(--tx3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .weatherGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:13px}.weatherMetric{padding:9px;border:1px solid var(--line2);border-radius:9px;background:var(--bg2)}.weatherMetric .k{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--tx3)}.weatherMetric .v{font-size:12px;font-weight:600;margin-top:2px}
-    .weatherNote{font-size:10px;line-height:1.45;color:var(--tx3);margin-top:11px}.weatherActions{display:flex;gap:7px;margin-top:11px}.weatherActions button{flex:1}
+    .weatherNote{font-size:10px;line-height:1.5;color:var(--tx3);margin-top:11px}.weatherSource{font-size:9.5px;color:var(--tx3);margin-top:7px}.weatherActions{display:flex;gap:7px;margin-top:11px}.weatherActions button{flex:1}
   `;
   document.head.append(style);
 
@@ -66,7 +66,11 @@
     wrap.replaceChildren();cards.slice(0,4).forEach(c=>wrap.append(c));if(!cards.length)wrap.append(el('div','homeEmpty','Your real local activity will appear here as you use Breeze — recent pages, queue items, completed downloads and workspace snapshots.'));const head=section.querySelector('.contHead .eyebrow');if(head)head.textContent='Continue';
   }
 
-  /* ── live local weather ─────────────────────────────────────────────── */
+  /* ── live local weather ───────────────────────────────────────────────
+     Weather is deliberately network-location based. That makes the privacy
+     boundary visible: Breeze uses the same approximate location the public
+     internet already sees, follows VPN egress, and never asks an OS or Google
+     geolocation service for a more precise position. */
   const originalWeather=$('.homebar .wx');
   const weatherButton=originalWeather?el('button','wx'):null;
   const weatherPop=originalWeather?el('div','weatherPop'):null;
@@ -79,56 +83,48 @@
   function localUnit(){
     try{const region=new Intl.Locale(navigator.language||'en').region;return['US','LR','MM'].includes(region)?'fahrenheit':'celsius';}catch{return /(^|-)US\b/i.test(navigator.language||'')?'fahrenheit':'celsius';}
   }
-  function locate(){return new Promise((resolve,reject)=>{
-    if(!navigator.geolocation)return reject(new Error('Location is unavailable on this system'));
-    navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:false,maximumAge:15*60*1000,timeout:8000});
-  });}
   function closeWeather(){if(weatherPop)weatherPop.dataset.on='0';if(weatherButton)weatherButton.setAttribute('aria-expanded','false');}
-  function placeWeather(){if(!weatherButton||!weatherPop)return;const r=weatherButton.getBoundingClientRect(),w=weatherPop.offsetWidth||280;weatherPop.style.left=Math.max(10,Math.min(r.right-w,innerWidth-w-10))+'px';weatherPop.style.top=(r.bottom+7)+'px';}
+  function placeWeather(){if(!weatherButton||!weatherPop)return;const r=weatherButton.getBoundingClientRect(),w=weatherPop.offsetWidth||292;weatherPop.style.left=Math.max(10,Math.min(r.right-w,innerWidth-w-10))+'px';weatherPop.style.top=(r.bottom+7)+'px';}
   function metric(k,v){const n=el('div','weatherMetric');n.append(el('div','k',k),el('div','v',v==null?'—':String(v)));return n;}
   function renderWeatherPop(){
     if(!weatherPop||!weatherValue)return;const w=weatherValue,sym='°'+w.unit;weatherPop.replaceChildren();
-    const head=el('div','weatherHead'),main=el('div','main');main.append(el('div','cond',w.condition),el('div','sub','Current location · updated '+age(w.updatedAt)));head.append(el('div','temp',w.temperature+sym),main);weatherPop.append(head);
+    const head=el('div','weatherHead'),main=el('div','main');main.append(el('div','cond',w.condition),el('div','sub',`${w.location||'Current network'} · updated ${age(w.updatedAt)}`));head.append(el('div','temp',w.temperature+sym),main);weatherPop.append(head);
     const grid=el('div','weatherGrid');grid.append(metric('Feels like',w.feelsLike==null?'—':w.feelsLike+sym),metric('High / low',w.high==null||w.low==null?'—':w.high+sym+' / '+w.low+sym),metric('Rain chance',w.precipitation==null?'—':w.precipitation+'%'),metric('Wind',w.wind==null?'—':w.wind+' '+w.windUnit));weatherPop.append(grid);
-    weatherPop.append(el('div','weatherNote','Breeze uses approximate location for weather. Coordinates are rounded before the request leaves the app and are never saved to disk. Weather is paused in Private browsing.'));
-    const actions=el('div','weatherActions');const refresh=el('button','btn ghost','Refresh');const off=el('button','btn ghost','Turn off');refresh.onclick=e=>{e.stopPropagation();closeWeather();refreshWeather(true);};off.onclick=async e=>{e.stopPropagation();weatherEnabled=false;weatherValue=null;clearTimeout(weatherTimer);await S.setPreference('weatherEnabled',false).catch(()=>{});closeWeather();setWeatherChip('Weather · Use my location','off');};actions.append(refresh,off);weatherPop.append(actions);
+    weatherPop.append(el('div','weatherNote','Breeze estimates location from the network address you already expose to the internet. It does not request precise OS location or save coordinates. If you use a VPN, weather follows the VPN location. Weather is paused in Private browsing.'));
+    weatherPop.append(el('div','weatherSource','Weather: MET Norway · Location estimate: ipwho.is'));
+    const actions=el('div','weatherActions');const refresh=el('button','btn ghost','Refresh');const off=el('button','btn ghost','Turn off');refresh.onclick=e=>{e.stopPropagation();closeWeather();refreshWeather();};off.onclick=async e=>{e.stopPropagation();weatherEnabled=false;weatherValue=null;clearTimeout(weatherTimer);await S.setPreference('weatherEnabled',false).catch(()=>{});closeWeather();setWeatherChip('Weather · Use network location','off');};actions.append(refresh,off);weatherPop.append(actions);
   }
-  async function refreshWeather(force=false){
+  async function refreshWeather(){
     clearTimeout(weatherTimer);closeWeather();
     if(!weatherButton)return;
     if(activePrivate){setWeatherChip('Weather paused in Private','off');return;}
-    if(!weatherEnabled){setWeatherChip('Weather · Use my location','off');return;}
+    if(!weatherEnabled){setWeatherChip('Weather · Use network location','off');return;}
     setWeatherChip('Weather · Locating…');
     try{
-      const pos=await locate();if(activePrivate)return setWeatherChip('Weather paused in Private','off');
-      const lat=Math.round(Number(pos.coords.latitude)*100)/100,lon=Math.round(Number(pos.coords.longitude)*100)/100;
-      const result=await S.currentWeather(lat,lon,localUnit());
+      const result=await S.currentWeather(localUnit());
+      if(activePrivate)return setWeatherChip('Weather paused in Private','off');
       if(result?.error)throw new Error(result.error);weatherValue=result;
       setWeatherChip(`${result.temperature}° · ${result.condition}`);renderWeatherPop();
-      weatherTimer=setTimeout(()=>refreshWeather(false),15*60*1000);
-    }catch(err){
-      const denied=err?.code===1||/denied|permission/i.test(String(err?.message||err));
-      if(denied){weatherEnabled=false;await S.setPreference('weatherEnabled',false).catch(()=>{});setWeatherChip('Weather · Location off','warn');}
-      else setWeatherChip('Weather · Retry','warn');
-      weatherButton.title=String(err?.message||'Weather unavailable');
-    }
+      weatherButton.title=`${result.location||'Local weather'} · ${result.source||'live weather'}`;
+      weatherTimer=setTimeout(refreshWeather,20*60*1000);
+    }catch(err){setWeatherChip('Weather · Retry','warn');weatherButton.title=String(err?.message||'Weather unavailable');}
   }
   if(weatherButton){
     weatherButton.onclick=async e=>{e.stopPropagation();
       if(activePrivate)return;
-      if(!weatherEnabled){weatherEnabled=true;await S.setPreference('weatherEnabled',true).catch(()=>{});return refreshWeather(true);}
-      if(!weatherValue)return refreshWeather(true);
+      if(!weatherEnabled){weatherEnabled=true;await S.setPreference('weatherEnabled',true).catch(()=>{});return refreshWeather();}
+      if(!weatherValue)return refreshWeather();
       const on=weatherPop.dataset.on==='1';closeWeather();if(!on){renderWeatherPop();weatherPop.dataset.on='1';weatherButton.setAttribute('aria-expanded','true');requestAnimationFrame(placeWeather);}
     };
     document.addEventListener('click',e=>{if(!e.target.closest('.weatherPop,.wx'))closeWeather();});
     addEventListener('resize',closeWeather);
-    S.getPreferences().then(p=>{weatherEnabled=!!p?.weatherEnabled;refreshWeather(false);}).catch(()=>setWeatherChip('Weather · Use my location','off'));
+    S.getPreferences().then(p=>{weatherEnabled=!!p?.weatherEnabled;refreshWeather();}).catch(()=>setWeatherChip('Weather · Use network location','off'));
   }
 
   async function refresh(){if(activePrivate)return;const data=await collect();renderLinks(data);renderQueueHome(data);renderContinue(data);}
   function schedule(){clearTimeout(refreshTimer);refreshTimer=setTimeout(refresh,60);}
-  S.listTabs().then(t=>{const a=(t||[]).find(x=>x.active);if(a){activePrivate=!!a.private;if(!a.private)activeWorkspace=String(a.workspace||'default');}schedule();if(activePrivate)refreshWeather(false);}).catch(schedule);
-  S.on('tab:update',st=>{if(!st?.active)return;const wasPrivate=activePrivate;activePrivate=!!st.private;if(!st.private)activeWorkspace=String(st.workspace||'default');schedule();if(wasPrivate!==activePrivate)refreshWeather(false);});
+  S.listTabs().then(t=>{const a=(t||[]).find(x=>x.active);if(a){activePrivate=!!a.private;if(!a.private)activeWorkspace=String(a.workspace||'default');}schedule();if(activePrivate)refreshWeather();}).catch(schedule);
+  S.on('tab:update',st=>{if(!st?.active)return;const wasPrivate=activePrivate;activePrivate=!!st.private;if(!st.private)activeWorkspace=String(st.workspace||'default');schedule();if(wasPrivate!==activePrivate)refreshWeather();});
   S.on('download:update',schedule);S.on('download:refresh',schedule);
   document.addEventListener('click',e=>{if(e.target.closest('[data-panel="queue"],[data-panel="bookmarks"],[data-panel="snapshots"],#bookmarkActiveBtn'))setTimeout(schedule,100);},true);
   schedule();
