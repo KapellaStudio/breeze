@@ -8,6 +8,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const call = (method, params={}) => {
   const name=String(method||'');
   if(name==='__breezeCloseSelf') return ipcRenderer.invoke('extension:closeSelf');
+  if(name==='__breezeGetSelfWindow') return ipcRenderer.invoke('extension:selfWindow');
   return ipcRenderer.invoke('extension:pageApi', name, params && typeof params==='object' ? params : {});
 };
 contextBridge.exposeInMainWorld('__breezeExtensionHost', Object.freeze({ call }));
@@ -69,9 +70,17 @@ if (typeof contextBridge.executeInMainWorld === 'function') {
       const windows = root('windows');
       if (windows) {
         windows.create = (details,cb) => dual('windows.create',normalizeDetails(details),cb);
-        for (const name of ['getAll','getCurrent','getLastFocused']) {
-          windows[name] = (details,cb) => { if(typeof details==='function'){cb=details;details={};} return dual('windows.'+name,details||{},cb); };
-        }
+        windows.getAll = (details,cb) => { if(typeof details==='function'){cb=details;details={};} return dual('windows.getAll',details||{},cb); };
+        windows.getCurrent = (details,cb) => {
+          if(typeof details==='function'){cb=details;details={};}
+          const promise=host.call('__breezeGetSelfWindow',{}).then(row=>{
+            if(row&&row.error) throw new Error(row.error);
+            return row;
+          });
+          if(typeof cb==='function') promise.then(v=>cb(v),()=>cb(undefined));
+          return promise;
+        };
+        windows.getLastFocused = (details,cb) => { if(typeof details==='function'){cb=details;details={};} return dual('windows.getLastFocused',details||{},cb); };
         windows.update = (id,details,cb) => dual('windows.update',{id,...(details||{})},cb);
         windows.remove = (id,cb) => dual('windows.remove',{id},cb);
         if (windows.WINDOW_ID_NONE == null) windows.WINDOW_ID_NONE = -1;
