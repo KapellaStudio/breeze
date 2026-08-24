@@ -8,6 +8,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { BrowserWindow, ipcMain, shell } = require('electron');
 
 const MAX_MANIFEST = 1024 * 1024;
 const META_KEYS = new Set(['name','version','description','author','icons','short_name','default_locale','minimum_chrome_version']);
@@ -28,6 +29,9 @@ const KNOWN_UNSUPPORTED_PERMS = new Set([
 let rootDir = null;
 let registryPath = null;
 let rows = [];
+let actionIpcReady = false;
+const sessionRefs = new Map();
+const popupWindows = new Set();
 
 function safeReadJSON(file, fallback){
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
@@ -38,12 +42,45 @@ function save(){
   const clean = rows.map(({ runtimeIds, ...r }) => r);
   fs.writeFileSync(registryPath, JSON.stringify(clean, null, 2));
 }
+function safeWorkspaceId(value){ return String(value || 'default').replace(/[^a-z0-9_-]/gi,'-').slice(0,80) || 'default'; }
+function sessionKey(ses, workspaceId='default'){
+  const storage = String(ses?.storagePath || 'memory').replace(/\\/g,'/');
+  return safeWorkspaceId(workspaceId) + ':' + crypto.createHash('sha256').update(storage).digest('hex').slice(0,16);
+}
+function sessionLooksSealed(ses, workspaceId='default'){
+  const storage = String(ses?.storagePath || '').replace(/\\/g,'/').toLowerCase();
+  return storage.includes('/partitions/ws-' + safeWorkspaceId(workspaceId).toLowerCase());
+}
+function rememberSession(ses, workspaceId='default'){
+  const ws = safeWorkspaceId(workspaceId);
+  const key = sessionKey(ses, ws);
+  sessionRefs.set(key, { key, ses, workspaceId:ws, sealed:sessionLooksSealed(ses,ws) });
+  return key;
+}
+function actionPopupFor(manifest){
+  const action = (manifest && typeof manifest.action === 'object' && manifest.action)
+    || (manifest && typeof manifest.browser_action === 'object' && manifest.browser_action)
+    || (manifest && typeof manifest.page_action === 'object' && manifest.page_action)
+    || null;
+  let popup = action && typeof action.default_popup === 'string' ? action.default_popup.trim() : '';
+  if (!popup || popup.length > 512 || popup.includes('..') || /^[a-z][a-z0-9+.-]*:/i.test(popup)) return '';
+  return popup.replace(/^\/+/, '');
+}
+function installActionIpc(){
+  if (actionIpcReady) return;
+  actionIpcReady = true;
+  ipcMain.handle('extension:openAction', (_event, localId, context) => openAction(String(localId||''), context || {}));
+}
 function init(userDataPath){
   rootDir = path.join(userDataPath, 'extensions');
   registryPath = path.join(rootDir, 'registry.json');
   fs.mkdirSync(rootDir, { recursive:true });
   rows = safeReadJSON(registryPath, []).filter(r => r && typeof r.localId === 'string' && typeof r.dir === 'string');
-  rows.forEach(r => { r.runtimeIds = {}; });
+  rows.forEach(r => {
+    r.runtimeIds = {};
+    try { r.actionPopup = actionPopupFor(readManifest(managedPath(r))); } catch { r.actionPopup = ''; }
+  });
+  installActionIpc();
   return list();
 }
 
@@ -107,7 +144,7 @@ function publicRow(r){
   return {
     localId:r.localId, name:r.name, version:r.version, author:r.author || '',
     description:r.description || '', manifestVersion:r.manifestVersion,
-    backgroundKind:r.backgroundKind || 'none',
+    backgroundKind:r.backgroundKind || 'none', hasActionPopup:!!r.actionPopup,
     compatibility:r.compatibility, reasons:r.reasons || [], warnings:r.warnings || [],
     permissions:r.permissions || [], enabled:r.enabled !== false,
     workspaces:Array.isArray(r.workspaces) ? r.workspaces : ['*']
@@ -124,7 +161,7 @@ function inspectDirectory(dir){
   return {
     name:safeName(manifest.name), version:safeVersion(manifest.version),
     author:safeName(manifest.author || ''), description:String(manifest.description || '').slice(0,240),
-    report, manifest
+    actionPopup:actionPopupFor(manifest), report, manifest
   };
 }
 function importDirectory(sourceDir){
@@ -137,7 +174,7 @@ function importDirectory(sourceDir){
   const r = {
     localId, dir, name:inspected.name, version:inspected.version, author:inspected.author,
     description:inspected.description, manifestVersion:inspected.report.manifestVersion,
-    backgroundKind:inspected.report.backgroundKind,
+    backgroundKind:inspected.report.backgroundKind, actionPopup:inspected.actionPopup,
     compatibility:inspected.report.status, reasons:inspected.report.reasons,
     warnings:inspected.report.warnings, permissions:inspected.report.permissions,
     enabled:true, workspaces:['*'], runtimeIds:{}
@@ -147,14 +184,16 @@ function importDirectory(sourceDir){
 }
 async function loadIntoSession(ses, workspaceId='default'){
   const out = [];
+  const ws = safeWorkspaceId(workspaceId);
+  const ctxKey = rememberSession(ses, ws);
   for (const r of rows){
     if (r.enabled === false) continue;
     const scopes = Array.isArray(r.workspaces) ? r.workspaces : ['*'];
-    if (!scopes.includes('*') && !scopes.includes(workspaceId)) continue;
+    if (!scopes.includes('*') && !scopes.includes(ws)) continue;
     try {
-      if (r.runtimeIds?.[workspaceId]) { out.push({ localId:r.localId, runtimeId:r.runtimeIds[workspaceId], ok:true, already:true }); continue; }
+      if (r.runtimeIds?.[ctxKey]) { out.push({ localId:r.localId, runtimeId:r.runtimeIds[ctxKey], ok:true, already:true }); continue; }
       const ext = await ses.extensions.loadExtension(managedPath(r), { allowFileAccess:false });
-      r.runtimeIds[workspaceId] = ext.id;
+      r.runtimeIds[ctxKey] = ext.id;
       out.push({ localId:r.localId, runtimeId:ext.id, ok:true });
     } catch (err){
       out.push({ localId:r.localId, ok:false, error:String(err.message || err) });
@@ -163,10 +202,11 @@ async function loadIntoSession(ses, workspaceId='default'){
   return out;
 }
 async function unloadFromSession(ses, r, workspaceId='default'){
-  const id = r.runtimeIds?.[workspaceId];
+  const ctxKey = sessionKey(ses, safeWorkspaceId(workspaceId));
+  const id = r.runtimeIds?.[ctxKey];
   if (!id) return;
   try { ses.extensions.removeExtension(id); } catch {}
-  delete r.runtimeIds[workspaceId];
+  delete r.runtimeIds[ctxKey];
 }
 async function setEnabled(localId, enabled, sessionEntries=[]){
   const r = get(localId); if (!r) return { error:'extension not found' };
@@ -179,13 +219,71 @@ async function setEnabled(localId, enabled, sessionEntries=[]){
 }
 async function loadOne(ses, r, workspaceId='default'){
   if (!r || r.enabled === false) return;
-  if (r.runtimeIds?.[workspaceId]) return;
+  const ws = safeWorkspaceId(workspaceId);
+  const ctxKey = rememberSession(ses, ws);
+  if (r.runtimeIds?.[ctxKey]) return;
   const scopes = Array.isArray(r.workspaces) ? r.workspaces : ['*'];
-  if (!scopes.includes('*') && !scopes.includes(workspaceId)) return;
+  if (!scopes.includes('*') && !scopes.includes(ws)) return;
   try {
     const ext = await ses.extensions.loadExtension(managedPath(r), { allowFileAccess:false });
-    r.runtimeIds[workspaceId] = ext.id;
+    r.runtimeIds[ctxKey] = ext.id;
   } catch {}
+}
+function chooseSession(workspaceId='default', sealed=false){
+  const ws = safeWorkspaceId(workspaceId);
+  const candidates = [...sessionRefs.values()].filter(x => x.workspaceId === ws);
+  return candidates.find(x => x.sealed === !!sealed) || candidates[0] || null;
+}
+async function openAction(localId, context={}){
+  const r = get(localId);
+  if (!r) return { error:'extension not found' };
+  if (r.enabled === false) return { error:'extension is disabled' };
+  if (!r.actionPopup) return { error:'this extension has no action popup' };
+  const ws = safeWorkspaceId(context.workspaceId || 'default');
+  const ref = chooseSession(ws, !!context.sealed);
+  if (!ref) return { error:'extension session is not ready' };
+  const ctxKey = sessionKey(ref.ses, ws);
+  if (!r.runtimeIds?.[ctxKey]) await loadOne(ref.ses, r, ws);
+  const runtimeId = r.runtimeIds?.[ctxKey];
+  const ext = runtimeId ? ref.ses.extensions.getExtension(runtimeId) : null;
+  if (!ext) return { error:'extension could not be loaded in this workspace' };
+  let popupUrl;
+  try { popupUrl = new URL(r.actionPopup, ext.url).toString(); }
+  catch { return { error:'extension popup path is invalid' }; }
+  if (!popupUrl.startsWith(ext.url)) return { error:'extension popup escaped its own origin' };
+
+  const parent = BrowserWindow.getFocusedWindow() || null;
+  const bounds = parent && !parent.isDestroyed() ? parent.getBounds() : null;
+  const width = 390, height = 600;
+  const opts = {
+    width, height, minWidth:320, minHeight:360,
+    show:false, resizable:true, minimizable:false, maximizable:false,
+    autoHideMenuBar:true, title:r.name,
+    parent:parent || undefined,
+    webPreferences:{ session:ref.ses, contextIsolation:true, nodeIntegration:false, sandbox:true, webSecurity:true }
+  };
+  if (bounds){
+    opts.x = Math.max(bounds.x + 12, bounds.x + bounds.width - width - 18);
+    opts.y = Math.max(bounds.y + 12, bounds.y + 54);
+  }
+  const popup = new BrowserWindow(opts);
+  popupWindows.add(popup);
+  popup.webContents.setWindowOpenHandler(({url}) => {
+    if (typeof url === 'string' && url.startsWith(ext.url)){
+      return { action:'allow', overrideBrowserWindowOptions:{ autoHideMenuBar:true, webPreferences:{ session:ref.ses, contextIsolation:true, nodeIntegration:false, sandbox:true, webSecurity:true } } };
+    }
+    try { const u=new URL(url); if(['http:','https:'].includes(u.protocol)) shell.openExternal(u.toString()); } catch {}
+    return { action:'deny' };
+  });
+  popup.webContents.on('will-navigate', (event,url) => {
+    if (typeof url === 'string' && url.startsWith(ext.url)) return;
+    event.preventDefault();
+    try { const u=new URL(url); if(['http:','https:'].includes(u.protocol)) shell.openExternal(u.toString()); } catch {}
+  });
+  popup.once('ready-to-show', () => { if(!popup.isDestroyed()) popup.show(); });
+  popup.on('closed', () => popupWindows.delete(popup));
+  await popup.loadURL(popupUrl);
+  return { ok:true, localId:r.localId, runtimeId, popup:true };
 }
 async function remove(localId, sessionEntries=[]){
   const r = get(localId); if (!r) return { error:'extension not found' };
@@ -195,4 +293,4 @@ async function remove(localId, sessionEntries=[]){
   return { ok:true };
 }
 
-module.exports = { init, list, inspectDirectory, importDirectory, loadIntoSession, setEnabled, remove, analyzeManifest };
+module.exports = { init, list, inspectDirectory, importDirectory, loadIntoSession, setEnabled, remove, openAction, analyzeManifest };
