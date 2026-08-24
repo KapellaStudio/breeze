@@ -1,0 +1,335 @@
+/* Breeze managed extension compatibility layer.
+
+   Electron 43 supplies a strong MV3 floor, but browser-shaped products still
+   need a few Chrome APIs that Electron intentionally does not implement. This
+   module fills only missing methods for managed MV3 extension copies.
+
+   Security rules:
+   - Never mutate the user's source directory; only Breeze's managed copy.
+   - Keep pristine worker/manifest backups outside the loadable extension tree.
+   - Bind RPC to 127.0.0.1 only and use a random per-extension bearer token.
+   - Expose only an allowlisted method set derived from the manifest.
+   - Reject Private Browsing runtime registration.
+   - Fail closed when one extension runtime maps to multiple Breeze sessions;
+     never guess which cookie jar/workspace an RPC belongs to.
+*/
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+const http = require('node:http');
+const crypto = require('node:crypto');
+
+const LOOPBACK_PERMISSION = 'http://127.0.0.1/*';
+const MAX_BODY = 64 * 1024;
+const PATCH_MARKER = '/* BREEZE_EXTENSION_COMPAT_V1 */';
+const BASE_METHODS = new Set([
+  'tabs.create',
+  'windows.create','windows.getAll','windows.getCurrent','windows.getLastFocused',
+  'windows.update','windows.remove'
+]);
+const COOKIE_METHODS = new Set(['cookies.get','cookies.getAll','cookies.set','cookies.remove']);
+
+let rootDir = null;
+let originalsDir = null;
+let server = null;
+let endpoint = '';
+let startPromise = null;
+let handlers = Object.create(null);
+const entriesByLocalId = new Map();
+const entriesByToken = new Map();
+
+function safeLocalId(value){
+  const id = String(value || '').trim();
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(id)) throw new Error('invalid extension local id');
+  return id;
+}
+function isInside(root, target){
+  const rel = path.relative(path.resolve(root), path.resolve(target));
+  return rel === '' || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel));
+}
+function safeRelativeFile(base, relative, label='extension file'){
+  const rel = String(relative || '').replace(/\\/g,'/');
+  if (!rel || rel.startsWith('/') || rel.includes('\0') || rel.split('/').includes('..')) throw new Error(`${label} path is invalid`);
+  const full = path.resolve(base, rel);
+  if (!isInside(base, full)) throw new Error(`${label} escaped extension directory`);
+  return { rel, full };
+}
+function readJson(file){ return JSON.parse(fs.readFileSync(file,'utf8')); }
+function writeJson(file, value){ fs.writeFileSync(file, JSON.stringify(value,null,2) + '\n', 'utf8'); }
+function mkdirFor(file){ fs.mkdirSync(path.dirname(file),{recursive:true}); }
+function clone(value){ return JSON.parse(JSON.stringify(value)); }
+
+function manifestPermissions(manifest){
+  const list = [];
+  for (const key of ['permissions','optional_permissions']) {
+    if (Array.isArray(manifest?.[key])) list.push(...manifest[key].filter(x=>typeof x==='string'));
+  }
+  return new Set(list);
+}
+function allowedMethodsForManifest(manifest){
+  const mv = Number(manifest?.manifest_version || 0);
+  const worker = manifest?.background && typeof manifest.background === 'object' ? manifest.background.service_worker : null;
+  if (mv !== 3 || typeof worker !== 'string' || !worker.trim()) return new Set();
+  const out = new Set(BASE_METHODS);
+  const perms = manifestPermissions(manifest);
+  if (perms.has('cookies')) for (const method of COOKIE_METHODS) out.add(method);
+  return out;
+}
+function backgroundWorker(manifest){
+  const worker = manifest?.background && typeof manifest.background === 'object' ? manifest.background.service_worker : null;
+  return typeof worker === 'string' && worker.trim() ? worker.trim() : '';
+}
+
+function init(options={}){
+  const nextRoot = path.resolve(String(options.rootDir || ''));
+  if (!nextRoot) throw new Error('extension compatibility rootDir is required');
+  if (rootDir && rootDir !== nextRoot) throw new Error('extension compatibility already initialized for another root');
+  rootDir = nextRoot;
+  originalsDir = path.join(rootDir,'.compat-originals');
+  fs.mkdirSync(rootDir,{recursive:true});
+  fs.mkdirSync(originalsDir,{recursive:true});
+  handlers = options.handlers && typeof options.handlers === 'object' ? options.handlers : Object.create(null);
+  return { ready:true };
+}
+function setHandlers(next){ handlers = next && typeof next === 'object' ? next : Object.create(null); }
+
+function corsOrigin(req){
+  const origin = String(req.headers.origin || '');
+  return /^chrome-extension:\/\/[a-p]{32}$/i.test(origin) ? origin : '';
+}
+function jsonResponse(res,status,body,origin=''){
+  const headers = {'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'};
+  if (origin) {
+    headers['access-control-allow-origin'] = origin;
+    headers['vary'] = 'Origin';
+  }
+  res.writeHead(status,headers);
+  res.end(JSON.stringify(body));
+}
+function authToken(req){
+  const raw = String(req.headers.authorization || '');
+  return raw.startsWith('Bearer ') ? raw.slice(7) : '';
+}
+function tokenEntry(token){
+  if (!token || token.length !== 64 || !/^[0-9a-f]+$/i.test(token)) return null;
+  return entriesByToken.get(token) || null;
+}
+function runtimeIdFromOrigin(origin){
+  const m = String(origin || '').match(/^chrome-extension:\/\/([a-p]{32})$/i);
+  return m ? m[1] : '';
+}
+function selectRuntime(entry, runtimeId){
+  const rows = [...entry.runtimes.values()].filter(x => !runtimeId || x.runtimeId === runtimeId);
+  if (rows.length === 1) return { context:rows[0], ambiguous:false };
+  if (rows.length > 1) return { context:null, ambiguous:true };
+  return { context:null, ambiguous:false };
+}
+function methodHandler(method){
+  return typeof handlers[method] === 'function' ? handlers[method] : null;
+}
+
+async function readBody(req){
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > MAX_BODY) throw Object.assign(new Error('request too large'),{status:413});
+    chunks.push(chunk);
+  }
+  const raw = Buffer.concat(chunks).toString('utf8');
+  try { return raw ? JSON.parse(raw) : {}; }
+  catch { throw Object.assign(new Error('invalid JSON'),{status:400}); }
+}
+
+async function handleRpc(req,res){
+  const origin = corsOrigin(req);
+  if (req.method === 'OPTIONS') {
+    if (!origin) { res.writeHead(403); res.end(); return; }
+    res.writeHead(204,{
+      'access-control-allow-origin':origin,
+      'access-control-allow-methods':'POST, OPTIONS',
+      'access-control-allow-headers':'authorization, content-type',
+      'access-control-max-age':'300',
+      'cache-control':'no-store','vary':'Origin'
+    });
+    res.end(); return;
+  }
+  if (req.method !== 'POST' || req.url !== '/rpc') { jsonResponse(res,404,{error:'not found'},origin); return; }
+  const entry = tokenEntry(authToken(req));
+  if (!entry) { jsonResponse(res,401,{error:'unauthorized'},origin); return; }
+
+  let body;
+  try { body = await readBody(req); }
+  catch (err) { jsonResponse(res,Number(err.status||400),{error:String(err.message||err)},origin); return; }
+  const method = String(body?.method || '');
+  if (!entry.allowed.has(method)) { jsonResponse(res,403,{error:'method not allowed'},origin); return; }
+
+  const originRuntime = runtimeIdFromOrigin(origin);
+  const requestedRuntime = String(body?.runtimeId || '');
+  if (originRuntime && requestedRuntime && originRuntime !== requestedRuntime) {
+    jsonResponse(res,403,{error:'extension origin mismatch'},origin); return;
+  }
+  const runtimeId = originRuntime || requestedRuntime;
+  const picked = selectRuntime(entry,runtimeId);
+  if (picked.ambiguous) {
+    jsonResponse(res,409,{error:'extension runtime is active in multiple Breeze sessions'},origin); return;
+  }
+  if (!picked.context) {
+    jsonResponse(res,503,{error:'extension runtime is not registered yet'},origin); return;
+  }
+  if (picked.context.private) {
+    jsonResponse(res,403,{error:'extensions are unavailable in Private Browsing'},origin); return;
+  }
+  const fn = methodHandler(method);
+  if (!fn) { jsonResponse(res,501,{error:'compatibility method is not implemented by this Breeze build'},origin); return; }
+
+  const params = body?.params && typeof body.params === 'object' ? clone(body.params) : {};
+  try {
+    const result = await fn({
+      localId:entry.localId,
+      runtimeId:picked.context.runtimeId,
+      workspaceId:picked.context.workspaceId,
+      sealed:!!picked.context.sealed,
+      ses:picked.context.ses,
+      origin
+    }, params);
+    jsonResponse(res,200,{result:result === undefined ? null : result},origin);
+  } catch (err) {
+    const status = Number(err?.status || 500);
+    jsonResponse(res,status >= 400 && status < 600 ? status : 500,{error:String(err?.message || err || 'compatibility call failed')},origin);
+  }
+}
+
+async function ensureServer(){
+  if (server && endpoint) return endpoint;
+  if (startPromise) return startPromise;
+  startPromise = new Promise((resolve,reject)=>{
+    const srv = http.createServer((req,res)=>{ handleRpc(req,res).catch(()=>{ try{jsonResponse(res,500,{error:'bridge failure'});}catch{} }); });
+    srv.on('error',reject);
+    srv.listen(0,'127.0.0.1',()=>{
+      server = srv;
+      const address = srv.address();
+      endpoint = `http://127.0.0.1:${address.port}/rpc`;
+      resolve(endpoint);
+    });
+  }).finally(()=>{ startPromise = null; });
+  return startPromise;
+}
+
+function backupPaths(localId, workerRel){
+  const base = path.join(originalsDir,safeLocalId(localId));
+  const worker = safeRelativeFile(base,workerRel,'backup worker').full;
+  return { base, manifest:path.join(base,'manifest.json'), worker };
+}
+function ensurePristineBackups(localId, managedDir, manifest, workerRel){
+  const backups = backupPaths(localId,workerRel);
+  fs.mkdirSync(backups.base,{recursive:true});
+  const managedManifest = path.join(managedDir,'manifest.json');
+  const managedWorker = safeRelativeFile(managedDir,workerRel,'background worker').full;
+  if (!fs.existsSync(backups.manifest)) {
+    const currentWorker = fs.readFileSync(managedWorker,'utf8');
+    if (currentWorker.includes(PATCH_MARKER)) throw new Error('managed worker is patched but pristine backup is missing');
+    fs.copyFileSync(managedManifest,backups.manifest);
+  }
+  if (!fs.existsSync(backups.worker)) {
+    const currentWorker = fs.readFileSync(managedWorker,'utf8');
+    if (currentWorker.includes(PATCH_MARKER)) throw new Error('managed worker is patched but pristine backup is missing');
+    mkdirFor(backups.worker);
+    fs.copyFileSync(managedWorker,backups.worker);
+  }
+  return backups;
+}
+
+function bootstrapSource(endpointUrl, token){
+  return `${PATCH_MARKER}\n;(()=>{\n  'use strict';\n  const endpoint=${JSON.stringify(endpointUrl)};\n  const token=${JSON.stringify(token)};\n  const invoke=async(method,params={})=>{\n    const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+token},body:JSON.stringify({method,params,runtimeId:chrome.runtime&&chrome.runtime.id||''})});\n    const payload=await response.json().catch(()=>({error:'invalid Breeze compatibility response'}));\n    if(!response.ok)throw new Error(payload&&payload.error||('Breeze compatibility '+response.status));\n    return payload.result;\n  };\n  const callback=(promise,cb)=>{if(typeof cb==='function'){promise.then(v=>cb(v)).catch(()=>cb(undefined));}return promise;};\n  try{\n    if(!chrome.tabs)chrome.tabs={};\n    if(typeof chrome.tabs.create!=='function')chrome.tabs.create=(details,cb)=>callback(invoke('tabs.create',details&&typeof details==='object'?details:{}),cb);\n    if(!chrome.windows)chrome.windows={};\n    for(const name of ['create','getAll','getCurrent','getLastFocused']){if(typeof chrome.windows[name]!=='function')chrome.windows[name]=(details,cb)=>{if(typeof details==='function'){cb=details;details={};}return callback(invoke('windows.'+name,details&&typeof details==='object'?details:{}),cb);};}\n    if(typeof chrome.windows.update!=='function')chrome.windows.update=(id,details,cb)=>callback(invoke('windows.update',{id,...(details||{})}),cb);\n    if(typeof chrome.windows.remove!=='function')chrome.windows.remove=(id,cb)=>callback(invoke('windows.remove',{id}),cb);\n    if(!chrome.cookies)chrome.cookies={};\n    for(const name of ['get','getAll','set','remove']){if(typeof chrome.cookies[name]!=='function')chrome.cookies[name]=(details,cb)=>callback(invoke('cookies.'+name,details&&typeof details==='object'?details:{}),cb);}\n  }catch{}\n})();\n`;
+}
+
+async function prepareManagedCopy(options={}){
+  if (!rootDir) throw new Error('extension compatibility is not initialized');
+  const localId = safeLocalId(options.localId);
+  const managedDir = path.resolve(String(options.managedDir || ''));
+  if (!isInside(rootDir,managedDir) || managedDir === rootDir) throw new Error('managed extension directory is outside Breeze extension storage');
+  const existing = entriesByLocalId.get(localId);
+  if (existing) return status(localId);
+
+  const manifestFile = path.join(managedDir,'manifest.json');
+  const currentManifest = readJson(manifestFile);
+  const allowed = allowedMethodsForManifest(currentManifest);
+  const workerRel = backgroundWorker(currentManifest);
+  if (!workerRel || !allowed.size) return {prepared:false,reason:'no MV3 compatibility bridge required'};
+  const worker = safeRelativeFile(managedDir,workerRel,'background worker');
+  if (!fs.statSync(worker.full).isFile()) throw new Error('background worker is not a file');
+  if (fs.statSync(worker.full).size > 32 * 1024 * 1024) throw new Error('background worker is too large to patch safely');
+
+  const bridgeEndpoint = await ensureServer();
+  const backups = ensurePristineBackups(localId,managedDir,currentManifest,workerRel);
+  const pristineManifest = readJson(backups.manifest);
+  const pristineWorker = fs.readFileSync(backups.worker,'utf8');
+  const permissionManifest = clone(pristineManifest);
+  const hp = Array.isArray(permissionManifest.host_permissions) ? permissionManifest.host_permissions.slice() : [];
+  if (!hp.includes(LOOPBACK_PERMISSION)) hp.push(LOOPBACK_PERMISSION);
+  permissionManifest.host_permissions = hp;
+
+  const token = crypto.randomBytes(32).toString('hex');
+  writeJson(manifestFile,permissionManifest);
+  fs.writeFileSync(worker.full,bootstrapSource(bridgeEndpoint,token) + pristineWorker,'utf8');
+  const entry = { localId, managedDir, workerRel, token, allowed, runtimes:new Map() };
+  entriesByLocalId.set(localId,entry);
+  entriesByToken.set(token,entry);
+  return status(localId);
+}
+
+function registerRuntime(localId, runtimeId, context={}){
+  const id = safeLocalId(localId);
+  const entry = entriesByLocalId.get(id);
+  if (!entry) return {registered:false,reason:'extension compatibility is not prepared'};
+  if (context.private) return {registered:false,reason:'extensions are unavailable in Private Browsing'};
+  const rid = String(runtimeId || '').trim();
+  if (!/^[a-p]{32}$/i.test(rid)) return {registered:false,reason:'invalid extension runtime id'};
+  const workspaceId = String(context.workspaceId || 'default').replace(/[^a-z0-9_-]/gi,'-').slice(0,80) || 'default';
+  const storage = String(context.ses?.storagePath || 'memory').replace(/\\/g,'/');
+  const key = workspaceId + ':' + crypto.createHash('sha256').update(storage).digest('hex').slice(0,16);
+  entry.runtimes.set(key,{runtimeId:rid,workspaceId,sealed:!!context.sealed,private:false,ses:context.ses||null});
+  return {registered:true,runtimeId:rid,workspaceId};
+}
+function unregisterRuntime(localId, context={}){
+  const entry = entriesByLocalId.get(String(localId||''));
+  if (!entry) return false;
+  const workspaceId = String(context.workspaceId || 'default').replace(/[^a-z0-9_-]/gi,'-').slice(0,80) || 'default';
+  const storage = String(context.ses?.storagePath || 'memory').replace(/\\/g,'/');
+  const key = workspaceId + ':' + crypto.createHash('sha256').update(storage).digest('hex').slice(0,16);
+  return entry.runtimes.delete(key);
+}
+function status(localId){
+  const entry = entriesByLocalId.get(String(localId||''));
+  if (!entry) return {prepared:false};
+  return {
+    prepared:true,
+    localId:entry.localId,
+    methods:[...entry.allowed].sort(),
+    runtimeCount:entry.runtimes.size,
+    bridge:'loopback-v1'
+  };
+}
+function remove(localId){
+  const id = String(localId||'');
+  const entry = entriesByLocalId.get(id);
+  if (entry) { entriesByToken.delete(entry.token); entriesByLocalId.delete(id); }
+  if (originalsDir) {
+    try { fs.rmSync(path.join(originalsDir,safeLocalId(id)),{recursive:true,force:true}); } catch {}
+  }
+}
+async function close(){
+  const srv = server;
+  server = null; endpoint = '';
+  entriesByToken.clear(); entriesByLocalId.clear();
+  if (!srv) return;
+  await new Promise(resolve=>srv.close(()=>resolve()));
+}
+
+module.exports = {
+  init,setHandlers,prepareManagedCopy,registerRuntime,unregisterRuntime,status,remove,close,
+  allowedMethodsForManifest,
+  LOOPBACK_PERMISSION,PATCH_MARKER
+};
