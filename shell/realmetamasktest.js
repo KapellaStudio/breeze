@@ -31,7 +31,7 @@ async function waitSelector(win,selector,timeout=30000){
 async function clickSelector(win,selector){
   const hit=await waitFor(async()=>{
     if(!win||win.isDestroyed())return null;
-    return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const r=e.getBoundingClientRect();return r.width>0&&r.height>0?{x:r.left+r.width/2,y:r.top+r.height/2,disabled:!!e.disabled}:null})()`).catch(()=>null);
+    return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;e.scrollIntoView({block:'center',inline:'nearest'});const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.bottom>0&&r.right>0&&r.top<innerHeight&&r.left<innerWidth?{x:r.left+r.width/2,y:r.top+r.height/2,disabled:!!e.disabled}:null})()`).catch(()=>null);
   },{timeout:30000,label:`clickable ${selector}`});
   if(hit.disabled)throw new Error(`selector is disabled: ${selector}`);
   const x=Math.round(hit.x), y=Math.round(hit.y);
@@ -44,12 +44,13 @@ async function clickSelector(win,selector){
 async function routeClickSelector(win,selector){
   const hit=await waitFor(async()=>{
     if(!win||win.isDestroyed())return null;
-    return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)return null;const r=e.getBoundingClientRect();return r.width>0&&r.height>0?{x:r.left+r.width/2,y:r.top+r.height/2}:null})()`).catch(()=>null);
+    return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)return null;e.scrollIntoView({block:'center',inline:'nearest'});const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.bottom>0&&r.right>0&&r.top<innerHeight&&r.left<innerWidth?{x:r.left+r.width/2,y:r.top+r.height/2}:null})()`).catch(()=>null);
   },{timeout:30000,label:`enabled route control ${selector}`});
   const x=Math.round(hit.x), y=Math.round(hit.y);
   try{if(!win.isVisible())win.show();win.focus();}catch{}
-  // Do not evaluate renderer JavaScript after the click. React is allowed to
-  // tear down the old route immediately without invalidating an awaited IPC.
+  // The MetaMask onboarding form grows after SRP paste, so route controls can
+  // move below the initial viewport. Measure only after scrolling the exact
+  // control into view, then use a real Electron pointer event like a user.
   win.webContents.sendInputEvent({type:'mouseMove',x,y});
   win.webContents.sendInputEvent({type:'mouseDown',x,y,button:'left',clickCount:1});
   win.webContents.sendInputEvent({type:'mouseUp',x,y,button:'left',clickCount:1});
