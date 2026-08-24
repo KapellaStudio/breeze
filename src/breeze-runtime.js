@@ -26,11 +26,11 @@
     const pop=$('#privPop');if(!pop||!active)return;
     const permissions=await S.listPermissions().catch(()=>[]);const o=origin(active.url);const saved=(permissions||[]).filter(p=>p.origin===o).length;
     pop.replaceChildren();
-    const head=el('div','privHead');const big=el('div','big');big.append(el('span','num',String(active.blocked||0)),el('span','lbl',(active.blocked===1?'known tracker request':'known tracker requests')+' blocked\nbefore loading'));const site=el('div','site',`${host(active.url)} · ${connection(active.url)}`);big.querySelector('.lbl').style.whiteSpace='pre-line';head.append(big,site);pop.append(head);
+    const head=el('div','privHead');const big=el('div','big');big.append(el('span','num',String(active.blocked||0)),el('span','lbl',(active.blocked===1?'known tracking-domain request':'known tracking-domain requests')+' blocked\nbefore loading'));const site=el('div','site',`${host(active.url)} · ${connection(active.url)}`);big.querySelector('.lbl').style.whiteSpace='pre-line';head.append(big,site);pop.append(head);
     const list=el('div','privList');
-    list.append(row('Known tracker requests',String(active.blocked||0)),row('Workspace session',active.sealed?'Sealed / isolated':'Main browser session'),row('Private browsing',active.private?'Memory-only':'Off'),row('Saved site permissions',String(saved)),row('Connection',connection(active.url),/^http:/.test(active.url||'')));
+    list.append(row('Known tracking-domain requests',String(active.blocked||0)),row('Workspace session',active.sealed?'Sealed / isolated':'Main browser session'),row('Private browsing',active.private?'Memory-only':'Off'),row('Saved site permissions',String(saved)),row('Connection',connection(active.url),/^http:/.test(active.url||'')));
     pop.append(list);
-    const note=el('div','runtimeTruth','Breeze currently blocks a built-in list of known tracker hosts and strips common tracking parameters. These numbers are measured from this tab; no category or performance score is invented.');note.style.padding='8px 15px 12px';pop.append(note);
+    const note=el('div','runtimeTruth','Breeze currently blocks a built-in list of known tracking domains and strips common tracking parameters. These numbers are measured from this tab; no category or performance score is invented.');note.style.padding='8px 15px 12px';pop.append(note);
     const foot=el('div','privFoot');
     const perms=el('button','btn ghost','Permissions');perms.style.flex='1';perms.onclick=()=>{try{pop.dataset.on='0';if(typeof openScrim==='function')openScrim('set');if(typeof setPane==='function')setPane('privacy');}catch{}};
     const reload=el('button','btn ghost','Reload fresh');reload.style.flex='1';reload.onclick=async()=>{const r=await S.repairSession(active.id,'reload');if(typeof toast==='function')toast(r?.ok||r?.error||'Done');pop.dataset.on='0';};foot.append(perms,reload);pop.append(foot);
@@ -40,21 +40,19 @@
     defs.forEach(([kind,title,desc,keep])=>{const b=el('button','fixRow');const ic=el('span','ic',kind==='rebuild'?'↻':'×');const m=el('span','m');m.append(el('span','t',title),el('span','d',desc),el('span','keeps'+(kind==='reset'?' loses':''),keep));b.append(ic,m);b.onclick=async()=>{const r=await S.repairSession(active.id,kind);if(typeof toast==='function')toast(r?.ok||r?.error||'Done');pop.dataset.on='0';};fixes.append(b);});pop.append(fixes);
   }
 
+  function configureSwitch(pane,title,checked,desc){
+    const rows=$$(`${pane} .setRow`);const r=rows.find(x=>x.querySelector('.t')?.textContent?.trim()===title);if(!r)return;
+    const sw=r.querySelector('.switch');if(sw){sw.setAttribute('aria-checked',String(checked));sw.disabled=true;sw.dataset.shellDisabled='1';}
+    const d=r.querySelector('.d');if(d)d.textContent=desc;
+  }
   function correctProtectionSettings(){
-    const pane=$('[data-pane="privacy"]');if(!pane)return;
-    const rows=$$('[data-pane="privacy"] .setRow');
-    const byTitle=t=>rows.find(r=>r.querySelector('.t')?.textContent?.trim()===t);
-    const configure=(title,checked,desc)=>{
-      const r=byTitle(title);if(!r)return;const sw=r.querySelector('.switch');if(sw){sw.setAttribute('aria-checked',String(checked));sw.disabled=true;sw.dataset.shellDisabled='1';}const d=r.querySelector('.d');if(d)d.textContent=desc;
-    };
-    configure('Block trackers',true,'Built-in known tracker hosts are blocked before the request leaves. Custom filter lists are not yet exposed.');
-    configure('Block third-party cookies',false,'Not yet enforced as a separate policy in the current Electron shell.');
-    configure('Randomise fingerprint',false,'Not enabled in the current Electron shell; Breeze will not claim anti-fingerprinting it cannot verify.');
-    configure('Strip tracking parameters',true,'utm_, fbclid, gclid and other common tracking parameters are stripped from navigations.');
+    configureSwitch('[data-pane="privacy"]','Block trackers',true,'Built-in known tracking domains are blocked before the request leaves. Custom filter lists are not yet exposed.');
+    configureSwitch('[data-pane="privacy"]','Block third-party cookies',false,'Not yet enforced as a separate policy in the current Electron shell.');
+    configureSwitch('[data-pane="privacy"]','Randomise fingerprint',false,'Not enabled in the current Electron shell; Breeze will not claim anti-fingerprinting it cannot verify.');
+    configureSwitch('[data-pane="privacy"]','Strip tracking parameters',true,'utm_, fbclid, gclid and other common tracking parameters are stripped from navigations.');
   }
-  function correctDownloadSettings(){
-    const rows=$$('[data-pane="downloads"] .setRow');const r=rows.find(x=>x.querySelector('.t')?.textContent?.trim()==='Detect newer versions');if(!r)return;const sw=r.querySelector('.switch');if(sw){sw.setAttribute('aria-checked','false');sw.disabled=true;sw.dataset.shellDisabled='1';}const d=r.querySelector('.d');if(d)d.textContent='Not active in this RC. Breeze will not simulate version detection.';
-  }
+  function correctDownloadSettings(){configureSwitch('[data-pane="downloads"]','Detect newer versions',false,'Not active in this RC. Breeze will not simulate version detection.');}
+  function correctTabSettings(){configureSwitch('[data-pane="tabs"]','Sleep inactive tabs',false,'Real renderer discard is not enabled in this RC, so Breeze does not report fictional memory savings.');}
   function removeUnsupportedControls(){
     const split=$('#splitBtn');if(split){split.style.display='none';split.title='Split view requires the next browser-core lane';}
     const transcript=$('[data-panel="transcript"]');if(transcript)transcript.style.display='none';
@@ -78,5 +76,5 @@
   S.listTabs().then(t=>{active=(t||[]).find(x=>x.active)||null;renderPrivacy();}).catch(()=>{});
   S.on('tab:update',st=>{if(st?.active){active=st;renderPrivacy();}});
   const shield=$('#shieldBtn');if(shield){shield.title='Privacy and session tools';shield.addEventListener('click',()=>setTimeout(renderPrivacy,0),true);}
-  correctProtectionSettings();correctDownloadSettings();removeUnsupportedControls();
+  correctProtectionSettings();correctDownloadSettings();correctTabSettings();removeUnsupportedControls();
 })();
