@@ -23,7 +23,8 @@
     "documenttest": "node documenttest.js",
     "launchtest": "node launchtest.js",
     "producttest": "node producttest.js",
-    "contexttest": "node contexttest.js"
+    "contexttest": "node contexttest.js",
+    "vaulttest": "node vaulttest.js"
   },
   "devDependencies": {
     "electron": "^43.0.0",
