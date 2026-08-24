@@ -12,14 +12,16 @@ const DEFAULTS = Object.freeze({
   tabs: 'side',
   newtab: 'continue',
   comfort: 'comfort',
-  rail: false,
+  sidebar: 'on',
   compact: false,
-  sleep: true,
+  // Real renderer discard/version polling are not enabled in this Electron RC.
+  // Keep their stored defaults off rather than persisting a visual promise.
+  sleep: false,
   tint: true,
   group: true,
   askwhere: false,
   provenance: true,
-  versionDetection: true
+  versionDetection: false
 });
 let state = { ...DEFAULTS };
 
@@ -29,9 +31,10 @@ const ENUMS = {
   density: new Set(['compact','standard','spacious']),
   tabs: new Set(['side','classic']),
   newtab: new Set(['continue','blank','links','queue']),
-  comfort: new Set(['comfort','neutral','warm'])
+  comfort: new Set(['bright','comfort','dim']),
+  sidebar: new Set(['on','auto','off'])
 };
-const BOOLS = new Set(['rail','compact','sleep','tint','group','askwhere','provenance','versionDetection']);
+const BOOLS = new Set(['compact','sleep','tint','group','askwhere','provenance','versionDetection']);
 
 function atomicWrite(value){
   if(!file) return;
@@ -45,6 +48,14 @@ function normalize(raw={}){
     if(allowed.has(raw[key])) out[key]=raw[key];
   }
   for(const key of BOOLS) if(typeof raw[key]==='boolean') out[key]=raw[key];
+  // Migrate the short-lived boolean rail preference from early RC builds.
+  if(!ENUMS.sidebar.has(raw.sidebar) && typeof raw.rail==='boolean') out.sidebar=raw.rail?'auto':'on';
+  // Old prototypes used neutral/warm labels that never existed in the UI.
+  if(raw.comfort==='neutral') out.comfort='comfort';
+  if(raw.comfort==='warm') out.comfort='dim';
+  // Unsupported switches remain off even if an earlier build persisted them on.
+  out.sleep=false;
+  out.versionDetection=false;
   return out;
 }
 function init(userDataPath){
@@ -59,6 +70,7 @@ function set(key,value){
     state[key]=value;
   } else if(BOOLS.has(key)){
     if(typeof value!=='boolean') return {error:'invalid preference value'};
+    if(key==='sleep'||key==='versionDetection') value=false;
     state[key]=value;
   } else return {error:'unknown preference'};
   atomicWrite(state); return {ok:true,preferences:get()};
@@ -66,9 +78,14 @@ function set(key,value){
 function setMany(patch={}){
   if(!patch||typeof patch!=='object'||Array.isArray(patch)) return {error:'invalid preferences'};
   const next={...state};
-  for(const [key,value] of Object.entries(patch)){
+  for(const [key,input] of Object.entries(patch)){
+    let value=input;
     if(ENUMS[key]){if(!ENUMS[key].has(value))return {error:`invalid ${key}`};next[key]=value;}
-    else if(BOOLS.has(key)){if(typeof value!=='boolean')return {error:`invalid ${key}`};next[key]=value;}
+    else if(BOOLS.has(key)){
+      if(typeof value!=='boolean')return {error:`invalid ${key}`};
+      if(key==='sleep'||key==='versionDetection') value=false;
+      next[key]=value;
+    }
     else return {error:`unknown preference ${key}`};
   }
   state=next; atomicWrite(state); return {ok:true,preferences:get()};
