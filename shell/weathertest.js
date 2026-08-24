@@ -5,39 +5,61 @@ const weather=require('./weather');
 
 (async()=>{
   weather.clearCache();
-  let calls=0,captured='';
-  const fakeFetch=async url=>{
-    calls++;captured=String(url);
-    return{ok:true,json:async()=>({
-      latitude:37.77,longitude:-122.42,timezone:'America/Los_Angeles',
-      current:{temperature_2m:61.2,apparent_temperature:60.6,is_day:1,weather_code:2,wind_speed_10m:11.4},
-      daily:{temperature_2m_max:[66.4],temperature_2m_min:[53.2],precipitation_probability_max:[18]}
-    })};
+  const requests=[];
+  const fakeFetch=async (url,opts={})=>{
+    const target=String(url);requests.push({target,opts});
+    if(target.startsWith('https://ipwho.is/')){
+      return{
+        ok:true,status:200,headers:{get:()=>null},
+        json:async()=>({
+          success:true,latitude:37.7749,longitude:-122.4194,
+          city:'San Francisco',region:'California',country:'United States',country_code:'US'
+        })
+      };
+    }
+    if(target.startsWith('https://api.met.no/weatherapi/locationforecast/2.0/compact')){
+      const expires=new Date(Date.now()+60*60*1000).toUTCString();
+      return{
+        ok:true,status:200,headers:{get:key=>String(key).toLowerCase()==='expires'?expires:null},
+        json:async()=>({properties:{timeseries:[
+          {time:'2026-08-24T00:00:00Z',data:{instant:{details:{air_temperature:16.2,relative_humidity:70,wind_speed:5}},next_1_hours:{summary:{symbol_code:'partlycloudy_day'},details:{probability_of_precipitation:10}}}},
+          {time:'2026-08-24T06:00:00Z',data:{instant:{details:{air_temperature:18,relative_humidity:62,wind_speed:4}},next_6_hours:{summary:{symbol_code:'fair_day'},details:{probability_of_precipitation:30}}}},
+          {time:'2026-08-24T12:00:00Z',data:{instant:{details:{air_temperature:12,relative_humidity:78,wind_speed:3}},next_6_hours:{summary:{symbol_code:'cloudy'},details:{probability_of_precipitation:5}}}}
+        ]}})
+      };
+    }
+    throw new Error('unexpected weather request '+target);
   };
 
-  const first=await weather.current(37.7749,-122.4194,'fahrenheit',fakeFetch);
-  assert.match(captured,/latitude=37\.77/);
-  assert.match(captured,/longitude=-122\.42/);
-  assert.match(captured,/temperature_unit=fahrenheit/);
+  const first=await weather.current('fahrenheit',fakeFetch);
+  assert.equal(requests.length,2);
+  assert.match(requests[0].target,/^https:\/\/ipwho\.is\//);
+  assert.match(requests[1].target,/lat=37\.77/);
+  assert.match(requests[1].target,/lon=-122\.42/);
+  assert.match(String(requests[1].opts?.headers?.['user-agent']||''),/^Breeze\/1\.3\.0/);
   assert.equal(first.temperature,61);
   assert.equal(first.condition,'Partly cloudy');
-  assert.equal(first.high,66);
-  assert.equal(first.low,53);
-  assert.equal(first.precipitation,18);
+  assert.equal(first.high,64);
+  assert.equal(first.low,54);
+  assert.equal(first.precipitation,30);
   assert.equal(first.windUnit,'mph');
+  assert.equal(first.location,'San Francisco, California');
+  assert.equal(first.source,'MET Norway');
+  assert.equal(first.locationSource,'ipwho.is');
   assert.equal(Object.hasOwn(first,'latitude'),false);
   assert.equal(Object.hasOwn(first,'longitude'),false);
+  assert.equal(Object.hasOwn(first,'ip'),false);
 
-  const second=await weather.current(37.774,-122.421,'fahrenheit',fakeFetch);
-  assert.equal(calls,1,'same coarse location should use memory cache');
+  const second=await weather.current('fahrenheit',fakeFetch);
+  assert.equal(requests.length,2,'weather and approximate location should be memory-cached');
   assert.equal(second.cached,true);
 
-  assert.equal(weather.condition(0),'Clear');
-  assert.equal(weather.condition(63),'Rain');
-  assert.equal(weather.condition(75),'Snow');
-  assert.equal(weather.condition(96),'Thunderstorms');
+  assert.equal(weather.condition('clearsky_day'),'Clear');
+  assert.equal(weather.condition('rain'),'Rain');
+  assert.equal(weather.condition('snowshowers_day'),'Snow showers');
+  assert.equal(weather.condition('heavyrainandthunder'),'Thunderstorms');
   assert.throws(()=>weather.coarse(91,-90,90),/invalid weather coordinate/);
   assert.throws(()=>weather.coarse('nope',-180,180),/invalid weather coordinate/);
 
-  console.log('Breeze weather: live-service privacy contract passed');
+  console.log('Breeze weather: keyless network-location privacy contract passed');
 })().catch(err=>{console.error(err);process.exit(1);});
