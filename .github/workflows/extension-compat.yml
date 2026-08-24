@@ -7,11 +7,11 @@ on:
   pull_request:
     paths:
       - 'shell/extensions.js'
+      - 'shell/extension-compat.js'
       - 'shell/extensiontest.js'
       - 'shell/metamaskcompat.js'
       - 'shell/extensionbridgetest.js'
-      - 'shell/extension-sw-preload.js'
-      - 'shell/swpreloadtest.js'
+      - 'shell/extensioncompattest.js'
       - 'shell/package.json'
       - '.github/workflows/extension-compat.yml'
 
@@ -37,7 +37,8 @@ jobs:
         run: xvfb-run -a npx electron metamaskcompat.js --no-sandbox
       - name: Probe authenticated compatibility bridge
         run: xvfb-run -a npx electron extensionbridgetest.js --no-sandbox
-      - name: Probe service-worker preload compatibility bridge
-        run: xvfb-run -a npx electron swpreloadtest.js --no-sandbox
+      - name: Probe managed extension compatibility layer
+        if: ${{ hashFiles('shell/extensioncompattest.js') != '' }}
+        run: xvfb-run -a npx electron extensioncompattest.js --no-sandbox
       - name: Keep existing browser-core contracts green
         run: npm run browsercoretest
