@@ -10,15 +10,29 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),'breeze-product-'));
 try{
   prefs.init(root);
   assert.equal(prefs.get().theme,'light');
+  assert.equal(prefs.get().sidebar,'on');
+  assert.equal(prefs.get().sleep,false,'unsupported tab sleeping defaults off');
+  assert.equal(prefs.get().versionDetection,false,'unsupported version detection defaults off');
   assert.equal(prefs.set('theme','dark').ok,true);
+  assert.equal(prefs.set('comfort','dim').ok,true);
+  assert.equal(prefs.set('sidebar','auto').ok,true);
   assert.equal(prefs.set('askwhere',true).ok,true);
   assert.equal(prefs.set('theme','neon').error,'invalid preference value');
+  assert.equal(prefs.set('comfort','warm').error,'invalid preference value');
+  assert.equal(prefs.set('sidebar','floating').error,'invalid preference value');
   assert.equal(prefs.set('unknown',true).error,'unknown preference');
+  assert.equal(prefs.set('sleep',true).preferences.sleep,false,'unsupported switch cannot be persisted on');
+
   prefs.init(root);
   assert.equal(prefs.get().theme,'dark','theme persists');
+  assert.equal(prefs.get().comfort,'dim','comfort label matches UI and persists');
+  assert.equal(prefs.get().sidebar,'auto','sidebar mode persists');
   assert.equal(prefs.get().askwhere,true,'download preference persists');
-  assert.equal(prefs.setMany({accent:'mint',tabs:'classic',provenance:false}).ok,true);
+  assert.equal(prefs.setMany({accent:'mint',tabs:'classic',provenance:false,sidebar:'off',tint:false,group:false}).ok,true);
   assert.equal(prefs.get().accent,'mint');
+  assert.equal(prefs.get().sidebar,'off');
+  assert.equal(prefs.get().tint,false);
+  assert.equal(prefs.get().group,false);
   assert.equal(prefs.get().provenance,false);
 
   workspaces.init(root);
