@@ -50,5 +50,48 @@ source = source.slice(0, routeStart) + routeReplacement
     fillReplacement,
   )
   + source.slice(pasteStart);
+
+const passkeyStart = source.indexOf('    const passkey=await waitSelector(surface,\'[data-testid="passkey-maybe-later-button"]\',30000);');
+const completionMarker = "    ok('MetaMask test wallet import reaches completion in Breeze'";
+const completionStart = source.indexOf(completionMarker, passkeyStart);
+if (passkeyStart < 0 || completionStart < 0) {
+  throw new Error('MetaMask post-password onboarding markers not found');
+}
+
+const postPasswordReplacement = `    const postPassword=await waitFor(async()=>{
+      const passkey=await selectorState(surface,'[data-testid="passkey-maybe-later-button"]');
+      if(passkey?.found)return {kind:'passkey',state:passkey};
+      const metrics=await selectorState(surface,'[data-testid="metametrics-i-agree"]');
+      if(metrics?.found)return {kind:'metrics',state:metrics};
+      const done=await selectorState(surface,'[data-testid="onboarding-complete-done"]');
+      if(done?.found)return {kind:'done',state:done};
+      return null;
+    },{timeout:30000,label:'MetaMask post-password onboarding'});
+    console.log('MetaMask post-password onboarding:',JSON.stringify(postPassword));
+
+    let nextStep=postPassword;
+    if(postPassword.kind==='passkey'){
+      ok('MetaMask import reaches passkey choice in Breeze',true,JSON.stringify(postPassword.state));
+      await routeClickSelector(surface,'[data-testid="passkey-maybe-later-button"]');
+      nextStep=await waitFor(async()=>{
+        const metrics=await selectorState(surface,'[data-testid="metametrics-i-agree"]');
+        if(metrics?.found)return {kind:'metrics',state:metrics};
+        const done=await selectorState(surface,'[data-testid="onboarding-complete-done"]');
+        if(done?.found)return {kind:'done',state:done};
+        return null;
+      },{timeout:30000,label:'MetaMask onboarding after passkey choice'});
+    }else{
+      ok('MetaMask may skip passkey setup when the browser capability is unavailable',true,JSON.stringify(postPassword));
+    }
+
+    if(nextStep.kind==='metrics'){
+      await routeClickSelector(surface,'[data-testid="metametrics-i-agree"]');
+      await waitSelector(surface,'[data-testid="onboarding-complete-done"]',30000);
+    }else if(nextStep.kind!=='done'){
+      throw new Error('Unexpected MetaMask post-password onboarding state: '+JSON.stringify(nextStep));
+    }
+`;
+
+source = source.slice(0, passkeyStart) + postPasswordReplacement + source.slice(completionStart);
 fs.writeFileSync(file, source, 'utf8');
-console.log('MetaMask certification harness route clicks and password typing hardened for CI.');
+console.log('MetaMask certification harness hardened for route clicks, password typing, and optional passkey onboarding.');
