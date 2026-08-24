@@ -66,6 +66,17 @@ def check(name, cond, detail=""):
         fails.append(name)
 
 
+async def overflow_detail(page):
+    return await page.evaluate("""() => [...document.querySelectorAll('*')]
+      .map(el => { const r=el.getBoundingClientRect(); return {
+        node: el.id ? '#'+el.id : el.classList.length ? el.tagName.toLowerCase()+'.'+[...el.classList].join('.') : el.tagName.toLowerCase(),
+        left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width)
+      }})
+      .filter(x => x.left < -1 || x.right > innerWidth + 1)
+      .sort((a,b) => Math.max(b.right-innerWidth,-b.left)-Math.max(a.right-innerWidth,-a.left))
+      .slice(0,6)""")
+
+
 async def main():
     srv, port = serve()
     base = f"http://127.0.0.1:{port}"
@@ -139,8 +150,11 @@ async def main():
             await pgx.wait_for_timeout(600)
             ov = await pgx.evaluate(
                 "() => ({sw: document.documentElement.scrollWidth, w: innerWidth})")
-            check(f"no horizontal overflow at {w}px", ov["sw"] <= ov["w"] + 1,
-                  f"{ov['sw']}/{ov['w']}")
+            detail = f"{ov['sw']}/{ov['w']}"
+            if ov["sw"] > ov["w"] + 1:
+                offenders = await overflow_detail(pgx)
+                detail += " offenders=" + json.dumps(offenders, separators=(",", ":"))
+            check(f"no horizontal overflow at {w}px", ov["sw"] <= ov["w"] + 1, detail)
             await pgx.close()
 
         await pg.close()
