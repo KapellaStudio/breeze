@@ -43,7 +43,7 @@ function serve(){
   write(extDir,'popup.html','<!doctype html><html><body><div id="status">loading</div><script src="popup.js"></script></body></html>');
   write(extDir,'popup.js',`const port=chrome.runtime.connect({name:'breeze-wallet-port'});\nport.onMessage.addListener(msg=>{if(msg&&msg.kind==='wallet-connected') document.documentElement.dataset.port='ok';});\nport.postMessage({kind:'wallet-connect'});\nchrome.runtime.sendMessage({kind:'breeze-ping'}, response => {\n  chrome.storage.local.get('breezeProbe', stored => {\n    document.documentElement.dataset.runtime = chrome.runtime.id ? 'yes' : 'no';\n    document.documentElement.dataset.worker = response && response.from || 'no-response';\n    document.documentElement.dataset.storage = stored && stored.breezeProbe || 'missing';\n    document.documentElement.dataset.sessionStorage = response && response.session || 'no-session';\n    document.getElementById('status').textContent = 'ready';\n  });\n});`);
 
-  let srv, win, popupWin;
+  let srv, win, popupWin, managedPopup;
   try {
     await app.whenReady();
     srv = await serve();
@@ -55,6 +55,7 @@ function serve(){
     ok('Breeze admits an MV3 service-worker extension', imported.installed === true, imported.error || imported.compatibility || '');
     ok('Breeze labels MV3 runtime as partial rather than falsely complete', imported.extension?.compatibility === 'partial');
     ok('Breeze records the MV3 background runtime kind', imported.extension?.backgroundKind === 'mv3-service-worker');
+    ok('Breeze detects the declared extension action popup', imported.extension?.hasActionPopup === true);
 
     const loads = await extensions.loadIntoSession(ses,'default');
     const runtime = loads.find(x=>x.localId===imported.extension?.localId);
@@ -91,6 +92,23 @@ function serve(){
       ok('long-lived runtime Port connects popup to worker', popupState?.port === 'ok', JSON.stringify(popupState));
       ok('popup shares extension local storage state', popupState?.storage === 'ok', JSON.stringify(popupState));
       ok('popup observes session storage state through the worker', popupState?.session === 'ok', JSON.stringify(popupState));
+      popupWin.destroy(); popupWin=null;
+
+      const before = new Set(BrowserWindow.getAllWindows().map(w=>w.id));
+      const opened = await extensions.openAction(imported.extension.localId,{workspaceId:'default',sealed:false});
+      ok('Breeze named action path opens the declared extension popup', opened?.ok === true, JSON.stringify(opened));
+      managedPopup = BrowserWindow.getAllWindows().find(w=>!before.has(w.id) && w.webContents.getURL().startsWith(loaded.url));
+      ok('Breeze action opens in the extension session, not browser chrome', !!managedPopup, managedPopup?.webContents.getURL() || 'no popup');
+      let managedState=null;
+      if(managedPopup){
+        for(let i=0;i<50;i++){
+          managedState=await managedPopup.webContents.executeJavaScript('({ready:document.getElementById("status")?.textContent,worker:document.documentElement.dataset.worker||"",port:document.documentElement.dataset.port||""})');
+          if(managedState?.ready==='ready'&&managedState?.port) break;
+          await new Promise(r=>setTimeout(r,100));
+        }
+      }
+      ok('Breeze-managed popup keeps worker messaging live', managedState?.worker==='mv3-worker' && managedState?.port==='ok', JSON.stringify(managedState));
+      if(managedPopup&&!managedPopup.isDestroyed()){managedPopup.destroy();managedPopup=null;}
 
       const removed = await extensions.remove(imported.extension.localId,[{ses,workspaceId:'default'}]);
       ok('Breeze unload/remove path succeeds for MV3', removed?.ok === true);
@@ -100,6 +118,7 @@ function serve(){
     console.error(err);
     fail++;
   } finally {
+    try { if (managedPopup && !managedPopup.isDestroyed()) managedPopup.destroy(); } catch {}
     try { if (popupWin && !popupWin.isDestroyed()) popupWin.destroy(); } catch {}
     try { if (win && !win.isDestroyed()) win.destroy(); } catch {}
     try { if (srv) srv.close(); } catch {}
