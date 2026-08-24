@@ -24,7 +24,8 @@
     "launchtest": "node launchtest.js",
     "producttest": "node producttest.js",
     "contexttest": "node contexttest.js",
-    "vaulttest": "node vaulttest.js"
+    "vaulttest": "node vaulttest.js",
+    "weathertest": "node weathertest.js"
   },
   "devDependencies": {
     "electron": "^43.0.0",
