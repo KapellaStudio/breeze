@@ -14,11 +14,11 @@ const DEFAULTS = Object.freeze({
   comfort: 'comfort',
   sidebar: 'on',
   compact: false,
-  // Location is opt-in. Coordinates themselves are never persisted.
   weatherEnabled: false,
-  // Inactive web tabs are genuinely released and rebuilt from Chromium's
-  // in-memory navigation history. The migration marker below distinguishes
-  // this real feature from the old disabled prototype switch.
+  // Search suggestions are useful browser behavior, but they may send partial
+  // queries to the selected engine. Private browsing suppresses remote calls.
+  searchSuggestions: true,
+  searchLibrary: true,
   sleep: true,
   tint: true,
   group: true,
@@ -38,7 +38,7 @@ const ENUMS = {
   comfort: new Set(['bright','comfort','dim']),
   sidebar: new Set(['on','auto','off'])
 };
-const BOOLS = new Set(['compact','weatherEnabled','sleep','tint','group','askwhere','provenance','versionDetection']);
+const BOOLS = new Set(['compact','weatherEnabled','searchSuggestions','searchLibrary','sleep','tint','group','askwhere','provenance','versionDetection']);
 
 function atomicWrite(value){
   if(!file) return;
@@ -48,22 +48,15 @@ function atomicWrite(value){
 }
 function normalize(raw={}){
   const out={...DEFAULTS,_sleepPolicyVersion:SLEEP_POLICY_VERSION};
-  for(const [key,allowed] of Object.entries(ENUMS)){
-    if(allowed.has(raw[key])) out[key]=raw[key];
-  }
+  for(const [key,allowed] of Object.entries(ENUMS)) if(allowed.has(raw[key])) out[key]=raw[key];
   for(const key of BOOLS){
     if(key==='sleep') continue;
     if(typeof raw[key]==='boolean') out[key]=raw[key];
   }
-  // The previous RC persisted `sleep:false` even though the control was
-  // disabled. Treat that as unset once; after this version users own the toggle.
   out.sleep=raw._sleepPolicyVersion===SLEEP_POLICY_VERSION && typeof raw.sleep==='boolean' ? raw.sleep : true;
-  // Migrate the short-lived boolean rail preference from early RC builds.
   if(!ENUMS.sidebar.has(raw.sidebar) && typeof raw.rail==='boolean') out.sidebar=raw.rail?'auto':'on';
-  // Old prototypes used neutral/warm labels that never existed in the UI.
   if(raw.comfort==='neutral') out.comfort='comfort';
   if(raw.comfort==='warm') out.comfort='dim';
-  // Version detection is still not implemented.
   out.versionDetection=false;
   return out;
 }
@@ -96,8 +89,7 @@ function setMany(patch={}){
       if(key==='versionDetection') value=false;
       next[key]=value;
       if(key==='sleep') next._sleepPolicyVersion=SLEEP_POLICY_VERSION;
-    }
-    else return {error:`unknown preference ${key}`};
+    } else return {error:`unknown preference ${key}`};
   }
   state=next; atomicWrite(state); return {ok:true,preferences:get()};
 }
