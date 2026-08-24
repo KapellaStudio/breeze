@@ -31,17 +31,7 @@ const displayShare = require('./display');
 const documents = require('./documents');
 
 const SMOKE = process.argv.includes('--smoke-test');
-
-/* Chrome geometry — must match breeze-desktop.html's layout. The renderer
-   reports its real measurements on boot, so these are only a first paint. */
 const CHROME = { top: 48, side: 188, panel: 0 };
-
-/* ── tracker blocking ──────────────────────────────────────────────────────
-   A starter list. Production should consume EasyList/EasyPrivacy, but the
-   mechanism is what matters: blocked BEFORE the request leaves, not hidden
-   after it lands. Counted per tab so the shield badge tells the truth. */
-/* Tracking parameters stripped from every navigation. Advertised in Settings,
-   so it must actually happen. */
 const STRIP_PARAMS = [
   'utm_source','utm_medium','utm_campaign','utm_term','utm_content','utm_id',
   'fbclid','gclid','dclid','msclkid','twclid','igshid','mc_eid','mc_cid',
@@ -58,7 +48,6 @@ const recentlyClosed = [];
 const TAB_SLEEP_AFTER_MS = 30 * 60 * 1000;
 let tabSleepTimer = null;
 
-/* ── sessions ─────────────────────────────────────────────────────────────── */
 const sessions = new Map();
 const sessionContexts = new Map();
 function liveWebContents(t){
@@ -120,7 +109,6 @@ function tabIdForWebContents(id){
   return null;
 }
 
-/* ── url handling ─────────────────────────────────────────────────────────── */
 function cleanUrl(raw){
   let u;
   try { u = new URL(raw); } catch { return raw; }
@@ -130,7 +118,6 @@ function cleanUrl(raw){
 }
 
 const ENGINES = search.REDIRECT;
-
 function resolveInput(input){
   const s = String(input || '').trim();
   if (!s) return null;
@@ -141,7 +128,6 @@ function resolveInput(input){
   return search.redirectUrl(s);
 }
 
-/* ── tab lifecycle ────────────────────────────────────────────────────────── */
 function mountTabView(id,t){
   const trustedPdfPath=t.localPdfPath;
   const view = new WebContentsView({
@@ -217,13 +203,11 @@ function sleepBlockReason(id){
   if(id===activeTabId)return'active tab';
   if(t.private)return'private tab';
   if(t.kind!=='page'||t.localPdfPath)return'document tab';
-  /* did-finish-load can precede did-stop-loading. Sleeping is gated on the
-     main frame's actual navigation state rather than a lagging bookkeeping
-     flag, so favicon/subresource tail work cannot make an idle tab immortal. */
-  const mainFrameLoading=typeof wc.isLoadingMainFrame==='function' ? wc.isLoadingMainFrame() : t.loading;
-  if(mainFrameLoading)return'page is loading';
   const url=wc.getURL();
-  if(!/^https?:\/\//i.test(url) && !(SMOKE && /^data:/i.test(url)))return'not a web page';
+  const smokeData=SMOKE && /^data:/i.test(url);
+  const mainFrameLoading=typeof wc.isLoadingMainFrame==='function' ? wc.isLoadingMainFrame() : t.loading;
+  if(mainFrameLoading && !smokeData)return'page is loading';
+  if(!/^https?:\/\//i.test(url) && !smokeData)return'not a web page';
   if(typeof wc.isCurrentlyAudible==='function' && wc.isCurrentlyAudible())return'audio is playing';
   if(typeof wc.isBeingCaptured==='function' && wc.isBeingCaptured())return'tab is being captured';
   if(typeof wc.isDevToolsOpened==='function' && wc.isDevToolsOpened())return'DevTools are open';
@@ -345,7 +329,6 @@ function closeTab(id){
   if (t.private && ![...tabs.values()].some(x => x.private)) purgePrivateSessions().catch(()=>{});
 }
 
-/* ── layout ─────────────────────────────────────────────────────────────── */
 function layout(){
   if (!win) return;
   const [w, h] = win.getContentSize();
@@ -390,7 +373,6 @@ function restoreSavedTabs(){
   if (active != null) setActiveTab(active);
 }
 
-/* ── window ───────────────────────────────────────────────────────────────── */
 function createWindow(){
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 900, minHeight: 600,
@@ -420,7 +402,6 @@ function createWindow(){
   win.on('closed', () => { win = null; });
 }
 
-/* ── IPC ────────────────────────────────────────────────────────────────── */
 function reg(channel, fn){ ipcMain.handle(channel, (e, ...a) => {
   if (e.sender !== win?.webContents) return null;
   try { return fn(...a); } catch (err) { return { error: String(err.message || err) }; }
@@ -637,7 +618,6 @@ reg('app:clearData', async (kinds = []) => {
   return { ok: true };
 });
 
-/* ── app lifecycle ────────────────────────────────────────────────────────── */
 app.whenReady().then(() => {
   const userDataPath = app.getPath('userData');
   search.init({ userDataPath, safeStorage });
@@ -657,7 +637,6 @@ app.whenReady().then(() => {
 app.on('before-quit', () => { if(tabSleepTimer)clearInterval(tabSleepTimer); try { browserState.write(stateSnapshot()); } catch {} });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
-/* ── smoke test ─────────────────────────────────────────────────────────── */
 async function runSmokeTest(){
   const results = [];
   const ok = (name, cond, extra = '') => { results.push([cond ? 'PASS' : 'FAIL', name, extra]); };
@@ -690,7 +669,7 @@ async function runSmokeTest(){
     const beforeSleep=tabs.get(id2).view.webContents;
     const beforeSleepId=beforeSleep.id;
     const slept=sleepTab(id2);
-    ok('inactive tab releases its renderer', slept.ok===true && tabs.get(id2).sleeping===true && tabs.get(id2).view===null);
+    ok('inactive tab releases its renderer', slept.ok===true && tabs.get(id2).sleeping===true && tabs.get(id2).view===null, slept.error||'');
     ok('released WebContents is destroyed', beforeSleep.isDestroyed()===true);
     const woke=await wakeTab(id2);
     const afterWake=liveWebContents(tabs.get(id2));
