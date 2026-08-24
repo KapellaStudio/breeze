@@ -1,11 +1,10 @@
 'use strict';
 
 /* Breeze Split View state policy.
-   This module deliberately knows nothing about Electron/WebContents. The main
-   process owns renderers and asks this object only which two tab ids should be
-   visible and at what ratio. Keeping policy separate makes close/swap/restore
-   behavior deterministic and testable without granting renderer code any new
-   capability. */
+   Pane position and focus are deliberately separate. Clicking the right pane
+   must not make both pages jump sides just because that pane became the target
+   for the omnibox. Electron owns renderers; this object only owns which tab is
+   left/right, which one is focused, and the divider ratio. */
 
 const MIN_RATIO = 0.25;
 const MAX_RATIO = 0.75;
@@ -23,88 +22,111 @@ function ratio(value){
 
 class SplitState {
   constructor(){
-    this.secondaryTabId=null;
+    this.leftTabId=null;
+    this.rightTabId=null;
+    this.focusedTabId=null;
     this.ratio=DEFAULT_RATIO;
   }
 
-  get active(){ return this.secondaryTabId!==null; }
+  get active(){ return this.leftTabId!==null && this.rightTabId!==null; }
+  has(id){ const n=tabId(id); return !!n && (n===this.leftTabId || n===this.rightTabId); }
 
   open(primaryId, secondaryId, canUse=()=>true){
-    const primary=tabId(primaryId), secondary=tabId(secondaryId);
-    if(!primary||!secondary) return {error:'invalid tab'};
-    if(primary===secondary) return {error:'choose a different tab'};
-    if(!canUse(primary)||!canUse(secondary)) return {error:'tab cannot enter Split View'};
-    this.secondaryTabId=secondary;
-    return this.snapshot(primary);
+    const left=tabId(primaryId), right=tabId(secondaryId);
+    if(!left||!right) return {error:'invalid tab'};
+    if(left===right) return {error:'choose a different tab'};
+    if(!canUse(left)||!canUse(right)) return {error:'tab cannot enter Split View'};
+    this.leftTabId=left;
+    this.rightTabId=right;
+    this.focusedTabId=left;
+    return this.snapshot();
   }
 
-  close(primaryId){
-    this.secondaryTabId=null;
-    return this.snapshot(tabId(primaryId));
+  close(){
+    const focused=this.focusedTabId;
+    this.leftTabId=null;
+    this.rightTabId=null;
+    this.focusedTabId=focused;
+    return this.snapshot();
   }
 
-  setRatio(value,primaryId){
+  focus(id){
+    const n=tabId(id);
+    if(!this.active || !this.has(n)) return {error:'tab is not in Split View'};
+    this.focusedTabId=n;
+    return this.snapshot();
+  }
+
+  /* Selecting another ordinary tab replaces whichever pane currently owns
+     keyboard/omnibox focus. The other pane remains exactly where it was. */
+  replaceFocused(id,canUse=()=>true){
+    const n=tabId(id);
+    if(!this.active||!n) return {error:'Split View is not active'};
+    if(!canUse(n)) return {error:'tab cannot enter Split View'};
+    if(this.has(n)){this.focusedTabId=n;return this.snapshot();}
+    if(this.focusedTabId===this.rightTabId)this.rightTabId=n;
+    else this.leftTabId=n;
+    this.focusedTabId=n;
+    return this.snapshot();
+  }
+
+  setRatio(value){
     this.ratio=ratio(value);
-    return this.snapshot(tabId(primaryId));
+    return this.snapshot();
   }
 
-  swap(primaryId){
-    const primary=tabId(primaryId);
-    if(!primary||!this.active) return {error:'Split View is not active'};
-    const nextPrimary=this.secondaryTabId;
-    this.secondaryTabId=primary;
-    return this.snapshot(nextPrimary);
+  swap(){
+    if(!this.active) return {error:'Split View is not active'};
+    [this.leftTabId,this.rightTabId]=[this.rightTabId,this.leftTabId];
+    return this.snapshot();
   }
 
-  /* Closing the secondary pane collapses Split View. Closing the primary pane
-     promotes the secondary tab so the remaining page never disappears. */
-  tabClosed(closedId,primaryId){
-    const closed=tabId(closedId), primary=tabId(primaryId);
-    if(!closed) return {primaryTabId:primary,...this.snapshot(primary)};
-    if(closed===this.secondaryTabId){
-      this.secondaryTabId=null;
-      return {primaryTabId:primary,...this.snapshot(primary)};
-    }
-    if(this.active && closed===primary){
-      const promoted=this.secondaryTabId;
-      this.secondaryTabId=null;
-      return {primaryTabId:promoted,...this.snapshot(promoted),promoted:true};
-    }
-    return {primaryTabId:primary,...this.snapshot(primary)};
+  /* Closing either visible pane collapses Split View and keeps the survivor as
+     the focused normal tab. Closing a hidden tab leaves the split untouched. */
+  tabClosed(closedId){
+    const closed=tabId(closedId);
+    if(!closed||!this.active||!this.has(closed)) return {survivorTabId:this.focusedTabId,...this.snapshot()};
+    const survivor=closed===this.leftTabId?this.rightTabId:this.leftTabId;
+    this.leftTabId=null;
+    this.rightTabId=null;
+    this.focusedTabId=survivor;
+    return {survivorTabId:survivor,collapsed:true,...this.snapshot()};
   }
 
-  /* Tab ids are process-local, so persistence records a stable slot index and
-     ratio. main.js maps the saved slot back to the recreated tab id. */
-  persisted(primaryId,orderedTabIds){
-    const primary=tabId(primaryId);
+  persisted(orderedTabIds){
     const ids=Array.isArray(orderedTabIds)?orderedTabIds.map(tabId):[];
     return {
       active:this.active,
       ratio:this.ratio,
-      primaryIndex:primary?ids.indexOf(primary):-1,
-      secondaryIndex:this.active?ids.indexOf(this.secondaryTabId):-1
+      leftIndex:this.active?ids.indexOf(this.leftTabId):-1,
+      rightIndex:this.active?ids.indexOf(this.rightTabId):-1,
+      focusedIndex:this.focusedTabId?ids.indexOf(this.focusedTabId):-1
     };
   }
 
   restore(saved,orderedTabIds,canUse=()=>true){
-    this.secondaryTabId=null;
+    this.leftTabId=null;this.rightTabId=null;this.focusedTabId=null;
     this.ratio=ratio(saved?.ratio);
-    if(!saved?.active) return {primaryTabId:null,...this.snapshot(null)};
     const ids=Array.isArray(orderedTabIds)?orderedTabIds.map(tabId):[];
-    const primary=ids[Number(saved.primaryIndex)];
-    const secondary=ids[Number(saved.secondaryIndex)];
-    if(!primary||!secondary||primary===secondary||!canUse(primary)||!canUse(secondary)){
-      return {primaryTabId:primary||null,...this.snapshot(primary||null)};
+    const fallback=ids[Number(saved?.focusedIndex)]||ids[0]||null;
+    if(!saved?.active){this.focusedTabId=fallback;return this.snapshot();}
+    const left=ids[Number(saved.leftIndex)], right=ids[Number(saved.rightIndex)];
+    if(!left||!right||left===right||!canUse(left)||!canUse(right)){
+      this.focusedTabId=fallback;
+      return this.snapshot();
     }
-    this.secondaryTabId=secondary;
-    return {primaryTabId:primary,...this.snapshot(primary)};
+    this.leftTabId=left;this.rightTabId=right;
+    const focused=ids[Number(saved.focusedIndex)];
+    this.focusedTabId=(focused===left||focused===right)?focused:left;
+    return this.snapshot();
   }
 
-  snapshot(primaryId){
+  snapshot(){
     return {
       active:this.active,
-      primaryTabId:tabId(primaryId),
-      secondaryTabId:this.secondaryTabId,
+      leftTabId:this.leftTabId,
+      rightTabId:this.rightTabId,
+      focusedTabId:this.focusedTabId,
       ratio:this.ratio
     };
   }
