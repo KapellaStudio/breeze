@@ -118,7 +118,7 @@ handle('weather:current', unit => weather.current(unit));
    web content. */
 const capturedMainIpc = new Map();
 const originalIpcHandle = ipcMain.handle.bind(ipcMain);
-const captureChannels = new Set(['tab:create','tab:list']);
+const captureChannels = new Set(['tab:create','tab:list','tab:navigate','tab:select','tab:close']);
 ipcMain.handle = function(channel, listener){
   if (captureChannels.has(channel) && typeof listener === 'function') capturedMainIpc.set(channel,listener);
   return originalIpcHandle(channel,listener);
