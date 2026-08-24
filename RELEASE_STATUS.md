@@ -1,14 +1,17 @@
 # Breeze 19 — Canonical Source / Release Candidate Status
 
-**Updated:** 23 August 2026
+**Updated:** 24 August 2026
 
 ## Canonical repository state
 
 `KapellaStudio/breeze` is the canonical Breeze source and release repository.
-PR #1 merged the verified Breeze 19 source into `main`; temporary source-transfer
-scaffolding has been removed. Desktop/mobile source, Electron main process,
-bridge code, backend, packaging, production smoke verification, and release
-workflows are tracked as normal repository files.
+Desktop/mobile source, Electron main process, narrow preload bridges, local data
+services, backend, packaging, production smoke verification, and release workflows
+are tracked as normal repository files.
+
+The feature-complete daily-driver source is now on `main`. Real two-pane Split
+View was merged in PR #6, and PR #7 promoted the RC3 publication lane without
+redeploying Netlify.
 
 The Breeze mark is sourced from the tracked Kapella Breeze vector master. Kapella
 wordmarks are integrity-checked by CI. Generated root/preview UI remains a build
@@ -16,88 +19,79 @@ product; edit `src/` and run `python3 build.py`.
 
 ## Verified product surface
 
-- Desktop Electron/Chromium browser shell
-- real navigation, tabs, downloads, history, bookmarks and restart recovery
-- real Private browsing with memory-only sessions
+- Desktop Electron/Chromium browser shell with real tabs/navigation/recovery
+- browser-grade omnibox/search plus local tab/library/queue search surfaces
+- real downloads, provenance, local history and bookmarks
+- real Private browsing with memory-only sessions and persistence exclusions
 - per-origin site permissions and display-capture broker
+- persistent preferences, first-run import/default-browser flow and Workspaces
+- local Reading Queue, Notes and Snapshots
+- OS-encrypted Breeze Vault with main-process password handling
+- opt-in live New Tab weather using approximate network location
+- true inactive-tab renderer sleeping with navigation-history wake restoration
+- real two-pane Split View using two independent Chromium `WebContentsView`s
 - Breeze Flow local creator tools and broad local media conversion
-- compatible unpacked-extension management
 - sandboxed Breeze PDF Workspace + Comfort Reading + local document actions
+- compatible unpacked-extension management with unsupported MV3 service workers
+  blocked honestly
 - separate mobile interaction architecture/prototype
-- live Netlify download/release/waitlist site and functions
-- Supabase release/waitlist backend with RLS and narrow Breeze Ops seam
 - cross-platform Windows/macOS/Linux packaging
-- browser-chrome security, desktop/mobile regression, Electron shell, media,
-  browser-core, search and PDF document gates
+- browser-chrome security, desktop/mobile regression, shell, media, browser-core,
+  search, PDF, Vault, weather, omnibox, tab-sleep and Split View gates
 
-## Live infrastructure
-
-- GitHub repository: `KapellaStudio/breeze` (public) — canonical and active
-- Supabase project: Breeze (`iyyuxzfjkrtqqixqzsrr`) — healthy
-- Breeze Ops Edge Function v7: active; privileged surface is limited to waitlist
-  insert and aggregate download counting
-- Netlify project: `kapella-breeze` — connected to the canonical GitHub repo,
-  production branch `main`
-- Netlify build settings: `python3 build.py`, publish directory `site`, Functions
-  directory `netlify/functions`
-- Netlify production publishes all four serverless functions: `download`,
-  `health`, `releases`, and `waitlist`
-- Netlify deploy secret scanning reported no committed secret matches
-- Public Supabase URL/publishable-key fallbacks are intentionally non-secret and
-  keep release reads/download routing available if Netlify env injection fails;
-  no Supabase service-role/admin key is committed or exposed to Netlify clients
+The final Split View candidate passed all 41 browser-chrome security vectors and
+42/42 packaged Electron integration checks before merge.
 
 ## Published release candidate
 
-Breeze `1.3.0` RC 1 is published as GitHub prerelease `v1.3.0-rc.1` from the
-canonical `main` branch. The release includes platform installers,
-`SHA256SUMS.txt`, and `release-manifest.json`.
+Breeze `1.3.0` RC 3 is published as GitHub prerelease `v1.3.0-rc.3` from canonical
+`main` source commit `a18cc3dc38be4b6b4a26b43ed2959d8be12ba26b`.
 
-The successful release matrix produced and published:
+Package/publish run `32712496727` completed successfully for Windows, macOS and
+Linux, then generated `SHA256SUMS.txt` and `release-manifest.json` and published
+the prerelease.
 
-- macOS Apple silicon DMG
-- macOS Intel DMG
-- Windows x64 installer
-- Linux x64 AppImage
-- alternate macOS ZIP and Linux DEB packages
+Canonical platform artifacts from the RC3 manifest:
 
-The four canonical platform downloads are registered in Supabase as published
-`beta` rows with the exact final byte size and SHA-256 from the release manifest.
-The live Netlify release page explicitly queries the beta channel and labels these
-files as release-candidate downloads; the backend default remains `stable` for
-the eventual signed production channel.
+- macOS Apple silicon DMG — 164,469,053 bytes — SHA-256
+  `e359bd0e58c3b8666b52ab1fd399c0877cd88e34bb3c35721c6062945817aab1`
+- macOS Intel DMG — 166,456,313 bytes — SHA-256
+  `858eee38bc29676dde9264b74de0cde64e86e7796b31c536cf274b56e13f9d58`
+- Windows x64 installer — 144,342,985 bytes — SHA-256
+  `584d70d9b95be13be47b28375dec20541c5c1fb61179a327d433b8418d7c01ea`
+- Linux x64 AppImage — 197,713,535 bytes — SHA-256
+  `ae800631d215354b91151f72408f31c1de95761fcf389c30644f87b2d12a4420`
 
-## Production verification
+Alternate macOS ZIP and Linux DEB packages are also included in the RC3 release.
+Windows and macOS RC3 bytes remain intentionally unsigned/unnotarized test builds.
+They are not a stable public release.
 
-The public RC hosting gate is **complete**.
+## Distribution metadata
 
-Permanent `production-smoke.yml` passed on canonical `main` commit
-`90ea655e581091ca97778db5cae6cd5666883012` (run `32669707120`). The live checks
-confirmed:
+The four published Supabase `beta` rows now point to the exact RC3 canonical
+artifacts, byte sizes and SHA-256 values above. Existing stable data is left
+untouched.
 
-- `https://kapella-breeze.netlify.app/` returns HTTP 200
-- `/api/health` returns HTTP 200 from Netlify Functions
-- `/api/releases?channel=beta` returns HTTP 200, Breeze `1.3.0` / `McCloskey`,
-  and all four canonical platform builds
-- `/download?channel=beta&platform=linux-x64` redirects to the exact GitHub
-  prerelease asset
-- the redirect exposes the published Linux SHA-256
-  `830995f9733923e7a09e5c8cdb7cb7ce1e53b17086fe3ef66cba013836735e1a`
-- Supabase aggregate download counting was independently verified for
-  `linux-x64`, version `1.3.0`
+The currently published Netlify production deploy remains the earlier verified
+site/functions deploy; RC3 work did not redeploy the site. Its `/api/releases`
+function performs live least-privilege reads from the `releases` table with a
+60-second cache, while `/download` performs a live newest-build lookup and returns
+the stored artifact URL and SHA with `no-store`. Updating beta rows therefore does
+not require a site rebuild.
 
-GitHub issue #3 (Netlify production connection/deploy) is closed as completed.
-The temporary one-shot production probe workflow used during deployment diagnosis
-has been removed; the permanent production smoke remains the release guard.
+The public release/download/waitlist infrastructure remains separate from the
+new site-design deployment milestone.
 
 ## Remaining public launch gate
 
 ### Stable desktop signing
+
 Windows and macOS code signing/notarization remain external credential/account
-work. RC downloads are intentionally labeled unsigned/unnotarized and may trigger
-SmartScreen/Gatekeeper warnings. They must not be reclassified as a stable public
-release until production signing is configured and verified. Linux does not have
-the same platform-signing gate.
+work. RC downloads may trigger SmartScreen/Gatekeeper warnings and must not be
+reclassified as stable until production trust verification passes.
+
+The production lane is already implemented in `.github/workflows/stable-release.yml`
+and `shell/electron-builder.production.yml`.
 
 Stable promotion requires:
 
@@ -112,6 +106,7 @@ GitHub issue #2 tracks this final stable-launch gate.
 
 ## Engine milestone after Breeze 19
 
-Full modern Chrome Web Store / Manifest V3 compatibility, including standard
-MetaMask and Phantom experiences, remains a Breeze Chromium Core milestone.
-Electron's compatibility tier must not be marketed as full Chrome-extension parity.
+Full modern Chrome Web Store / arbitrary Manifest V3 compatibility, including
+standard MetaMask and Phantom experiences, remains a future Breeze Chromium Core
+milestone. Electron's compatible unpacked-extension tier must not be marketed as
+full Chrome-extension parity.
