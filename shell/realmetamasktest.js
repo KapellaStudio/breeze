@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, session, clipboard } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -35,6 +35,10 @@ async function clickSelector(win,selector){
 async function fillSelector(win,selector,value){
   await waitSelector(win,selector);
   return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw new Error('missing selector');const p=e instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;const s=Object.getOwnPropertyDescriptor(p,'value')?.set;if(s)s.call(e,${JSON.stringify(value)});else e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return e.value})()`);
+}
+async function pasteSelector(win,selector,value){
+  await waitSelector(win,selector);
+  return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw new Error('missing selector');e.focus();const ev=new Event('paste',{bubbles:true,cancelable:true});Object.defineProperty(ev,'clipboardData',{value:{getData:(type)=>type==='text'||type==='text/plain'?${JSON.stringify(value)}:''}});return e.dispatchEvent(ev)})()`);
 }
 async function findExtensionWindow(extOrigin,selector,exclude=new Set(),timeout=30000){
   return waitFor(async()=>{
@@ -104,10 +108,6 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     }
     ok('MetaMask provider can message its background runtime',typeof chain==='string'&&chain!=='TIMEOUT'&&!chain.startsWith('ERR:'),String(chain));
 
-    // Exercise the same production action path Breeze exposes to the browser UI.
-    // On a fresh profile MetaMask intentionally uses popup-init.html as a launch
-    // trampoline. It may replace itself with popup.html OR close that small popup
-    // and create home.html for onboarding. Follow either production lifecycle.
     const action=await runtime.openAction(localId,{workspaceId:'default',sealed:false});
     ok('Breeze opens the official MetaMask action through production runtime',action?.ok===true&&Number.isInteger(action?.windowId),JSON.stringify(action||{}));
     if(action?.ok&&Number.isInteger(action.windowId)) popup=BrowserWindow.fromId(action.windowId);
@@ -123,7 +123,6 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
         return url.startsWith(extOrigin)&&(url.includes('/popup.html')||url.includes('/home.html'));
       });
       if(replacement) surface=replacement;
-
       if(surface&&!surface.isDestroyed()){
         surfaceState=await surface.webContents.executeJavaScript(`({ready:document.readyState,body:(document.body?.innerText||'').trim().slice(0,800),title:document.title||'',href:location.href})`).catch(()=>({href:surface.webContents.getURL()}));
         const href=String(surfaceState.href||'');
@@ -137,14 +136,12 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     ok('official MetaMask UI renders in Breeze',surfaceState.ready==='complete'&&!!surfaceState.body,JSON.stringify(surfaceState));
     ok('fresh-install MetaMask lifecycle is handled',finalHref.includes('/home.html')||finalHref.includes('/popup.html'),finalHref);
 
-    // Complete a real MetaMask import-wallet onboarding using MetaMask's own
-    // published E2E-only SRP. No user wallet, production secret or live funds are used.
+    // Use MetaMask's published E2E-only SRP and dispatch the same paste event
+    // its React control handles in normal use. This avoids CI/X11 clipboard
+    // flakiness without bypassing MetaMask validation or wallet creation logic.
     await clickSelector(surface,'[data-testid="onboarding-import-wallet"]');
     await clickSelector(surface,'[data-testid="onboarding-import-with-srp-button"]');
-    await waitSelector(surface,'[data-testid="srp-input-import__srp-note"]');
-    await surface.webContents.executeJavaScript(`document.querySelector('[data-testid="srp-input-import__srp-note"]')?.focus()`);
-    clipboard.writeText(TEST_SRP);
-    surface.webContents.paste();
+    await pasteSelector(surface,'[data-testid="srp-input-import__srp-note"]',TEST_SRP);
     await waitFor(async()=>{
       const s=await selectorState(surface,'[data-testid="import-srp-confirm"]');
       return s?.found&&!s.disabled?s:null;
@@ -170,8 +167,6 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     await clickSelector(surface,'[data-testid="onboarding-complete-done"]');
     await sleep(1000);
 
-    // A genuine dapp permission request must create MetaMask's connect approval
-    // UI and resolve back into the real webpage after the user approves it.
     await win.webContents.executeJavaScript(`(()=>{window.__breezeAccountsResult=null;window.ethereum.request({method:'eth_requestAccounts'}).then(v=>window.__breezeAccountsResult={ok:true,value:v},e=>window.__breezeAccountsResult={ok:false,error:String(e&&e.message||e)});return 'started'})()`);
     const connectWindow=await findExtensionWindow(extOrigin,'[data-testid="confirm-btn"]',new Set([surface?.id]),30000);
     const connectState=await connectWindow.webContents.executeJavaScript(`({href:location.href,body:(document.body?.innerText||'').slice(0,500)})`);
@@ -181,8 +176,6 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     const accounts=accountResult?.ok&&Array.isArray(accountResult.value)?accountResult.value:[];
     ok('MetaMask approves eth_requestAccounts through Breeze',accounts.length>0&&/^0x[0-9a-fA-F]{40}$/.test(String(accounts[0]||'')),JSON.stringify(accountResult));
 
-    // Sign only a fixed harmless compatibility-test message. This proves the
-    // complete provider -> background -> confirmation UI -> keyring -> dapp path.
     if(accounts[0]){
       await win.webContents.executeJavaScript(`(()=>{window.__breezeSignResult=null;window.ethereum.request({method:'personal_sign',params:[${JSON.stringify(TEST_MESSAGE_HEX)},${JSON.stringify(accounts[0])}]}).then(v=>window.__breezeSignResult={ok:true,value:v},e=>window.__breezeSignResult={ok:false,error:String(e&&e.message||e)});return 'started'})()`);
       const signWindow=await findExtensionWindow(extOrigin,'[data-testid="confirm-footer-button"]',new Set([surface?.id]),30000);
@@ -196,8 +189,8 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     const persisted=await win.webContents.executeJavaScript(`window.ethereum.request({method:'eth_accounts'})`).catch(()=>[]);
     ok('MetaMask keeps the approved dapp account available after confirmation windows close',Array.isArray(persisted)&&persisted.length>0,JSON.stringify(persisted));
 
-    const compat=runtime.list().find(x=>x.localId===localId)?.compatibilityBridge;
-    ok('MetaMask uses the managed Breeze compatibility bridge',compat?.prepared===true&&compat?.runtimeCount===1,JSON.stringify(compat||{}));
+    const compatState=runtime.list().find(x=>x.localId===localId)?.compatibilityBridge;
+    ok('MetaMask uses the managed Breeze compatibility bridge',compatState?.prepared===true&&compatState?.runtimeCount===1,JSON.stringify(compatState||{}));
 
     await runtime.remove(localId,[{ses,workspaceId:'default'}]);
   }catch(err){console.error(err);fail++;}
