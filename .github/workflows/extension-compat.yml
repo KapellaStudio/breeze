@@ -9,6 +9,7 @@ on:
       - 'shell/extensions.js'
       - 'shell/extensiontest.js'
       - 'shell/metamaskcompat.js'
+      - 'shell/extensionbridgetest.js'
       - 'shell/package.json'
       - '.github/workflows/extension-compat.yml'
 
@@ -32,5 +33,7 @@ jobs:
         run: xvfb-run -a npx electron extensiontest.js --no-sandbox
       - name: Probe MetaMask-class extension surface
         run: xvfb-run -a npx electron metamaskcompat.js --no-sandbox
+      - name: Probe authenticated compatibility bridge
+        run: xvfb-run -a npx electron extensionbridgetest.js --no-sandbox
       - name: Keep existing browser-core contracts green
         run: npm run browsercoretest
