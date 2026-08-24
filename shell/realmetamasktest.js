@@ -16,7 +16,7 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
   const manifest=JSON.parse(fs.readFileSync(path.join(source,'manifest.json'),'utf8'));
   const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'breeze-real-metamask-'));
   const userData=path.join(tmp,'user-data');
-  let srv=null, win=null, popup=null, ses=null, installed=null;
+  let srv=null, win=null, popup=null, surface=null, ses=null, installed=null;
   try{
     ok('official MetaMask build is Manifest V3',Number(manifest.manifest_version)===3,String(manifest.manifest_version));
     ok('official MetaMask build declares an action popup',!!manifest.action?.default_popup,String(manifest.action?.default_popup||''));
@@ -65,22 +65,37 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     ok('MetaMask provider can message its background runtime',typeof chain==='string'&&chain!=='TIMEOUT'&&!chain.startsWith('ERR:'),String(chain));
 
     // Exercise the same production action path Breeze exposes to the browser UI.
-    // MetaMask's manifest popup-init.html intentionally has an empty body and an
-    // immediate meta refresh to /popup.html, so directly loading the manifest
-    // path in a bare BrowserWindow is not a valid rendering certification.
+    // On a fresh profile MetaMask intentionally uses popup-init.html as a launch
+    // trampoline. It may replace itself with popup.html OR close that small popup
+    // and create home.html for onboarding. Follow either production lifecycle.
     const action=await runtime.openAction(localId,{workspaceId:'default',sealed:false});
     ok('Breeze opens the official MetaMask action through production runtime',action?.ok===true&&Number.isInteger(action?.windowId),JSON.stringify(action||{}));
     if(action?.ok&&Number.isInteger(action.windowId)) popup=BrowserWindow.fromId(action.windowId);
     if(!popup) throw new Error(action?.error||'MetaMask action window was not created');
 
-    let popupState={};
-    for(let i=0;i<120;i++){
-      popupState=await popup.webContents.executeJavaScript(`({ready:document.readyState,body:(document.body?.innerText||'').trim().slice(0,500),title:document.title||'',href:location.href})`).catch(()=>({href:popup.webContents.getURL()}));
-      if(popupState.ready==='complete'&&popupState.body&&String(popupState.href||'').includes('/popup.html')) break;
+    const extOrigin=`chrome-extension://${loaded.runtimeId}/`;
+    let surfaceState={};
+    for(let i=0;i<160;i++){
+      if(popup&&!popup.isDestroyed()) surface=popup;
+      const replacement=BrowserWindow.getAllWindows().find(w=>{
+        if(!w||w.isDestroyed()||w===win) return false;
+        const url=String(w.webContents.getURL()||'');
+        return url.startsWith(extOrigin)&&(url.includes('/popup.html')||url.includes('/home.html'));
+      });
+      if(replacement) surface=replacement;
+
+      if(surface&&!surface.isDestroyed()){
+        surfaceState=await surface.webContents.executeJavaScript(`({ready:document.readyState,body:(document.body?.innerText||'').trim().slice(0,800),title:document.title||'',href:location.href})`).catch(()=>({href:surface.webContents.getURL()}));
+        const href=String(surfaceState.href||'');
+        if(surfaceState.ready==='complete'&&surfaceState.body&&(href.includes('/popup.html')||href.includes('/home.html'))) break;
+      }
       await new Promise(r=>setTimeout(r,250));
     }
-    ok('MetaMask popup-init redirects to the real popup page',String(popupState.href||popup.webContents.getURL()).includes('/popup.html'),JSON.stringify(popupState));
-    ok('official MetaMask action popup renders in Breeze',popupState.ready==='complete'&&!!popupState.body,JSON.stringify(popupState));
+    const finalHref=String(surfaceState.href||(surface&&!surface.isDestroyed()?surface.webContents.getURL():''));
+    const reachedUi=finalHref.includes('/popup.html')||finalHref.includes('/home.html');
+    ok('MetaMask popup-init reaches its real UI or first-run onboarding',reachedUi,JSON.stringify(surfaceState));
+    ok('official MetaMask UI renders in Breeze',surfaceState.ready==='complete'&&!!surfaceState.body,JSON.stringify(surfaceState));
+    ok('fresh-install MetaMask lifecycle is handled',finalHref.includes('/home.html')||finalHref.includes('/popup.html'),finalHref);
 
     const compat=runtime.list().find(x=>x.localId===localId)?.compatibilityBridge;
     ok('MetaMask uses the managed Breeze compatibility bridge',compat?.prepared===true&&compat?.runtimeCount===1,JSON.stringify(compat||{}));
@@ -88,6 +103,7 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     await runtime.remove(localId,[{ses,workspaceId:'default'}]);
   }catch(err){console.error(err);fail++;}
   finally{
+    try{if(surface&&surface!==popup&&!surface.isDestroyed())surface.destroy();}catch{}
     try{if(popup&&!popup.isDestroyed())popup.destroy();}catch{}
     try{if(win&&!win.isDestroyed())win.destroy();}catch{}
     try{if(srv)srv.close();}catch{}
