@@ -6,15 +6,20 @@ const path = require('node:path');
 const base = require('./extensions');
 const compat = require('./extension-compat');
 
-let BrowserWindow = null;
+let BrowserWindow = null, Notification = null;
 try {
   const electron = require('electron');
-  if (electron && typeof electron === 'object') BrowserWindow = electron.BrowserWindow || null;
+  if (electron && typeof electron === 'object') {
+    BrowserWindow = electron.BrowserWindow || null;
+    Notification = electron.Notification || null;
+  }
 } catch {}
 
 let rootDir = null;
 let internalInvoke = null;
 const extensionWindows = new Set();
+const oauthWindows = new Set();
+const notifications = new Map();
 
 function safeWorkspace(value){ return String(value||'default').replace(/[^a-z0-9_-]/gi,'-').slice(0,80)||'default'; }
 function sealedSession(ses,workspaceId='default'){
@@ -31,10 +36,10 @@ async function prepare(row){
   if(!row||row.enabled===false||!rootDir) return {prepared:false};
   return compat.prepareManagedCopy({localId:row.localId,managedDir:managedDir(row.localId)});
 }
-function chromeTab(state,windowId){
+function chromeTab(state,windowId,index=0){
   if(!state) return null;
   return {
-    id:Number(state.id), index:0, windowId:Number(windowId||1), active:!!state.active,
+    id:Number(state.id), index:Number(index||0), windowId:Number(windowId||1), active:!!state.active,
     highlighted:!!state.active, selected:!!state.active, pinned:false, audible:false,
     discarded:!!state.sleeping, incognito:!!state.private,
     url:String(state.url||''), pendingUrl:String(state.url||''), title:String(state.title||''),
@@ -93,20 +98,103 @@ function cookieDetails(params={}){
   for(const key of ['url','name','value','domain','path','secure','httpOnly','expirationDate','sameSite']) if(params[key]!==undefined) out[key]=params[key];
   return out;
 }
+async function breezeTabStates(ctx){
+  const rows=await invoke('tab:list');
+  const ws=safeWorkspace(ctx.workspaceId);
+  return Array.isArray(rows)?rows.filter(x=>!x?.private&&safeWorkspace(x?.workspace||ws)===ws):[];
+}
+function filterTabQuery(rows,query={}){
+  let out=rows.slice();
+  if(query.active!==undefined) out=out.filter(x=>!!x.active===!!query.active);
+  if(query.highlighted!==undefined) out=out.filter(x=>!!x.active===!!query.highlighted);
+  if(typeof query.title==='string') out=out.filter(x=>String(x.title||'').includes(query.title));
+  if(typeof query.url==='string') out=out.filter(x=>String(x.url||'').includes(query.url.replace(/\*/g,'')));
+  return out;
+}
+function notificationKey(ctx,id){ return String(ctx.localId||ctx.runtimeId||'extension')+':'+String(id||''); }
+async function launchWebAuthFlow(ctx,details={}){
+  if(!BrowserWindow){ const err=new Error('web authentication requires Breeze desktop'); err.status=501; throw err; }
+  const start=allowedUrl(ctx,details.url);
+  if(!/^https?:/i.test(start)){ const err=new Error('web authentication requires an HTTP(S) URL'); err.status=400; throw err; }
+  const redirectPrefix=`https://${ctx.runtimeId}.chromiumapp.org/`;
+  const interactive=details.interactive!==false;
+  return new Promise((resolve,reject)=>{
+    let settled=false;
+    const parent=BrowserWindow.getFocusedWindow()||undefined;
+    const auth=new BrowserWindow({
+      width:520,height:720,minWidth:420,minHeight:540,show:false,autoHideMenuBar:true,parent:interactive?parent:undefined,
+      webPreferences:{session:ctx.ses,contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}
+    });
+    oauthWindows.add(auth);
+    const finish=(err,value)=>{
+      if(settled)return; settled=true;
+      clearTimeout(timer); oauthWindows.delete(auth);
+      try{if(!auth.isDestroyed())auth.close();}catch{}
+      if(err)reject(err); else resolve(value);
+    };
+    const inspect=(event,target)=>{
+      if(typeof target==='string'&&target.startsWith(redirectPrefix)){
+        if(event&&typeof event.preventDefault==='function')event.preventDefault();
+        finish(null,target); return;
+      }
+      try{const u=new URL(target);if(!['http:','https:'].includes(u.protocol)){if(event?.preventDefault)event.preventDefault();}}catch{if(event?.preventDefault)event.preventDefault();}
+    };
+    auth.webContents.on('will-redirect',inspect);
+    auth.webContents.on('will-navigate',inspect);
+    auth.webContents.setWindowOpenHandler(({url})=>{ try{inspect(null,url);}catch{} return {action:'deny'}; });
+    auth.on('closed',()=>{ if(!settled){const err=new Error('authentication window was closed');err.status=499;finish(err);} });
+    auth.once('ready-to-show',()=>{if(interactive&&!auth.isDestroyed())auth.show();});
+    const timer=setTimeout(()=>{const err=new Error('authentication timed out');err.status=408;finish(err);},120000);
+    auth.loadURL(start).catch(err=>finish(err));
+  });
+}
 
 function hostHandlers(){
   return {
     'tabs.create':async(ctx,params={})=>{
-      const url=allowedUrl(ctx,params.url||'https://www.google.com/');
+      const url=params.url?allowedUrl(ctx,params.url):'';
       if(url.startsWith('chrome-extension://')){
         const w=createExtensionWindow(ctx,{url,type:'normal',focused:params.active!==false});
         return {id:w.webContents.id,index:0,windowId:w.id,active:true,highlighted:true,pinned:false,incognito:false,url,title:'',status:'loading'};
       }
-      const id=await invoke('tab:create',{url,workspaceId:safeWorkspace(ctx.workspaceId),sealed:!!ctx.sealed});
-      const rows=await invoke('tab:list');
-      const state=Array.isArray(rows)?rows.find(x=>Number(x?.id)===Number(id)):null;
+      const opts={workspaceId:safeWorkspace(ctx.workspaceId),sealed:!!ctx.sealed};
+      if(url) opts.url=url;
+      const id=await invoke('tab:create',opts);
+      const rows=await breezeTabStates(ctx);
+      const state=rows.find(x=>Number(x?.id)===Number(id));
       const owner=BrowserWindow&&BrowserWindow.getFocusedWindow();
-      return chromeTab(state||{id,url,active:true},owner?.id||1);
+      return chromeTab(state||{id,url,active:true},owner?.id||1,Math.max(0,rows.findIndex(x=>Number(x?.id)===Number(id))));
+    },
+    'tabs.query':async(ctx,params={})=>{
+      const rows=filterTabQuery(await breezeTabStates(ctx),params||{});
+      const owner=BrowserWindow&&BrowserWindow.getFocusedWindow();
+      return rows.map((row,index)=>chromeTab(row,owner?.id||1,index));
+    },
+    'tabs.get':async(ctx,params={})=>{
+      const rows=await breezeTabStates(ctx); const row=rows.find(x=>Number(x?.id)===Number(params.tabId));
+      if(!row){const err=new Error('tab not found');err.status=404;throw err;}
+      return chromeTab(row,BrowserWindow?.getFocusedWindow()?.id||1,Math.max(0,rows.indexOf(row)));
+    },
+    'tabs.getCurrent':async(ctx)=>{
+      const rows=await breezeTabStates(ctx); const row=rows.find(x=>x.active)||null;
+      return row?chromeTab(row,BrowserWindow?.getFocusedWindow()?.id||1,Math.max(0,rows.indexOf(row))):null;
+    },
+    'tabs.update':async(ctx,params={})=>{
+      const props=params.props&&typeof params.props==='object'?params.props:{};
+      const rows=await breezeTabStates(ctx);
+      let id=Number(params.tabId);
+      if(!Number.isInteger(id)||id<=0) id=Number(rows.find(x=>x.active)?.id||0);
+      if(!id){const err=new Error('tab not found');err.status=404;throw err;}
+      if(props.url) await invoke('tab:navigate',id,allowedUrl(ctx,props.url));
+      if(props.active===true||props.highlighted===true||props.selected===true) await invoke('tab:select',id);
+      const next=await breezeTabStates(ctx); const row=next.find(x=>Number(x?.id)===id);
+      return row?chromeTab(row,BrowserWindow?.getFocusedWindow()?.id||1,Math.max(0,next.indexOf(row))):null;
+    },
+    'tabs.remove':async(ctx,params={})=>{
+      const ids=Array.isArray(params.tabIds)?params.tabIds:[params.tabIds];
+      const permitted=new Set((await breezeTabStates(ctx)).map(x=>Number(x.id)));
+      for(const raw of ids){const id=Number(raw);if(permitted.has(id))await invoke('tab:close',id);}
+      return null;
     },
     'windows.create':async(ctx,params={})=>{
       const w=createExtensionWindow(ctx,params);
@@ -143,8 +231,21 @@ function hostHandlers(){
     },
     'cookies.get':async(ctx,params={})=>{ const rows=await ctx.ses.cookies.get(cookieFilter(params)); return rows[0]||null; },
     'cookies.getAll':async(ctx,params={})=>ctx.ses.cookies.get(cookieFilter(params)),
-    'cookies.set':async(ctx,params={})=>ctx.ses.cookies.set(cookieDetails(params)),
-    'cookies.remove':async(ctx,params={})=>ctx.ses.cookies.remove(String(params.url||''),String(params.name||''))
+    'cookies.set':async(ctx,params={})=>{await ctx.ses.cookies.set(cookieDetails(params));const rows=await ctx.ses.cookies.get(cookieFilter({url:params.url,name:params.name}));return rows[0]||null;},
+    'cookies.remove':async(ctx,params={})=>{await ctx.ses.cookies.remove(String(params.url||''),String(params.name||''));return{url:String(params.url||''),name:String(params.name||'')};},
+    'notifications.create':async(ctx,params={})=>{
+      const id=String(params.id||`breeze-${Date.now()}`).slice(0,128);
+      const options=params.options&&typeof params.options==='object'?params.options:{};
+      if(!Notification||typeof Notification.isSupported!=='function'||!Notification.isSupported()) return id;
+      const note=new Notification({title:String(options.title||base.list().find(x=>x.localId===ctx.localId)?.name||'Breeze extension').slice(0,160),body:String(options.message||'').slice(0,500)});
+      const key=notificationKey(ctx,id); notifications.set(key,note);
+      note.on('close',()=>notifications.delete(key)); note.show(); return id;
+    },
+    'notifications.clear':async(ctx,params={})=>{
+      const key=notificationKey(ctx,params.id); const note=notifications.get(key); if(!note)return false;
+      try{note.close();}catch{} notifications.delete(key); return true;
+    },
+    'identity.launchWebAuthFlow':async(ctx,params={})=>launchWebAuthFlow(ctx,params)
   };
 }
 
