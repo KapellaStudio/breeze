@@ -2,13 +2,14 @@
    Keeps first-run/import/preferences/workspace/context/vault IPC separate from
    the browser runtime so product setup can evolve without widening page surfaces. */
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, clipboard, session } = require('electron');
 const path = require('node:path');
 const launch = require('./launch');
 const preferences = require('./preferences');
 const workspaces = require('./workspaces');
 const workspaceData = require('./workspace-data');
 const vault = require('./vault');
+const weather = require('./weather');
 
 let initialized = false;
 function ensureInit(){
@@ -104,5 +105,20 @@ handle('vault:importCsv', async () => {
   return vault.importCsv(path.resolve(picked.filePaths[0]));
 });
 
-app.whenReady().then(() => ensureInit());
+/* Weather receives coarse coordinates only and never persists them. The
+   network service runs in main so no page or chrome script gets ambient fetch
+   access to a third-party weather API. */
+handle('weather:current', (lat,lon,unit) => weather.current(lat,lon,unit));
+
+/* The default Electron session belongs to Breeze chrome. main.js installs a
+   deny-all fallback; this replaces it after startup with one exception:
+   geolocation may be requested by our own immutable file:// chrome only. The
+   product-level weatherEnabled preference still controls whether we ask. */
+function configureChromeLocationPermission(){
+  const ses=session.defaultSession;
+  const allowed=(wc,permission)=>permission==='geolocation'&&!!wc&&trustedChrome({sender:wc});
+  ses.setPermissionRequestHandler((wc,permission,callback)=>callback(allowed(wc,permission)));
+  ses.setPermissionCheckHandler((wc,permission)=>allowed(wc,permission));
+}
+app.whenReady().then(() => { ensureInit(); setTimeout(configureChromeLocationPermission,0); });
 require('./main');
