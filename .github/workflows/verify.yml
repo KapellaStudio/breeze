@@ -129,6 +129,7 @@ jobs:
           npm run producttest
           npm run contexttest
           npm run vaulttest
+          npm run weathertest
 
       - name: Finalize verified reconstructed source
         if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('.sourceparts/manifest') != '' }}
