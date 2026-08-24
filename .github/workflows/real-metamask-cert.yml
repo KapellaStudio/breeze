@@ -43,6 +43,7 @@ jobs:
           corepack enable
           cp .metamaskrc.dist .metamaskrc
           yarn install --immutable
+          yarn webpack:tsc
           yarn build:test
           test -f dist/chrome/manifest.json
           node -e "const p=require('./package.json'),m=require('./dist/chrome/manifest.json'); if(m.version!==p.version) throw new Error('source/build version mismatch: '+p.version+' vs '+m.version); console.log('MetaMask source build',m.version,'MV'+m.manifest_version,m.action&&m.action.default_popup)"
