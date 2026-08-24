@@ -64,15 +64,22 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     }
     ok('MetaMask provider can message its background runtime',typeof chain==='string'&&chain!=='TIMEOUT'&&!chain.startsWith('ERR:'),String(chain));
 
-    const popupPath=String(manifest.action.default_popup||'');
-    popup=new BrowserWindow({show:false,width:390,height:600,webPreferences:{session:ses,contextIsolation:true,nodeIntegration:false,sandbox:true}});
-    await popup.loadURL(new URL(popupPath,ext.url).toString());
+    // Exercise the same production action path Breeze exposes to the browser UI.
+    // MetaMask's manifest popup-init.html intentionally has an empty body and an
+    // immediate meta refresh to /popup.html, so directly loading the manifest
+    // path in a bare BrowserWindow is not a valid rendering certification.
+    const action=await runtime.openAction(localId,{workspaceId:'default',sealed:false});
+    ok('Breeze opens the official MetaMask action through production runtime',action?.ok===true&&Number.isInteger(action?.windowId),JSON.stringify(action||{}));
+    if(action?.ok&&Number.isInteger(action.windowId)) popup=BrowserWindow.fromId(action.windowId);
+    if(!popup) throw new Error(action?.error||'MetaMask action window was not created');
+
     let popupState={};
-    for(let i=0;i<80;i++){
-      popupState=await popup.webContents.executeJavaScript(`({ready:document.readyState,body:(document.body?.innerText||'').trim().slice(0,300),title:document.title||''})`).catch(()=>({}));
-      if(popupState.ready==='complete'&&popupState.body) break;
+    for(let i=0;i<120;i++){
+      popupState=await popup.webContents.executeJavaScript(`({ready:document.readyState,body:(document.body?.innerText||'').trim().slice(0,500),title:document.title||'',href:location.href})`).catch(()=>({href:popup.webContents.getURL()}));
+      if(popupState.ready==='complete'&&popupState.body&&String(popupState.href||'').includes('/popup.html')) break;
       await new Promise(r=>setTimeout(r,250));
     }
+    ok('MetaMask popup-init redirects to the real popup page',String(popupState.href||popup.webContents.getURL()).includes('/popup.html'),JSON.stringify(popupState));
     ok('official MetaMask action popup renders in Breeze',popupState.ready==='complete'&&!!popupState.body,JSON.stringify(popupState));
 
     const compat=runtime.list().find(x=>x.localId===localId)?.compatibilityBridge;
