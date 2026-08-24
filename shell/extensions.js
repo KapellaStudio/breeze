@@ -1,9 +1,9 @@
 /* Breeze extension registry.
-   Electron gives us a useful subset of Chrome extensions, but not full Chrome
-   Web Store / MV3 parity. This module makes that boundary explicit: compatible
-   unpacked extensions can be imported into Breeze's managed local directory;
-   extensions whose core depends on unsupported MV3/service-worker features are
-   rejected with a compatibility report instead of failing mysteriously. */
+   Electron 43 gives us a useful subset of Chrome extensions, including a
+   working MV3 service-worker/runtime/content-script path that Breeze verifies
+   in CI. It is still not full Chrome Web Store/API parity, so modern extensions
+   are admitted with an explicit compatibility report instead of being falsely
+   blocked or falsely advertised as fully compatible. */
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -85,18 +85,21 @@ function analyzeManifest(manifest){
   if (typeof manifest.version !== 'string' || !manifest.version.trim()) reasons.push('The extension has no valid version.');
 
   const background = manifest.background && typeof manifest.background === 'object' ? manifest.background : {};
-  if (mv === 3 && typeof background.service_worker === 'string'){
-    reasons.push('This extension depends on a Manifest V3 background service worker, which Electron does not provide with Chrome-level compatibility.');
+  const backgroundKind = mv === 3 && typeof background.service_worker === 'string'
+    ? 'mv3-service-worker'
+    : (mv === 2 && Array.isArray(background.scripts) ? 'mv2-background' : 'none');
+  if (backgroundKind === 'mv3-service-worker'){
+    warnings.push('Manifest V3 service-worker runtime is verified in Breeze, but Chrome APIs used by the worker are certified separately.');
   }
   for (const key of Object.keys(manifest)){
-    if (HIGH_RISK_KEYS.has(key)) warnings.push(`Manifest feature “${key}” is not part of Breeze’s current Electron compatibility tier.`);
+    if (HIGH_RISK_KEYS.has(key)) warnings.push(`Manifest feature “${key}” is not part of Breeze’s current certified compatibility tier.`);
     else if (!SUPPORTED_KEYS.has(key)) warnings.push(`Manifest feature “${key}” has not been certified by Breeze.`);
   }
   for (const p of flattenPermissions(manifest)){
     if (KNOWN_UNSUPPORTED_PERMS.has(p)) warnings.push(`Chrome permission “${p}” is not certified in the current engine.`);
   }
   const status = reasons.length ? 'blocked' : warnings.length ? 'partial' : 'compatible';
-  return { status, manifestVersion:mv, reasons, warnings, permissions:flattenPermissions(manifest) };
+  return { status, manifestVersion:mv, backgroundKind, reasons, warnings, permissions:flattenPermissions(manifest) };
 }
 function safeName(s){ return String(s || 'Extension').replace(/[\r\n\t]/g,' ').trim().slice(0,75) || 'Extension'; }
 function safeVersion(s){ return String(s || '0').replace(/[^0-9A-Za-z._-]/g,'').slice(0,40) || '0'; }
@@ -104,6 +107,7 @@ function publicRow(r){
   return {
     localId:r.localId, name:r.name, version:r.version, author:r.author || '',
     description:r.description || '', manifestVersion:r.manifestVersion,
+    backgroundKind:r.backgroundKind || 'none',
     compatibility:r.compatibility, reasons:r.reasons || [], warnings:r.warnings || [],
     permissions:r.permissions || [], enabled:r.enabled !== false,
     workspaces:Array.isArray(r.workspaces) ? r.workspaces : ['*']
@@ -133,6 +137,7 @@ function importDirectory(sourceDir){
   const r = {
     localId, dir, name:inspected.name, version:inspected.version, author:inspected.author,
     description:inspected.description, manifestVersion:inspected.report.manifestVersion,
+    backgroundKind:inspected.report.backgroundKind,
     compatibility:inspected.report.status, reasons:inspected.report.reasons,
     warnings:inspected.report.warnings, permissions:inspected.report.permissions,
     enabled:true, workspaces:['*'], runtimeIds:{}
