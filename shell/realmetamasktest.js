@@ -41,6 +41,15 @@ async function clickSelector(win,selector){
   win.webContents.sendInputEvent({type:'mouseUp',x,y,button:'left',clickCount:1});
   return true;
 }
+async function routeClickSelector(win,selector){
+  await waitFor(async()=>{
+    const state=await selectorState(win,selector);
+    return state?.found&&!state.disabled?state:null;
+  },{timeout:30000,label:`enabled route control ${selector}`});
+  // Resolve the automation evaluation before React destroys the old route.
+  // The scheduled click still exercises MetaMask's real onClick/navigation path.
+  return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw new Error('route control unavailable');setTimeout(()=>e.click(),0);return true})()`);
+}
 async function fillSelector(win,selector,value){
   await waitSelector(win,selector);
   return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw new Error('missing selector');const p=e instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;const s=Object.getOwnPropertyDescriptor(p,'value')?.set;if(s)s.call(e,${JSON.stringify(value)});else e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return e.value})()`);
@@ -48,6 +57,9 @@ async function fillSelector(win,selector,value){
 async function pasteSelector(win,selector,value){
   await waitSelector(win,selector);
   return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw new Error('missing selector');e.focus();const ev=new Event('paste',{bubbles:true,cancelable:true});Object.defineProperty(ev,'clipboardData',{value:{getData:(type)=>type==='text'||type==='text/plain'?${JSON.stringify(value)}:''}});return e.dispatchEvent(ev)})()`);
+}
+async function waitHash(win,fragment,timeout=30000){
+  return waitFor(()=>win&&!win.isDestroyed()?win.webContents.executeJavaScript(`location.hash===${JSON.stringify(fragment)}?location.href:''`).catch(()=>null):null,{timeout,label:`route ${fragment}`});
 }
 async function findExtensionWindow(extOrigin,selector,exclude=new Set(),timeout=30000){
   return waitFor(async()=>{
@@ -145,9 +157,6 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     ok('official MetaMask UI renders in Breeze',surfaceState.ready==='complete'&&!!surfaceState.body,JSON.stringify(surfaceState));
     ok('fresh-install MetaMask lifecycle is handled',finalHref.includes('/home.html')||finalHref.includes('/popup.html'),finalHref);
 
-    // Use MetaMask's published E2E-only SRP and dispatch the same paste event
-    // its React control handles in normal use. This avoids CI/X11 clipboard
-    // flakiness without bypassing MetaMask validation or wallet creation logic.
     await clickSelector(surface,'[data-testid="onboarding-import-wallet"]');
     await clickSelector(surface,'[data-testid="onboarding-import-with-srp-button"]');
     await pasteSelector(surface,'[data-testid="srp-input-import__srp-note"]',TEST_SRP);
@@ -155,7 +164,8 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
       const s=await selectorState(surface,'[data-testid="import-srp-confirm"]');
       return s?.found&&!s.disabled?s:null;
     },{timeout:20000,label:'valid MetaMask SRP'});
-    await clickSelector(surface,'[data-testid="import-srp-confirm"]');
+    await routeClickSelector(surface,'[data-testid="import-srp-confirm"]');
+    await waitHash(surface,'#/onboarding/create-password',30000);
     await waitSelector(surface,'[data-testid="create-password-new-input"]',30000);
     await fillSelector(surface,'[data-testid="create-password-new-input"]',TEST_PASSWORD);
     await fillSelector(surface,'[data-testid="create-password-confirm-input"]',TEST_PASSWORD);
@@ -164,23 +174,23 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
       const s=await selectorState(surface,'[data-testid="create-password-submit"]');
       return s?.found&&!s.disabled?s:null;
     },{timeout:10000,label:'MetaMask password submit enabled'});
-    await clickSelector(surface,'[data-testid="create-password-submit"]');
+    await routeClickSelector(surface,'[data-testid="create-password-submit"]');
 
     const passkey=await waitSelector(surface,'[data-testid="passkey-maybe-later-button"]',30000);
     ok('MetaMask import reaches passkey choice in Breeze',!!passkey,JSON.stringify(passkey));
-    await clickSelector(surface,'[data-testid="passkey-maybe-later-button"]');
+    await routeClickSelector(surface,'[data-testid="passkey-maybe-later-button"]');
     await waitSelector(surface,'[data-testid="metametrics-i-agree"]',30000);
-    await clickSelector(surface,'[data-testid="metametrics-i-agree"]');
+    await routeClickSelector(surface,'[data-testid="metametrics-i-agree"]');
     await waitSelector(surface,'[data-testid="onboarding-complete-done"]',30000);
     ok('MetaMask test wallet import reaches completion in Breeze',true,String(surface.webContents.getURL()));
-    await clickSelector(surface,'[data-testid="onboarding-complete-done"]');
+    await routeClickSelector(surface,'[data-testid="onboarding-complete-done"]');
     await sleep(1000);
 
     await win.webContents.executeJavaScript(`(()=>{window.__breezeAccountsResult=null;window.ethereum.request({method:'eth_requestAccounts'}).then(v=>window.__breezeAccountsResult={ok:true,value:v},e=>window.__breezeAccountsResult={ok:false,error:String(e&&e.message||e)});return 'started'})()`);
     const connectWindow=await findExtensionWindow(extOrigin,'[data-testid="confirm-btn"]',new Set([surface?.id]),30000);
     const connectState=await connectWindow.webContents.executeJavaScript(`({href:location.href,body:(document.body?.innerText||'').slice(0,500)})`);
     ok('MetaMask opens a real dapp connection approval in Breeze',!!connectWindow,JSON.stringify(connectState));
-    await clickSelector(connectWindow,'[data-testid="confirm-btn"]');
+    await routeClickSelector(connectWindow,'[data-testid="confirm-btn"]');
     const accountResult=await waitFor(()=>win.webContents.executeJavaScript('window.__breezeAccountsResult'),{timeout:30000,label:'eth_requestAccounts result'});
     const accounts=accountResult?.ok&&Array.isArray(accountResult.value)?accountResult.value:[];
     ok('MetaMask approves eth_requestAccounts through Breeze',accounts.length>0&&/^0x[0-9a-fA-F]{40}$/.test(String(accounts[0]||'')),JSON.stringify(accountResult));
@@ -190,7 +200,7 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
       const signWindow=await findExtensionWindow(extOrigin,'[data-testid="confirm-footer-button"]',new Set([surface?.id]),30000);
       const signState=await signWindow.webContents.executeJavaScript(`({href:location.href,body:(document.body?.innerText||'').slice(0,500)})`);
       ok('MetaMask opens a real personal-sign confirmation in Breeze',!!signWindow,JSON.stringify(signState));
-      await clickSelector(signWindow,'[data-testid="confirm-footer-button"]');
+      await routeClickSelector(signWindow,'[data-testid="confirm-footer-button"]');
       const signResult=await waitFor(()=>win.webContents.executeJavaScript('window.__breezeSignResult'),{timeout:30000,label:'personal_sign result'});
       ok('MetaMask returns a valid signature to the Breeze dapp',signResult?.ok===true&&/^0x[0-9a-fA-F]{130}$/.test(String(signResult.value||'')),JSON.stringify(signResult));
     }
