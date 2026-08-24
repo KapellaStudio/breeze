@@ -5,6 +5,14 @@ const path = require('node:path');
 const file = path.join(__dirname, 'realmetamasktest.js');
 let source = fs.readFileSync(file, 'utf8');
 
+const readyMarker = '    await app.whenReady();\n';
+const readyAt = source.indexOf(readyMarker);
+if (readyAt < 0) throw new Error('MetaMask app-ready marker not found');
+const installSelfClose = "    require('./extension-self-close').install(require('electron').ipcMain,BrowserWindow);\n";
+if (!source.includes("require('./extension-self-close').install")) {
+  source = source.slice(0, readyAt + readyMarker.length) + installSelfClose + source.slice(readyAt + readyMarker.length);
+}
+
 const accountMarker = "    ok('MetaMask approves eth_requestAccounts through Breeze',accounts.length>0&&/^0x[0-9a-fA-F]{40}$/.test(String(accounts[0]||'')),JSON.stringify(accountResult));\n";
 const accountAt = source.indexOf(accountMarker);
 if (accountAt < 0) throw new Error('MetaMask account approval marker not found');
@@ -28,4 +36,4 @@ if (!source.includes('MetaMask personal_sign rejected before confirmation')) {
 }
 
 fs.writeFileSync(file, source, 'utf8');
-console.log('MetaMask certification waits for the connection popup close lifecycle before personal_sign.');
+console.log('MetaMask certification installs Breeze self-close semantics and waits for the connection popup lifecycle before personal_sign.');
