@@ -130,6 +130,12 @@ ipcMain.handle = function(channel, listener){
 const extensionRuntime = require('./extensions-runtime');
 require.cache[require.resolve('./extensions')].exports = extensionRuntime;
 
+/* Chromium lets a privileged extension popup/notification close its own
+   browser-created top-level window. Electron applies the normal web close
+   restriction, so restore only that self-close behavior through a narrow,
+   origin-checked IPC handler. */
+require('./extension-self-close').install(ipcMain,BrowserWindow);
+
 app.whenReady().then(() => ensureInit());
 require('./main');
 ipcMain.handle = originalIpcHandle;
