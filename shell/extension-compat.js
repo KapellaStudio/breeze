@@ -23,6 +23,7 @@ const crypto = require('node:crypto');
 const LOOPBACK_PERMISSION = 'http://127.0.0.1/*';
 const MAX_BODY = 64 * 1024;
 const PATCH_MARKER = '/* BREEZE_EXTENSION_COMPAT_V2 */';
+const EARLY_IDENTITY_MARKER = '/* BREEZE_EARLY_IDENTITY_V1 */';
 const BASE_METHODS = new Set([
   'tabs.create','tabs.query','tabs.get','tabs.getCurrent','tabs.update','tabs.remove',
   'windows.create','windows.getAll','windows.getCurrent','windows.getLastFocused',
@@ -83,6 +84,9 @@ function allowedMethodsForManifest(manifest){
 function backgroundWorker(manifest){
   const worker = manifest?.background && typeof manifest.background === 'object' ? manifest.background.service_worker : null;
   return typeof worker === 'string' && worker.trim() ? worker.trim() : '';
+}
+function moduleBackground(manifest){
+  return Number(manifest?.manifest_version||0)===3 && manifest?.background?.type==='module';
 }
 
 function init(options={}){
@@ -245,6 +249,45 @@ function ensurePristineBackups(localId, managedDir, _manifest, workerRel){
   return backups;
 }
 
+function earlyIdentitySource(){
+  return [
+    EARLY_IDENTITY_MARKER,
+    ';(()=>{try{',
+    "  const id=globalThis.chrome&&chrome.runtime&&chrome.runtime.id||'';if(!id)return;",
+    "  const redirect=(suffix='')=>'https://'+id+'.chromiumapp.org/'+String(suffix||'').replace(/^\\/+/, '');",
+    "  const ensure=(root)=>{if(!root)return null;let target=null;try{target=root.identity;}catch{}if(!target){try{root.identity={};target=root.identity;}catch{}}if(!target){try{Object.defineProperty(root,'identity',{value:{},writable:true,configurable:true,enumerable:true});target=root.identity;}catch{}}return target||null;};",
+    "  const install=(root)=>{const target=ensure(root);if(!target)return;try{if(typeof target.getRedirectURL!=='function')target.getRedirectURL=redirect;}catch{}if(typeof target.getRedirectURL!=='function'){try{Object.defineProperty(target,'getRedirectURL',{value:redirect,writable:true,configurable:true,enumerable:true});}catch{}}};",
+    '  install(globalThis.chrome);',
+    '  install(globalThis.browser);',
+    '}catch{}})();',
+    ''
+  ].join('\n');
+}
+function patchEarlyIdentityModules(managedDir, manifest, workerRel){
+  if(!moduleBackground(manifest)||!manifestPermissions(manifest).has('identity'))return [];
+  const patched=[];
+  const stack=[managedDir];
+  const workerFull=safeRelativeFile(managedDir,workerRel,'background worker').full;
+  while(stack.length){
+    const dir=stack.pop();
+    for(const ent of fs.readdirSync(dir,{withFileTypes:true})){
+      const full=path.join(dir,ent.name);
+      if(ent.isDirectory()){stack.push(full);continue;}
+      if(!ent.isFile()||full===workerFull||!/[.](?:m?js)$/i.test(ent.name))continue;
+      let source='';
+      try{
+        const st=fs.statSync(full);
+        if(st.size>32*1024*1024)continue;
+        source=fs.readFileSync(full,'utf8');
+      }catch{continue;}
+      if(!source.includes('getRedirectURL')||source.includes(EARLY_IDENTITY_MARKER))continue;
+      fs.writeFileSync(full,earlyIdentitySource()+source,'utf8');
+      patched.push(path.relative(managedDir,full).replace(/\\/g,'/'));
+    }
+  }
+  return patched;
+}
+
 function bootstrapSource(endpointUrl, token, allowed){
   const methods=[...allowed];
   const lines = [
@@ -321,10 +364,17 @@ async function prepareManagedCopy(options={}){
   if (!hp.includes(LOOPBACK_PERMISSION)) hp.push(LOOPBACK_PERMISSION);
   permissionManifest.host_permissions = hp;
 
+  // Module service workers evaluate their static dependency graph before the
+  // service-worker file's body. Patch only managed module files that actually
+  // reference getRedirectURL so identity exists before those imports evaluate.
+  // This is what current Phantom requires; the user's original extension files
+  // remain untouched and the patch is idempotent on persisted managed copies.
+  const earlyIdentityModules=patchEarlyIdentityModules(managedDir,pristineManifest,workerRel);
+
   const token = crypto.randomBytes(32).toString('hex');
   writeJson(manifestFile,permissionManifest);
   fs.writeFileSync(worker.full,bootstrapSource(bridgeEndpoint,token,allowed) + pristineWorker,'utf8');
-  const entry = { localId, managedDir, workerRel, token, allowed, runtimes:new Map() };
+  const entry = { localId, managedDir, workerRel, token, allowed, earlyIdentityModules, runtimes:new Map() };
   entriesByLocalId.set(localId,entry);
   entriesByToken.set(token,entry);
   return status(localId);
@@ -358,6 +408,7 @@ function status(localId){
     prepared:true,
     localId:entry.localId,
     methods:[...entry.allowed].sort(),
+    earlyIdentityModules:Array.isArray(entry.earlyIdentityModules)?entry.earlyIdentityModules.length:0,
     runtimeCount:entry.runtimes.size,
     bridge:'loopback-v2'
   };
@@ -381,5 +432,5 @@ async function close(){
 module.exports = {
   init,setHandlers,prepareManagedCopy,registerRuntime,unregisterRuntime,status,remove,close,
   allowedMethodsForManifest,
-  LOOPBACK_PERMISSION,PATCH_MARKER
+  LOOPBACK_PERMISSION,PATCH_MARKER,EARLY_IDENTITY_MARKER
 };
