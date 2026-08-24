@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   setPreference: (key,value) => call('prefs:set', key, value),
   setPreferences: patch => call('prefs:setMany', patch || {}),
   resetPreferences: () => call('prefs:reset'),
+  currentWeather: (lat,lon,unit) => call('weather:current', lat, lon, unit),
 
   listWorkspaces: () => call('workspace:list'),
   getWorkspace: id => call('workspace:get', id),
