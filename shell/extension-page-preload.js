@@ -5,7 +5,11 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 
-const call = (method, params={}) => ipcRenderer.invoke('extension:pageApi', String(method||''), params && typeof params==='object' ? params : {});
+const call = (method, params={}) => {
+  const name=String(method||'');
+  if(name==='__breezeCloseSelf') return ipcRenderer.invoke('extension:closeSelf');
+  return ipcRenderer.invoke('extension:pageApi', name, params && typeof params==='object' ? params : {});
+};
 contextBridge.exposeInMainWorld('__breezeExtensionHost', Object.freeze({ call }));
 
 if (typeof contextBridge.executeInMainWorld === 'function') {
@@ -35,6 +39,22 @@ if (typeof contextBridge.executeInMainWorld === 'function') {
         if (Array.isArray(out.url)) out.url=out.url.map(normalizeUrl);
         return out;
       };
+
+      // Chrome extension notification/popup pages are allowed to close their
+      // browser-created top-level window. Electron applies the normal web rule
+      // that window.close() may fail for a window not opened by script. Route
+      // only this self-close operation to the trusted Breeze main process so
+      // wallet approval windows can complete their normal lifecycle.
+      const nativeClose=typeof globalThis.close==='function'?globalThis.close.bind(globalThis):null;
+      try {
+        Object.defineProperty(globalThis,'close',{
+          configurable:true,writable:true,
+          value:()=>{
+            const p=host.call('__breezeCloseSelf',{});
+            if(p&&typeof p.catch==='function'&&nativeClose)p.catch(()=>{try{nativeClose();}catch{}});
+          }
+        });
+      } catch {}
 
       const tabs = root('tabs');
       if (tabs) {
