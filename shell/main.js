@@ -49,12 +49,12 @@ const STRIP_PARAMS = [
 ];
 
 let win = null;
-const tabs = new Map();          // id -> {view, session, workspace, blocked}
+const tabs = new Map();
 let activeTabId = null;
 let nextTabId = 1;
-let internalView = false;          // home / reader / extensions / Flow live in Breeze chrome
-let privateGeneration = 1;          // rotates after the final private tab closes
-const recentlyClosed = [];          // normal tabs only; private tabs never enter recovery
+let internalView = false;
+let privateGeneration = 1;
+const recentlyClosed = [];
 const TAB_SLEEP_AFTER_MS = 30 * 60 * 1000;
 let tabSleepTimer = null;
 
@@ -94,8 +94,6 @@ function sessionFor(workspaceId, sealed, privateMode = false){
   displayShare.attach(ses, send);
   sessionContexts.set(key, { ses, workspaceId:safeWs, private:privateMode });
   sessions.set(key, ses);
-  // Extensions are off in private browsing by default. Full per-extension
-  // incognito permission arrives with the Chromium Core extension layer.
   if (!privateMode) extensions.loadIntoSession(ses, safeWs).catch(() => {});
   return ses;
 }
@@ -126,32 +124,20 @@ function tabIdForWebContents(id){
 function cleanUrl(raw){
   let u;
   try { u = new URL(raw); } catch { return raw; }
-  if (!['http:','https:'].includes(u.protocol)) return null;   // no file:, no javascript:
+  if (!['http:','https:'].includes(u.protocol)) return null;
   STRIP_PARAMS.forEach(p => u.searchParams.delete(p));
   return u.toString();
 }
 
-/* The engine table lives in search.js now — one definition, used by both the
-   omnibox fallback here and the native results path. */
 const ENGINES = search.REDIRECT;
 
-/* Looks like a host? go there. Otherwise search. An omnibox that searches when
-   you typed an address is the most irritating thing a browser can do. */
 function resolveInput(input){
   const s = String(input || '').trim();
   if (!s) return null;
-  // Anything carrying an explicit scheme is judged on that scheme FIRST.
-  // Falling through to "just search for it" would be safe by luck, not by
-  // design — and in an Electron app a file:// navigation from the omnibox is
-  // a local-file read. Refuse loudly instead.
   const scheme = s.match(/^([a-z][a-z0-9+.\-]*):/i);
   if (scheme && !/^https?$/i.test(scheme[1])) return null;
   if (/^https?:\/\//i.test(s)) return cleanUrl(s);
   if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(s) && !s.includes(' ')) return cleanUrl('https://' + s);
-  // A bare query from the omnibox always resolves to a real engine URL, even
-  // when the user has picked a native provider. Native results are rendered by
-  // the chrome, not navigated to, so the omnibox still needs somewhere to go
-  // if the chrome hands us a query directly.
   return search.redirectUrl(s);
 }
 
@@ -231,7 +217,11 @@ function sleepBlockReason(id){
   if(id===activeTabId)return'active tab';
   if(t.private)return'private tab';
   if(t.kind!=='page'||t.localPdfPath)return'document tab';
-  if(t.loading)return'page is loading';
+  /* did-finish-load can precede did-stop-loading. Sleeping is gated on the
+     main frame's actual navigation state rather than a lagging bookkeeping
+     flag, so favicon/subresource tail work cannot make an idle tab immortal. */
+  const mainFrameLoading=typeof wc.isLoadingMainFrame==='function' ? wc.isLoadingMainFrame() : t.loading;
+  if(mainFrameLoading)return'page is loading';
   const url=wc.getURL();
   if(!/^https?:\/\//i.test(url) && !(SMOKE && /^data:/i.test(url)))return'not a web page';
   if(typeof wc.isCurrentlyAudible==='function' && wc.isCurrentlyAudible())return'audio is playing';
@@ -355,9 +345,7 @@ function closeTab(id){
   if (t.private && ![...tabs.values()].some(x => x.private)) purgePrivateSessions().catch(()=>{});
 }
 
-/* ── layout ───────────────────────────────────────────────────────────────
-   The chrome tells us its real geometry; we position content in the gap it
-   leaves. Recomputed on resize and whenever the sidebar or a panel toggles. */
+/* ── layout ─────────────────────────────────────────────────────────────── */
 function layout(){
   if (!win) return;
   const [w, h] = win.getContentSize();
@@ -412,7 +400,7 @@ function createWindow(){
     frame: process.platform === 'darwin',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,      // the shell API is the ONLY bridge
+      contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true
@@ -430,21 +418,14 @@ function createWindow(){
   win.on('maximize',   () => send('win:state', { maximized: true  }));
   win.on('unmaximize', () => send('win:state', { maximized: false }));
   win.on('closed', () => { win = null; });
-
 }
 
-/* ── IPC ──────────────────────────────────────────────────────────────────
-   Every handler validates its input. The renderer is trusted more than a web
-   page, but "more" is not "completely" — a chrome XSS would speak through
-   exactly this surface, which is why breach.py exists. */
+/* ── IPC ────────────────────────────────────────────────────────────────── */
 function reg(channel, fn){ ipcMain.handle(channel, (e, ...a) => {
-  if (e.sender !== win?.webContents) return null;      // only our chrome may call
+  if (e.sender !== win?.webContents) return null;
   try { return fn(...a); } catch (err) { return { error: String(err.message || err) }; }
 }); }
 
-/* Dedicated PDF renderer IPC. Unlike `reg`, this accepts only the sandboxed
-   WebContentsView that owns the matching opaque token. It has no access to
-   general browser IPC and never receives a filesystem path. */
 function pdfContext(sender, token){
   const id=tabIdForWebContents(sender?.id); const t=id!=null?tabs.get(id):null;
   return t && t.localPdfPath && t.pdfToken===String(token||'') ? {id,t} : null;
@@ -527,8 +508,6 @@ reg('tab:zoom', async (id, factor) => {
   const t=tabs.get(Number(id));if(!t)return;if(t.sleeping||t.waking)await wakeTab(Number(id));liveWebContents(t)?.setZoomFactor(Math.max(.5,Math.min(2,Number(factor)||1)));
 });
 
-/* Session recovery — the feature the whole product is named around.
-   Three graduated repairs, each doing exactly what its label promises. */
 reg('session:repair', async (id, kind) => {
   const t=tabs.get(Number(id));if(!t)return{error:'no tab'};
   if(t.sleeping||t.waking)await wakeTab(Number(id));
@@ -546,8 +525,8 @@ reg('session:repair', async (id, kind) => {
 });
 
 reg('chrome:geometry', g => {
-  if (typeof g?.top === 'number')   CHROME.top   = g.top;
-  if (typeof g?.side === 'number')  CHROME.side  = g.side;
+  if (typeof g?.top === 'number') CHROME.top = g.top;
+  if (typeof g?.side === 'number') CHROME.side = g.side;
   if (typeof g?.panel === 'number') CHROME.panel = g.panel;
   layout();
   return CHROME;
@@ -557,24 +536,17 @@ reg('chrome:internalView', on => {
   layout();
   return internalView;
 });
-reg('engine:set',  name => search.setProvider(String(name || '')));
+reg('engine:set', name => search.setProvider(String(name || '')));
 reg('engine:list', () => Object.keys(ENGINES));
-
-/* ── search ───────────────────────────────────────────────────────────────
-   The key never crosses back to the renderer. search:config reports whether a
-   provider is ready, not what it was configured with. */
-reg('search:config',    () => search.config());
-reg('search:provider',  name => search.setProvider(String(name || '')));
-reg('search:setKey',    (id, key) => search.setKey(String(id || ''), key));
-reg('search:clearKey',  id => search.clearKey(String(id || '')));
+reg('search:config', () => search.config());
+reg('search:provider', name => search.setProvider(String(name || '')));
+reg('search:setKey', (id, key) => search.setKey(String(id || ''), key));
+reg('search:clearKey', id => search.clearKey(String(id || '')));
 reg('search:searxngUrl', url => search.setSearxngUrl(url));
-reg('search:signals',   on => search.setSignals(!!on));
-reg('search:run',       q => search.search(q));
-reg('search:measure',   url => search.measure(url));
+reg('search:signals', on => search.setSignals(!!on));
+reg('search:run', q => search.search(q));
+reg('search:measure', url => search.measure(url));
 
-
-/* ── Breeze Flow: local media conversion ─────────────────────────────────
-   Paths stay in the main process. The renderer gets an opaque job id only. */
 reg('flow:mediaCapabilities', () => media.capabilities());
 reg('flow:ingestMediaPath', filePath => {
   if(typeof filePath !== 'string' || !filePath || filePath.length > 4096) return {error:'invalid media path'};
@@ -597,8 +569,6 @@ reg('flow:convertMedia', async (id,opts={}) => {
 });
 reg('flow:clearMedia', id => media.clear(id));
 
-/* Extensions — compatible unpacked extensions today; the manager reports
-   unsupported MV3/service-worker requirements instead of silently breaking. */
 reg('extension:list', () => extensions.list());
 reg('extension:installUnpacked', async () => {
   const picked = await dialog.showOpenDialog(win,{properties:['openDirectory'],title:'Choose an unpacked Chrome extension'});
@@ -614,7 +584,6 @@ reg('extension:installUnpacked', async () => {
 reg('extension:setEnabled', async (id,on) => extensions.setEnabled(String(id||''),!!on,sessionEntries()));
 reg('extension:remove', async id => extensions.remove(String(id||''),sessionEntries()));
 
-/* Real Chromium downloads. Paths never cross into the chrome renderer. */
 reg('download:list', () => downloads.list());
 reg('download:open', id => downloads.open(String(id||'')));
 reg('download:show', id => downloads.show(String(id||'')));
@@ -629,8 +598,6 @@ reg('permission:reset', (origin,permission) => permissionBroker.reset(origin,per
 reg('display:respond', (id,sourceId) => displayShare.respond(id,sourceId));
 reg('display:cancel', id => displayShare.cancel(id));
 
-/* Local browser library. History is automatic for normal tabs; private tabs
-   never enter it. Bookmarks are explicit and can be saved from any tab. */
 reg('history:list', q => library.listHistory(String(q||'')));
 reg('history:clear', () => library.clearHistory());
 reg('bookmark:list', q => library.listBookmarks(String(q||'')));
@@ -647,21 +614,20 @@ reg('bookmark:toggle', id => {
   return row?.error?row:{ok:true,saved:true,bookmark:row};
 });
 
-reg('win:minimize',       () => win?.minimize());
+reg('win:minimize', () => win?.minimize());
 reg('win:toggleMaximize', () => { win?.isMaximized() ? win.unmaximize() : win?.maximize(); });
-reg('win:isMaximized',    () => !!win?.isMaximized());
-reg('win:close',          () => win?.close());
+reg('win:isMaximized', () => !!win?.isMaximized());
+reg('win:close', () => win?.close());
 reg('win:toggleFullScreen', () => win?.setFullScreen(!win.isFullScreen()));
-reg('win:new',            () => createWindow());
-reg('app:openDevTools',   () => liveWebContents(tabs.get(activeTabId))?.openDevTools({ mode: 'bottom' }));
-reg('app:print',          () => liveWebContents(tabs.get(activeTabId))?.print());
-reg('app:version',        () => ({
+reg('win:new', () => createWindow());
+reg('app:openDevTools', () => liveWebContents(tabs.get(activeTabId))?.openDevTools({ mode: 'bottom' }));
+reg('app:print', () => liveWebContents(tabs.get(activeTabId))?.print());
+reg('app:version', () => ({
   version: app.getVersion(), electron: process.versions.electron,
   chrome: process.versions.chrome, platform: process.platform
 }));
 reg('app:clearData', async (kinds = []) => {
-  const map = { cache:['cachestorage'], history:[], cookies:['cookies'],
-                storage:['localstorage','indexdb','websql','serviceworkers'] };
+  const map = { cache:['cachestorage'], history:[], cookies:['cookies'], storage:['localstorage','indexdb','websql','serviceworkers'] };
   const storages = kinds.flatMap(k => map[k] || []);
   if (kinds.includes('history')) library.clearHistory();
   for (const ses of sessions.values()){
@@ -673,7 +639,6 @@ reg('app:clearData', async (kinds = []) => {
 
 /* ── app lifecycle ────────────────────────────────────────────────────────── */
 app.whenReady().then(() => {
-  // Local browser services initialize before any page sessions are created.
   const userDataPath = app.getPath('userData');
   search.init({ userDataPath, safeStorage });
   extensions.init(userDataPath);
@@ -692,11 +657,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => { if(tabSleepTimer)clearInterval(tabSleepTimer); try { browserState.write(stateSnapshot()); } catch {} });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
-
-/* ── smoke test ───────────────────────────────────────────────────────────
-   Run with `npm run smoke`. Exercises the real pipeline headlessly: create a
-   tab, load a data: page, verify title, check sealed sessions are genuinely
-   separate, confirm dangerous schemes are refused. Exits non-zero on failure. */
+/* ── smoke test ─────────────────────────────────────────────────────────── */
 async function runSmokeTest(){
   const results = [];
   const ok = (name, cond, extra = '') => { results.push([cond ? 'PASS' : 'FAIL', name, extra]); };
@@ -708,13 +669,11 @@ async function runSmokeTest(){
     await new Promise(r => wc.once('did-finish-load', r));
     ok('tab loads and reports title', wc.getTitle() === 'Breeze Smoke', wc.getTitle());
 
-    ok('javascript: scheme refused',  resolveInput('javascript:alert(1)') === null);
-    ok('file: scheme refused',        resolveInput('file:///etc/passwd') === null);
-    ok('host goes to host',           resolveInput('example.com').startsWith('https://example.com'));
-    ok('query goes to search',        resolveInput('offline first').includes('search.brave.com'));
-    ok('utm params stripped',
-       !resolveInput('https://x.com/a?utm_source=n&b=1').includes('utm_source'),
-       resolveInput('https://x.com/a?utm_source=n&b=1'));
+    ok('javascript: scheme refused', resolveInput('javascript:alert(1)') === null);
+    ok('file: scheme refused', resolveInput('file:///etc/passwd') === null);
+    ok('host goes to host', resolveInput('example.com').startsWith('https://example.com'));
+    ok('query goes to search', resolveInput('offline first').includes('search.brave.com'));
+    ok('utm params stripped', !resolveInput('https://x.com/a?utm_source=n&b=1').includes('utm_source'), resolveInput('https://x.com/a?utm_source=n&b=1'));
 
     const sMain = sessionFor('default', false);
     const sSeal = sessionFor('northwind', true);
@@ -723,12 +682,10 @@ async function runSmokeTest(){
 
     const id2 = createTab({ url: page, workspaceId: 'northwind', sealed: true });
     await new Promise(r => tabs.get(id2).view.webContents.once('did-finish-load', r));
-    ok('sealed tab uses sealed partition',
-       tabs.get(id2).session === sSeal && tabs.get(id).session !== sSeal);
+    ok('sealed tab uses sealed partition', tabs.get(id2).session === sSeal && tabs.get(id).session !== sSeal);
 
     setActiveTab(id);
-    ok('active tab is visible, others hidden',
-       tabs.get(id).view.getVisible() === true && tabs.get(id2).view.getVisible() === false);
+    ok('active tab is visible, others hidden', tabs.get(id).view.getVisible() === true && tabs.get(id2).view.getVisible() === false);
 
     const beforeSleep=tabs.get(id2).view.webContents;
     const beforeSleepId=beforeSleep.id;
