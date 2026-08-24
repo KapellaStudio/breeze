@@ -93,5 +93,55 @@ const postPasswordReplacement = `    const postPassword=await waitFor(async()=>{
 `;
 
 source = source.slice(0, passkeyStart) + postPasswordReplacement + source.slice(completionStart);
+
+const signStart = source.indexOf('      const signWindow=await findExtensionWindow(extOrigin,\'[data-testid="confirm-footer-button"]\',new Set([surface?.id]),30000);');
+const signEndMarker = "      ok('MetaMask returns a valid signature to the Breeze dapp'";
+const signEndStart = source.indexOf(signEndMarker, signStart);
+const signEnd = signEndStart < 0 ? -1 : source.indexOf('\n', signEndStart) + 1;
+if (signStart < 0 || signEndStart < 0 || signEnd <= signEndStart) {
+  throw new Error('MetaMask personal-sign certification markers not found');
+}
+
+const signReplacement = `      const signApproval=await waitFor(async()=>{
+        for(const w of BrowserWindow.getAllWindows()){
+          if(!w||w.isDestroyed()||w===surface)continue;
+          const url=String(w.webContents.getURL()||'');
+          if(!url.startsWith(extOrigin))continue;
+          const state=await w.webContents.executeJavaScript(\`(()=>{
+            const buttons=[...document.querySelectorAll('button')].map((b,index)=>({
+              index,
+              text:(b.innerText||b.textContent||'').trim(),
+              testId:b.getAttribute('data-testid')||'',
+              disabled:!!b.disabled,
+            }));
+            const candidate=buttons.find(b=>!b.disabled&&/^(sign|confirm|approve)$/i.test(b.text))
+              || buttons.find(b=>!b.disabled&&/(confirm|sign|approve)/i.test(b.testId));
+            return {href:location.href,body:(document.body?.innerText||'').slice(0,800),buttons,candidate};
+          })()\`).catch(()=>null);
+          if(!state?.candidate)continue;
+          const body=String(state.body||'');
+          const href=String(state.href||url);
+          if(!href.includes('/notification.html')&&!/(sign|signature|message)/i.test(body))continue;
+          return {windowId:w.id,state};
+        }
+        return null;
+      },{timeout:30000,label:'MetaMask personal-sign approval window'});
+      const signWindow=BrowserWindow.fromId(signApproval.windowId);
+      if(!signWindow)throw new Error('MetaMask personal-sign window disappeared before approval');
+      const signState=signApproval.state;
+      ok('MetaMask opens a real personal-sign confirmation in Breeze',true,JSON.stringify(signState));
+      await signWindow.webContents.executeJavaScript(\`(()=>{
+        const buttons=[...document.querySelectorAll('button')];
+        const candidate=buttons.find(b=>!b.disabled&&/^(sign|confirm|approve)$/i.test((b.innerText||b.textContent||'').trim()))
+          || buttons.find(b=>!b.disabled&&/(confirm|sign|approve)/i.test(b.getAttribute('data-testid')||''));
+        if(!candidate)throw new Error('MetaMask personal-sign approval control unavailable');
+        setTimeout(()=>candidate.click(),75);
+        return true;
+      })()\`);
+      const signResult=await waitFor(()=>win.webContents.executeJavaScript('window.__breezeSignResult'),{timeout:30000,label:'personal_sign result'});
+      ok('MetaMask returns a valid signature to the Breeze dapp',signResult?.ok===true&&/^0x[0-9a-fA-F]{130}$/.test(String(signResult.value||'')),JSON.stringify(signResult));
+`;
+
+source = source.slice(0, signStart) + signReplacement + source.slice(signEnd);
 fs.writeFileSync(file, source, 'utf8');
-console.log('MetaMask certification harness hardened for route clicks, password typing, and optional passkey onboarding.');
+console.log('MetaMask certification harness hardened for route clicks, password typing, optional passkey onboarding, and personal-sign approval.');
