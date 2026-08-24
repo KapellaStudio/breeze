@@ -36,10 +36,10 @@ function serve(){
     content_scripts:[{matches:['http://127.0.0.1/*'],js:['content.js'],run_at:'document_idle'}]
   };
   write(extDir,'manifest.json',JSON.stringify(manifest,null,2));
-  write(extDir,'worker.js',`chrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{\n  if(msg && msg.kind==='breeze-ping'){\n    chrome.storage.local.set({breezeProbe:'ok'},()=>sendResponse({ok:true,from:'mv3-worker'}));\n    return true;\n  }\n});`);
-  write(extDir,'content.js',`chrome.runtime.sendMessage({kind:'breeze-ping'}, response => {\n  document.documentElement.dataset.breezeMv3 = response && response.from || 'no-response';\n});`);
+  write(extDir,'worker.js',`chrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{\n  if(msg && msg.kind==='breeze-ping'){\n    chrome.storage.local.set({breezeProbe:'ok'},()=>{\n      if(chrome.storage.session && typeof chrome.storage.session.set==='function'){\n        chrome.storage.session.set({breezeSession:'ok'},()=>{\n          chrome.storage.session.get('breezeSession',value=>sendResponse({ok:true,from:'mv3-worker',session:value&&value.breezeSession||'missing'}));\n        });\n      }else{\n        sendResponse({ok:true,from:'mv3-worker',session:'unsupported'});\n      }\n    });\n    return true;\n  }\n});`);
+  write(extDir,'content.js',`chrome.runtime.sendMessage({kind:'breeze-ping'}, response => {\n  document.documentElement.dataset.breezeMv3 = response && response.from || 'no-response';\n  document.documentElement.dataset.breezeSession = response && response.session || 'no-session';\n});`);
   write(extDir,'popup.html','<!doctype html><html><body><div id="status">loading</div><script src="popup.js"></script></body></html>');
-  write(extDir,'popup.js',`chrome.runtime.sendMessage({kind:'breeze-ping'}, response => {\n  chrome.storage.local.get('breezeProbe', stored => {\n    document.documentElement.dataset.runtime = chrome.runtime.id ? 'yes' : 'no';\n    document.documentElement.dataset.worker = response && response.from || 'no-response';\n    document.documentElement.dataset.storage = stored && stored.breezeProbe || 'missing';\n    document.getElementById('status').textContent = 'ready';\n  });\n});`);
+  write(extDir,'popup.js',`chrome.runtime.sendMessage({kind:'breeze-ping'}, response => {\n  chrome.storage.local.get('breezeProbe', stored => {\n    document.documentElement.dataset.runtime = chrome.runtime.id ? 'yes' : 'no';\n    document.documentElement.dataset.worker = response && response.from || 'no-response';\n    document.documentElement.dataset.storage = stored && stored.breezeProbe || 'missing';\n    document.documentElement.dataset.sessionStorage = response && response.session || 'no-session';\n    document.getElementById('status').textContent = 'ready';\n  });\n});`);
 
   let srv, win, popupWin;
   try {
@@ -63,28 +63,30 @@ function serve(){
     if (loaded) {
       win = new BrowserWindow({show:false,webPreferences:{session:ses,contextIsolation:true,nodeIntegration:false,sandbox:true}});
       await win.loadURL(`http://127.0.0.1:${port}/`);
-      let marker = '';
+      let pageState = null;
       for (let i=0;i<30;i++) {
-        marker = await win.webContents.executeJavaScript('document.documentElement.dataset.breezeMv3 || ""');
-        if (marker) break;
+        pageState = await win.webContents.executeJavaScript('({worker:document.documentElement.dataset.breezeMv3||"",session:document.documentElement.dataset.breezeSession||""})');
+        if (pageState?.worker) break;
         await new Promise(r=>setTimeout(r,100));
       }
-      ok('MV3 content script runs on a real web page', !!marker, marker || 'no marker');
-      ok('MV3 service worker answers runtime messaging', marker === 'mv3-worker', marker || 'no response');
+      ok('MV3 content script runs on a real web page', !!pageState?.worker, JSON.stringify(pageState));
+      ok('MV3 service worker answers runtime messaging', pageState?.worker === 'mv3-worker', JSON.stringify(pageState));
+      ok('MV3 chrome.storage.session works for wallet-style worker state', pageState?.session === 'ok', JSON.stringify(pageState));
 
       const popupPath = loaded.url + manifest.action.default_popup;
       popupWin = new BrowserWindow({show:false,width:360,height:520,webPreferences:{session:ses,contextIsolation:true,nodeIntegration:false,sandbox:true}});
       await popupWin.loadURL(popupPath);
       let popupState = null;
       for (let i=0;i<30;i++) {
-        popupState = await popupWin.webContents.executeJavaScript('({ready:document.getElementById("status")?.textContent,runtime:document.documentElement.dataset.runtime||"",worker:document.documentElement.dataset.worker||"",storage:document.documentElement.dataset.storage||""})');
+        popupState = await popupWin.webContents.executeJavaScript('({ready:document.getElementById("status")?.textContent,runtime:document.documentElement.dataset.runtime||"",worker:document.documentElement.dataset.worker||"",storage:document.documentElement.dataset.storage||"",session:document.documentElement.dataset.sessionStorage||""})');
         if (popupState?.ready === 'ready') break;
         await new Promise(r=>setTimeout(r,100));
       }
       ok('extension action popup page renders from chrome-extension://', popupState?.ready === 'ready', JSON.stringify(popupState));
       ok('popup has chrome.runtime access', popupState?.runtime === 'yes', JSON.stringify(popupState));
       ok('popup can message the MV3 service worker', popupState?.worker === 'mv3-worker', JSON.stringify(popupState));
-      ok('popup shares extension storage state', popupState?.storage === 'ok', JSON.stringify(popupState));
+      ok('popup shares extension local storage state', popupState?.storage === 'ok', JSON.stringify(popupState));
+      ok('popup observes session storage state through the worker', popupState?.session === 'ok', JSON.stringify(popupState));
 
       const removed = await extensions.remove(imported.extension.localId,[{ses,workspaceId:'default'}]);
       ok('Breeze unload/remove path succeeds for MV3', removed?.ok === true);
