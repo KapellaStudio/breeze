@@ -15,8 +15,8 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
   const extDir=path.join(tmp,'extension'); fs.mkdirSync(extDir,{recursive:true});
   const manifest={manifest_version:3,name:'Breeze SW Preload Probe',version:'1.0.0',permissions:['storage'],host_permissions:['http://127.0.0.1/*'],background:{service_worker:'worker.js'},content_scripts:[{matches:['http://127.0.0.1/*'],js:['content.js'],run_at:'document_idle'}]};
   write(extDir,'manifest.json',JSON.stringify(manifest,null,2));
-  write(extDir,'worker.js',`chrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{if(msg?.kind!=='exercise')return;Promise.all([chrome.tabs.create({url:'https://example.com/from-worker'}),chrome.windows.create({url:'chrome-extension://'+chrome.runtime.id+'/home.html'}),chrome.cookies.getAll({domain:'example.com'})]).then(([tab,win,cookies])=>sendResponse({ok:true,tab,win,cookies,shim:typeof chrome.tabs.create==='function'&&typeof chrome.windows.create==='function'&&typeof chrome.cookies.getAll==='function'})).catch(err=>sendResponse({ok:false,error:String(err&&err.message||err)}));return true;});`);
-  write(extDir,'content.js',`setTimeout(()=>chrome.runtime.sendMessage({kind:'exercise'},response=>{document.documentElement.dataset.breezeSwPreload=JSON.stringify(response||{});}),100);`);
+  write(extDir,'worker.js',`chrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{if(msg?.kind!=='exercise')return;const diag={marker:globalThis.__breezePreloadMarker||'',bridgeExposed:globalThis.__breezePreloadBridgeExposed,bridgeVisible:globalThis.__breezePreloadBridgeVisible,sawChrome:globalThis.__breezePreloadSawChrome,patched:globalThis.__breezePreloadPatched,tabsCreate:typeof chrome.tabs?.create,windowsCreate:typeof chrome.windows?.create,cookiesGetAll:typeof chrome.cookies?.getAll};if(typeof chrome.tabs?.create!=='function'||typeof chrome.windows?.create!=='function'||typeof chrome.cookies?.getAll!=='function'){sendResponse({ok:false,error:'compatibility APIs missing',diag});return false;}Promise.all([chrome.tabs.create({url:'https://example.com/from-worker'}),chrome.windows.create({url:'chrome-extension://'+chrome.runtime.id+'/home.html'}),chrome.cookies.getAll({domain:'example.com'})]).then(([tab,win,cookies])=>sendResponse({ok:true,tab,win,cookies,shim:true,diag})).catch(err=>sendResponse({ok:false,error:String(err&&err.message||err),diag}));return true;});`);
+  write(extDir,'content.js',`setTimeout(()=>chrome.runtime.sendMessage({kind:'exercise'},response=>{document.documentElement.dataset.breezeSwPreload=JSON.stringify(response||{});}),350);`);
   write(extDir,'home.html','<!doctype html><html><body>extension home</body></html>');
 
   let srv,win,loaded;
@@ -24,6 +24,7 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
     await app.whenReady();
     srv=await serve(); const port=srv.address().port;
     const ses=session.fromPartition('persist:breeze-sw-preload-'+Date.now());
+    ses.serviceWorkers.on('console-message',(_event,details)=>console.log('SW_CONSOLE',details.message));
     const preloadPath=path.join(__dirname,'extension-sw-preload.js');
     let preloadId='', preloadError='';
     try{ preloadId=ses.registerPreloadScript({type:'service-worker',filePath:preloadPath}); }
@@ -60,6 +61,8 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
     let raw='';
     for(let i=0;i<80;i++){ raw=await win.webContents.executeJavaScript('document.documentElement.dataset.breezeSwPreload||""'); if(raw)break; await new Promise(r=>setTimeout(r,100)); }
     let result={}; try{result=JSON.parse(raw||'{}');}catch{}
+    console.log('SW_PRELOAD_DIAG '+JSON.stringify(result.diag||{}));
+    ok('service-worker preload reaches the extension worker main world',result.diag?.marker==='loaded',JSON.stringify(result.diag||{}));
     ok('service-worker preload injects missing Chrome APIs into extension worker',result.ok===true&&result.shim===true,JSON.stringify(result));
     ok('injected chrome.tabs.create reaches ServiceWorkerMain IPC',result.tab?.id===101&&calls.some(c=>c.method==='tabs.create'),JSON.stringify(calls));
     ok('injected chrome.windows.create reaches ServiceWorkerMain IPC',result.win?.id===201&&calls.some(c=>c.method==='windows.create'),JSON.stringify(calls));
