@@ -1,9 +1,8 @@
-"""Breeze — download site gate.
+"""Breeze public site gate for the current McCloskey landing experience.
 
-Serves site/ locally with a stubbed /api/releases and checks the page in BOTH
-states, because the interesting one is the state nobody tests: no builds
-published yet. A download page whose buttons are dead before launch is worse
-than no download page.
+This test serves site/ locally and exercises the parts a visitor can actually use:
+brand/release copy, navigation anchors, accent controls, search routing, download
+routes, Flow presentation, responsive overflow, and page-error hygiene.
 
 Exits non-zero on any failure.
 """
@@ -13,35 +12,15 @@ from playwright.async_api import async_playwright
 ROOT = pathlib.Path(os.environ.get("BREEZE_BUILD_DIR") or pathlib.Path(__file__).resolve().parent.parent)
 SITE = ROOT / "site"
 
-PUBLISHED = {
-    "version": "1.0", "codename": "McCloskey", "notes": None,
-    "builds": [
-        {"platform": "macos-arm",   "size": 98234112,  "sha256": "a" * 64, "released_at": "2026-08-17T00:00:00Z"},
-        {"platform": "windows-x64", "size": 104857600, "sha256": "b" * 64, "released_at": "2026-08-17T00:00:00Z"},
-        {"platform": "linux-x64",   "size": 128974848, "sha256": "c" * 64, "released_at": "2026-08-17T00:00:00Z"},
-    ],
-}
-EMPTY = {"version": None, "codename": None, "notes": None, "builds": []}
-
-state = {"payload": EMPTY}
-
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(SITE), **kw)
 
     def do_GET(self):
-        if self.path.startswith("/api/releases"):
-            body = json.dumps(state["payload"]).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
         if self.path.startswith("/download"):
             self.send_response(302)
-            self.send_header("Location", "https://example.invalid/breeze.dmg")
+            self.send_header("Location", "https://example.invalid/breeze")
             self.end_headers()
             return
         return super().do_GET()
@@ -80,85 +59,77 @@ async def overflow_detail(page):
 async def main():
     srv, port = serve()
     base = f"http://127.0.0.1:{port}"
-    print("\n── BREEZE DOWNLOAD SITE ──")
+    print("\n── BREEZE PUBLIC SITE ──")
 
     async with async_playwright() as p:
-        b = await p.chromium.launch()
-
-        state["payload"] = EMPTY
-        pg = await b.new_page(viewport={"width": 1280, "height": 900})
+        browser = await p.chromium.launch()
+        pg = await browser.new_page(viewport={"width": 1280, "height": 900})
         errs = []
-        pg.on("pageerror", lambda e: errs.append(str(e)[:120]))
+        pg.on("pageerror", lambda e: errs.append(str(e)[:160]))
         await pg.goto(base + "/index.html")
-        await pg.wait_for_timeout(700)
+        await pg.wait_for_timeout(500)
 
-        check("no page errors before launch", not errs, str(errs[:1]))
-        head = await pg.inner_text("#getHead")
-        check("pre-launch says it is not released", "Not released" in head, head)
-        label = await pg.inner_text("#dlGoLabel")
-        href = await pg.get_attribute("#dlGo", "href")
-        check("the button offers the waitlist instead of a dead download",
-              "notified" in label.lower() and href.endswith("#waitlist"), label + " -> " + str(href))
-        check("no checksum row invented with nothing to check",
-              await pg.locator("#dlCost .costRow").count() == 0)
+        check("no page errors", not errs, str(errs[:1]))
+        check("page title carries Breeze promise", "Breeze" in await pg.title() and "friction" in (await pg.title()).lower())
+        body = await pg.locator("body").inner_text()
+        check("McCloskey is spelled and branded correctly", "McCloskey" in body and "McCluskey" not in body)
+        check("release chapter language is present", "first public chapter of Breeze" in body)
+        check("Flow is a first-class section", await pg.locator("#flow").count() == 1 and "One browser. Fewer detours." in body)
+        check("experience section exists", await pg.locator("#experience").count() == 1)
+        check("download section exists", await pg.locator("#download").count() == 1)
 
-        state["payload"] = PUBLISHED
-        await pg.goto(base + "/index.html")
-        await pg.wait_for_timeout(700)
-        check("no page errors after launch", not errs, str(errs[:1]))
+        nav_hrefs = await pg.locator("nav a").evaluate_all("els => els.map(a => a.getAttribute('href'))")
+        check("navigation reaches Experience", "#experience" in nav_hrefs, str(nav_hrefs))
+        check("navigation reaches Flow", "#flow" in nav_hrefs, str(nav_hrefs))
+        check("navigation reaches Download", "#download" in nav_hrefs, str(nav_hrefs))
 
-        head = await pg.inner_text("#getHead")
-        check("names the platform it detected", head.startswith("Breeze for"), head)
-        rel = await pg.inner_text("#getRel")
-        check("version and codename come from the API, not the markup",
-              "1.0" in rel and "McCloskey" in rel, rel)
+        tiles = pg.locator("a.downloadTile")
+        hrefs = await tiles.evaluate_all("els => els.map(a => a.getAttribute('href'))")
+        check("three platform download choices are visible", await tiles.count() == 3, str(await tiles.count()))
+        check("macOS download is wired", any("platform=macos-arm" in (h or "") for h in hrefs), str(hrefs))
+        check("Windows download is wired", any("platform=windows-x64" in (h or "") for h in hrefs), str(hrefs))
+        check("Linux download is wired", any("platform=linux-x64" in (h or "") for h in hrefs), str(hrefs))
 
-        await pg.locator(".osTab", has_text="Windows").click()
-        await pg.wait_for_timeout(250)
-        cost = await pg.inner_text("#dlCost")
-        check("windows size shown", "100 MB" in cost, cost.split("\n")[3] if cost else "")
-        check("windows warning stated up front", "SmartScreen" in cost, "")
-        check("sha-256 published", "b" * 64 in cost)
-        why = await pg.inner_text("#dlUnsigned")
-        check("the warning is explained, not just flagged", "certificate" in why.lower(), why[:60])
-        steps = await pg.locator("#dlSteps .step").count()
-        check("install steps present for windows", steps == 3, str(steps))
-        href = await pg.get_attribute("#dlGo", "href")
-        check("download link carries the right platform",
-              href.endswith("platform=windows-x64"), str(href))
+        swatches = pg.locator(".swatch")
+        check("all four Breeze accent modes exist", await swatches.count() == 4, str(await swatches.count()))
+        await pg.locator('.swatch[data-accent="mint"]').click()
+        accent = await pg.locator("html").get_attribute("data-accent")
+        pressed = await pg.locator('.swatch[data-accent="mint"]').get_attribute("aria-pressed")
+        check("accent control changes the actual page state", accent == "mint" and pressed == "true", f"accent={accent} pressed={pressed}")
 
-        await pg.locator(".osTab", has_text="Linux").click()
-        await pg.wait_for_timeout(250)
-        cost = await pg.inner_text("#dlCost")
-        check("linux says it just opens", "Opens straight away" in cost)
-        check("no unsigned warning on linux", (await pg.inner_text("#dlUnsigned")).strip() == "")
+        await pg.evaluate("window.__opened=[]; window.open=(u)=>{window.__opened.push(String(u)); return null}")
+        search = pg.locator("#searchForm input")
+        await search.fill("breeze browser privacy")
+        await pg.locator("#searchForm").evaluate("form => form.requestSubmit()")
+        opened = await pg.evaluate("window.__opened.slice()")
+        check("search form routes a query to Brave Search", len(opened) == 1 and opened[0].startswith("https://search.brave.com/search?q=") and "breeze%20browser%20privacy" in opened[0], str(opened))
 
-        await pg.locator(".osTab", has_text="Apple silicon").click()
-        await pg.wait_for_timeout(250)
-        why = await pg.inner_text("#dlUnsigned")
-        check("macos gatekeeper explained with the real reason",
-              "notaris" in why.lower() or "notariz" in why.lower(), why[:60])
+        await pg.locator("#omni").fill("example.com")
+        await pg.locator("#omni").press("Enter")
+        opened = await pg.evaluate("window.__opened.slice()")
+        check("demo omnibox treats a hostname as a real URL", len(opened) == 2 and opened[-1] == "https://example.com", str(opened[-1:] if opened else opened))
 
-        await pg.locator(".osTab", has_text="Intel").click()
-        await pg.wait_for_timeout(250)
-        head = await pg.inner_text("#getHead")
-        check("a missing platform build says so plainly", "No macOS Intel build yet" in head, head)
+        flow_buttons = await pg.locator(".flowSidebar button").all_inner_texts()
+        check("Flow tool families are visible", all(name in flow_buttons for name in ["Convert", "Compress", "PDF", "Image", "Media"]), str(flow_buttons))
+        check("Flow conversion example is visible", "PDF" in await pg.locator(".flowDropzone").inner_text() and "JPG" in await pg.locator(".flowDropzone").inner_text())
 
-        for w, h in [(1440, 900), (1024, 800), (390, 844)]:
-            pgx = await b.new_page(viewport={"width": w, "height": h}, is_mobile=(w < 500))
+        for w, h in [(1440, 900), (1024, 800), (768, 900), (430, 932), (390, 844), (360, 640)]:
+            pgx = await browser.new_page(viewport={"width": w, "height": h}, is_mobile=(w < 500))
+            perrs = []
+            pgx.on("pageerror", lambda e: perrs.append(str(e)[:120]))
             await pgx.goto(base + "/index.html")
-            await pgx.wait_for_timeout(600)
-            ov = await pgx.evaluate(
-                "() => ({sw: document.documentElement.scrollWidth, w: innerWidth})")
+            await pgx.wait_for_timeout(350)
+            ov = await pgx.evaluate("() => ({sw: document.documentElement.scrollWidth, w: innerWidth})")
             detail = f"{ov['sw']}/{ov['w']}"
             if ov["sw"] > ov["w"] + 1:
                 offenders = await overflow_detail(pgx)
                 detail += " offenders=" + json.dumps(offenders, separators=(",", ":"))
             check(f"no horizontal overflow at {w}px", ov["sw"] <= ov["w"] + 1, detail)
+            check(f"no page errors at {w}px", not perrs, str(perrs[:1]))
             await pgx.close()
 
         await pg.close()
-        await b.close()
+        await browser.close()
 
     srv.shutdown()
     print(f"\n  {len(fails)} failures.\n")
