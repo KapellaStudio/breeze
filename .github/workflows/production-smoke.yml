@@ -49,13 +49,14 @@ jobs:
           good=(health.get('ok') is True and health.get('service')=='breeze'
                 and data.get('version')=='1.3.0' and data.get('codename')=='McCloskey'
                 and required.issubset(platforms)
-                and 'Breeze 1.3.0 RC' in site
-                and '/api/releases?channel=beta' in site
+                and 'Breeze — Power without friction' in site
+                and 'McCloskey' in site
+                and 'id="flow"' in site
                 and '/download?channel=beta&platform=' in site)
           if not good:
               print({'health':health,'version':data.get('version'),'codename':data.get('codename'),'platforms':sorted(platforms)})
               sys.exit(1)
-          print('Live Netlify Functions, beta API and RC site verified:', sorted(platforms))
+          print('Live Netlify Functions, McCloskey site, beta API and downloads verified:', sorted(platforms))
           PY
               then ok=1; break; fi
             fi
@@ -75,4 +76,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze production smoke: **${{ job.status }}** — Netlify Functions/RC site/API/download redirect, run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
+          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze production smoke: **${{ job.status }}** — Netlify Functions/McCloskey site/API/download redirect, run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
