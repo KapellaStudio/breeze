@@ -14,6 +14,8 @@ const DEFAULTS = Object.freeze({
   comfort: 'comfort',
   sidebar: 'on',
   compact: false,
+  // Location is opt-in. Coordinates themselves are never persisted.
+  weatherEnabled: false,
   // Real renderer discard/version polling are not enabled in this Electron RC.
   // Keep their stored defaults off rather than persisting a visual promise.
   sleep: false,
@@ -34,7 +36,7 @@ const ENUMS = {
   comfort: new Set(['bright','comfort','dim']),
   sidebar: new Set(['on','auto','off'])
 };
-const BOOLS = new Set(['compact','sleep','tint','group','askwhere','provenance','versionDetection']);
+const BOOLS = new Set(['compact','weatherEnabled','sleep','tint','group','askwhere','provenance','versionDetection']);
 
 function atomicWrite(value){
   if(!file) return;
