@@ -30,7 +30,11 @@ jobs:
       - name: Finalize staged Split View refactor
         if: ${{ hashFiles('tools/apply_split_view.py') != '' }}
         run: |
-          rm -f tools/apply_split_view.py .github/workflows/split-view-refactor.yml
+          # The transformer validates workflow edits locally, but GitHub Apps
+          # without workflow scope must never push workflow-file mutations.
+          # Keep this checked-in workflow unchanged; connector cleanup follows.
+          git checkout HEAD -- .github/workflows/verify.yml
+          rm -f tools/apply_split_view.py
           git config user.name "Kapella Venture Studio"
           git config user.email "goldenmonkeyindex@gmail.com"
           git add -A
@@ -96,6 +100,12 @@ jobs:
             src/breeze-home.js src/breeze-runtime.js src/breeze-search-ui.js \
             src/breeze-omni.js; do node --check "$f"; done
 
+      - name: Split View staged syntax
+        run: |
+          node --check shell/split.js
+          node --check shell/splittest.js
+          node --check src/breeze-split-ui.js
+
       - name: Regression — desktop 1440/1180/1024
         run: python3 src/regress.py
 
@@ -141,6 +151,10 @@ jobs:
           npm run vaulttest
           npm run weathertest
           npm run omniboxtest
+
+      - name: Split View state policy
+        working-directory: shell
+        run: npm run splittest
 
       - name: Finalize verified reconstructed source
         if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('.sourceparts/manifest') != '' }}
