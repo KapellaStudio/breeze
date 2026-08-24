@@ -39,7 +39,7 @@ const pack=fs.readFileSync(path.join(__dirname,'electron-builder.yml'),'utf8');
 ok('real downloads wired to will-download',/will-download/.test(fs.readFileSync(path.join(__dirname,'downloads.js'),'utf8')));
 ok('download paths are not exposed by preload',!/(savePath|\.path\b)/.test(preload.split('/* downloads')[1]?.split('/* window controls')[0]||''));
 ok('extension install uses named IPC only',/extension:installUnpacked/.test(main) && /installUnpacked/.test(preload));
-ok('new browser modules are packaged',/extensions\.js/.test(pack)&&/downloads\.js/.test(pack)&&/state\.js/.test(pack)&&/permissions\.js/.test(pack)&&/library\.js/.test(pack)&&/display\.js/.test(pack)&&/documents\.js/.test(pack)&&/pdf-preload\.js/.test(pack)&&/pdf-viewer\.js/.test(pack));
+ok('new browser modules are packaged',/extensions\.js/.test(pack)&&/downloads\.js/.test(pack)&&/state\.js/.test(pack)&&/permissions\.js/.test(pack)&&/library\.js/.test(pack)&&/display\.js/.test(pack)&&/documents\.js/.test(pack)&&/split\.js/.test(pack)&&/pdf-preload\.js/.test(pack)&&/pdf-viewer\.js/.test(pack));
 ok('private session uses non-persistent partition',/breeze-private-/.test(main)&&/fromPartition\(partition,\{cache:false\}\)/.test(main));
 ok('private tabs are omitted from restart state',/filter\(\(\[,t\]\) => !t\.private\)/.test(main));
 ok('preload exposes named private-tab IPC only',/newPrivateTab/.test(preload)&&/tab:createPrivate/.test(main));

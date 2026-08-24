@@ -19,6 +19,7 @@ files:
   - vault.js
   - weather.js
   - omnibox.js
+  - split.js
   - main.js
   - preload.js
   - security.js

@@ -5,7 +5,7 @@
 'use strict';
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const call = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
-const EVENTS = ['tab:update','tab:loading','tab:closed','tab:favicon','tab:error','win:state','download:update','download:refresh','permission:request','display:request'];
+const EVENTS = ['tab:update','tab:loading','tab:closed','tab:favicon','tab:error','split:update','win:state','download:update','download:refresh','permission:request','display:request'];
 const listeners = new Map();
 let activeWorkspace = { workspaceId:'default', sealed:false };
 let activePrivate = false;
@@ -84,6 +84,11 @@ contextBridge.exposeInMainWorld('__BREEZE_SHELL__', {
   listTabs: () => call('tab:list'),
   sleepTab: id => call('tab:sleep', id),
   wakeTab: id => call('tab:wake', id),
+  splitState: () => call('split:state'),
+  openSplit: secondaryId => call('split:open', secondaryId),
+  closeSplit: () => call('split:close'),
+  swapSplit: () => call('split:swap'),
+  setSplitRatio: value => call('split:ratio', value),
   navigate: (id, input) => call('tab:navigate', id, input),
   back: id => call('tab:back', id),
   forward: id => call('tab:forward', id),

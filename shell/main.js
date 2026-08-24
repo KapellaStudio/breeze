@@ -29,6 +29,7 @@ const permissionBroker = require('./permissions');
 const library = require('./library');
 const displayShare = require('./display');
 const documents = require('./documents');
+const { SplitState } = require('./split');
 
 const SMOKE = process.argv.includes('--smoke-test');
 const CHROME = { top: 48, side: 188, panel: 0 };
@@ -47,6 +48,8 @@ let privateGeneration = 1;
 const recentlyClosed = [];
 const TAB_SLEEP_AFTER_MS = 30 * 60 * 1000;
 let tabSleepTimer = null;
+const splitView = new SplitState();
+const SPLIT_GAP = 10;
 
 const sessions = new Map();
 const sessionContexts = new Map();
@@ -146,6 +149,9 @@ function mountTabView(id,t){
   t.view=view;
   t.loading=false;
   const wc=view.webContents;
+  wc.on('focus', () => {
+    if(tabs.has(id) && splitView.active && splitView.has(id) && activeTabId!==id) setActiveTab(id,{fromPane:true});
+  });
 
   wc.setWindowOpenHandler(({ url: target }) => {
     const clean = cleanUrl(target);
@@ -201,6 +207,7 @@ function sleepBlockReason(id){
   const t=tabs.get(id); if(!t)return'no tab';
   const wc=liveWebContents(t); if(!wc)return t.sleeping?null:'no renderer';
   if(id===activeTabId)return'active tab';
+  if(splitView.active&&splitView.has(id))return'split pane';
   if(t.private)return'private tab';
   if(t.kind!=='page'||t.localPdfPath)return'document tab';
   const url=wc.getURL();
@@ -267,7 +274,7 @@ function sleepSweep(){
   if(!preferences.get().sleep)return;
   const now=Date.now();
   for(const [id,t] of tabs){
-    if(id===activeTabId||t.sleeping||t.waking)continue;
+    if(id===activeTabId||splitView.has(id)||t.sleeping||t.waking)continue;
     if(now-Number(t.lastActiveAt||now)>=TAB_SLEEP_AFTER_MS)sleepTab(id);
   }
 }
@@ -286,28 +293,47 @@ function tabState(id){
     canGoForward:nav?nav.canGoForward():!!snap.canGoForward,
     blocked:t.blocked, workspace:t.workspace, sealed:t.sealed, private:!!t.private,
     sleeping:!!t.sleeping, waking:!!t.waking, lastActiveAt:Number(t.lastActiveAt||0),
+    splitRole:splitView.active?(id===splitView.leftTabId?'left':id===splitView.rightTabId?'right':null):null,
+    splitFocused:splitView.active&&id===splitView.focusedTabId,
     active:id===activeTabId
   };
 }
 
-function setActiveTab(id){
+function splitEligible(id){
+  const t=tabs.get(Number(id));
+  return !!t && !t.private && t.kind==='page' && !t.localPdfPath;
+}
+function splitSnapshot(){return splitView.snapshot();}
+function sendSplitState(){
+  send('split:update',splitSnapshot());
+  const ids=new Set([activeTabId,splitView.leftTabId,splitView.rightTabId]);
+  for(const id of ids)if(id&&tabs.has(id))send('tab:update',tabState(id));
+}
+
+function setActiveTab(id,{fromPane=false}={}){
+  id=Number(id);
   if (!tabs.has(id)) return;
   const previous=tabs.get(activeTabId);
   if(previous && activeTabId!==id)previous.lastActiveAt=Date.now();
+  if(splitView.active){
+    if(splitView.has(id)) splitView.focus(id);
+    else if(splitEligible(id)) splitView.replaceFocused(id,splitEligible);
+    else splitView.close();
+  }
   activeTabId=id;
   const target=tabs.get(id);target.lastActiveAt=Date.now();
   if(target.sleeping)wakeTab(id).catch(()=>{});
-  for (const [tid, t] of tabs){
-    if(t.view)t.view.setVisible(!internalView && tid===id);
-  }
   layout();
   send('tab:update',tabState(id));
+  sendSplitState();
   scheduleStateSave();
 }
 
 function closeTab(id){
+  id=Number(id);
   const t = tabs.get(id); if (!t) return;
   t.closing=true;
+  const splitResult=splitView.tabClosed(id);
   if (!t.private){
     const url=cleanUrl(currentTabUrl(t));
     if (url){
@@ -321,8 +347,11 @@ function closeTab(id){
   t.view=null;
   tabs.delete(id);
   if (activeTabId === id){
-    const next = [...tabs.keys()].pop();
-    if (next) setActiveTab(next); else activeTabId = null;
+    const preferred=splitResult.collapsed&&tabs.has(splitResult.survivorTabId)?splitResult.survivorTabId:null;
+    const next = preferred || [...tabs.keys()].pop();
+    if (next) setActiveTab(next); else {activeTabId = null;splitView.close();layout();sendSplitState();}
+  } else {
+    layout();sendSplitState();
   }
   send('tab:closed', { id });
   scheduleStateSave();
@@ -335,11 +364,19 @@ function layout(){
   const x = CHROME.side, y = CHROME.top;
   const width  = Math.max(0, w - CHROME.side - CHROME.panel);
   const height = Math.max(0, h - CHROME.top);
+  const split=splitView.snapshot();
+  const splitLive=!internalView&&split.active&&tabs.has(split.leftTabId)&&tabs.has(split.rightTabId);
+  const usable=Math.max(0,width-(splitLive?SPLIT_GAP:0));
+  const leftWidth=splitLive?Math.floor(usable*split.ratio):width;
+  const rightWidth=splitLive?Math.max(0,usable-leftWidth):0;
   for (const [id, t] of tabs){
     if(!t.view)continue;
-    const live = !internalView && id === activeTabId;
+    let live=false,bounds={x:0,y:0,width:0,height:0};
+    if(splitLive&&id===split.leftTabId){live=true;bounds={x,y,width:leftWidth,height};}
+    else if(splitLive&&id===split.rightTabId){live=true;bounds={x:x+leftWidth+SPLIT_GAP,y,width:rightWidth,height};}
+    else if(!splitLive&&!internalView&&id===activeTabId){live=true;bounds={x,y,width,height};}
     t.view.setVisible(live);
-    t.view.setBounds(live ? { x, y, width, height } : { x: 0, y: 0, width: 0, height: 0 });
+    t.view.setBounds(bounds);
   }
 }
 
@@ -349,12 +386,13 @@ const send = (channel, payload) => {
 
 let stateTimer = null;
 function stateSnapshot(){
+  const persistable=[...tabs.entries()].filter(([,t])=>!t.private).map(([id,t])=>({
+    id,url:cleanUrl(currentTabUrl(t)),workspaceId:t.workspace,sealed:!!t.sealed,active:id===activeTabId
+  })).filter(t=>t.url);
+  const ids=persistable.map(t=>t.id);
   return {
-    version:1, activeTabId, savedAt:Date.now(),
-    tabs:[...tabs.entries()].filter(([,t]) => !t.private).map(([id,t]) => ({
-      id, url:cleanUrl(currentTabUrl(t)), workspaceId:t.workspace, sealed:!!t.sealed,
-      active:id===activeTabId
-    })).filter(t => t.url)
+    version:2, activeTabId, savedAt:Date.now(), split:splitView.persisted(ids),
+    tabs:persistable
   };
 }
 function scheduleStateSave(){
@@ -365,12 +403,16 @@ function restoreSavedTabs(){
   const st = browserState.read();
   const saved = Array.isArray(st?.tabs) ? st.tabs.filter(t => cleanUrl(t.url)) : [];
   if (!saved.length){ createTab({}); return; }
-  let active = null;
+  let active = null;const created=[];
   for (const t of saved){
     const id=createTab({ url:t.url, workspaceId:String(t.workspaceId||'default'), sealed:!!t.sealed });
-    if (t.active) active=id;
+    created.push(id);if (t.active) active=id;
   }
-  if (active != null) setActiveTab(active);
+  const restored=splitView.restore(st?.split,created,splitEligible);
+  const focus=restored.active?restored.focusedTabId:(active||restored.focusedTabId);
+  if (focus != null) setActiveTab(focus);
+  else if(active!=null)setActiveTab(active);
+  layout();sendSplitState();
 }
 
 function createWindow(){
@@ -468,6 +510,21 @@ reg('tab:select',   id => { setActiveTab(Number(id)); return true; });
 reg('tab:list',     () => [...tabs.keys()].map(tabState));
 reg('tab:sleep', id => sleepTab(Number(id)));
 reg('tab:wake',  id => wakeTab(Number(id)));
+reg('split:state', () => splitSnapshot());
+reg('split:open', async secondaryId => {
+  const primary=activeTabId,secondary=Number(secondaryId);
+  if(!splitEligible(primary)||!splitEligible(secondary))return{error:'Split View works with regular web tabs'};
+  if(primary===secondary)return{error:'choose a different tab'};
+  const pt=tabs.get(primary),st=tabs.get(secondary);
+  if(pt.sleeping||pt.waking)await wakeTab(primary);
+  if(st.sleeping||st.waking)await wakeTab(secondary);
+  const result=splitView.open(primary,secondary,splitEligible);
+  if(result.error)return result;
+  activeTabId=primary;layout();sendSplitState();scheduleStateSave();return splitSnapshot();
+});
+reg('split:close', () => {const r=splitView.close();layout();sendSplitState();scheduleStateSave();return r;});
+reg('split:swap', () => {const r=splitView.swap();if(!r.error){layout();sendSplitState();scheduleStateSave();}return r;});
+reg('split:ratio', value => {const r=splitView.setRatio(value);layout();sendSplitState();scheduleStateSave();return r;});
 reg('tab:navigate', async (id, input) => {
   const t=tabs.get(Number(id)); if(!t)return null;
   const url=resolveInput(input); if(!url)return{error:'blocked scheme'};

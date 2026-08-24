@@ -26,7 +26,8 @@
     "contexttest": "node contexttest.js",
     "vaulttest": "node vaulttest.js",
     "weathertest": "node weathertest.js",
-    "omniboxtest": "node omniboxtest.js"
+    "omniboxtest": "node omniboxtest.js",
+    "splittest": "node splittest.js"
   },
   "devDependencies": {
     "electron": "^43.0.0",
