@@ -2,24 +2,30 @@
    Wraps the existing registry with the managed MV3 compatibility layer while
    keeping Breeze's tab/workspace/session security boundaries intact. */
 'use strict';
+const fs = require('node:fs');
 const path = require('node:path');
 const base = require('./extensions');
 const compat = require('./extension-compat');
 
-let BrowserWindow = null, Notification = null;
+let BrowserWindow = null, Notification = null, ipcMain = null;
 try {
   const electron = require('electron');
   if (electron && typeof electron === 'object') {
     BrowserWindow = electron.BrowserWindow || null;
     Notification = electron.Notification || null;
+    ipcMain = electron.ipcMain || null;
   }
 } catch {}
 
 let rootDir = null;
 let internalInvoke = null;
+let handlers = null;
+let pageIpcReady = false;
 const extensionWindows = new Set();
 const oauthWindows = new Set();
 const notifications = new Map();
+const runtimeContexts = new Map();
+const pagePreload = path.join(__dirname,'extension-page-preload.js');
 
 function safeWorkspace(value){ return String(value||'default').replace(/[^a-z0-9_-]/gi,'-').slice(0,80)||'default'; }
 function sealedSession(ses,workspaceId='default'){
@@ -74,13 +80,17 @@ function createExtensionWindow(ctx,details={}){
   const opts={
     width,height,show:false,resizable:true,minimizable:true,maximizable:true,autoHideMenuBar:true,
     parent:details.type==='popup'?parent:undefined,
-    webPreferences:{session:ctx.ses,contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}
+    webPreferences:{session:ctx.ses,preload:pagePreload,contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}
   };
   if(Number.isFinite(Number(details.left))) opts.x=Number(details.left);
   if(Number.isFinite(Number(details.top))) opts.y=Number(details.top);
   const w=new BrowserWindow(opts); extensionWindows.add(w);
   w.webContents.setWindowOpenHandler(({url:target})=>{
-    try{ const clean=allowedUrl(ctx,target); createExtensionWindow(ctx,{url:clean,type:'popup'}); }catch{}
+    try{
+      const clean=allowedUrl(ctx,target);
+      if(clean.startsWith('chrome-extension://')) createExtensionWindow(ctx,{url:clean,type:'popup'});
+      else handlers?.['tabs.create']?.(ctx,{url:clean,active:true}).catch(()=>{});
+    }catch{}
     return {action:'deny'};
   });
   w.once('ready-to-show',()=>{ if(!w.isDestroyed()&&details.focused!==false) w.show(); });
@@ -112,6 +122,80 @@ function filterTabQuery(rows,query={}){
   return out;
 }
 function notificationKey(ctx,id){ return String(ctx.localId||ctx.runtimeId||'extension')+':'+String(id||''); }
+function rememberRuntime(localId,runtimeId,ses,workspaceId){
+  if(!ses||!runtimeId)return;
+  let map=runtimeContexts.get(ses); if(!map){map=new Map();runtimeContexts.set(ses,map);}
+  map.set(String(runtimeId),{localId:String(localId),runtimeId:String(runtimeId),ses,workspaceId:safeWorkspace(workspaceId),sealed:sealedSession(ses,workspaceId),private:false});
+}
+function forgetRuntime(localId,ses){
+  const map=runtimeContexts.get(ses); if(!map)return;
+  for(const [rid,ctx] of map) if(ctx.localId===String(localId))map.delete(rid);
+  if(!map.size)runtimeContexts.delete(ses);
+}
+function contextForSender(sender){
+  try{
+    const u=new URL(sender.getURL());
+    if(u.protocol!=='chrome-extension:')return null;
+    return runtimeContexts.get(sender.session)?.get(u.hostname)||null;
+  }catch{return null;}
+}
+function contextsForLocalId(localId,workspaceId='default',sealed=false){
+  const out=[];
+  for(const map of runtimeContexts.values())for(const ctx of map.values())if(ctx.localId===String(localId)&&ctx.workspaceId===safeWorkspace(workspaceId)&&ctx.sealed===!!sealed)out.push(ctx);
+  return out;
+}
+function pageMethodAllowed(ctx,method){
+  const row=base.list().find(x=>x.localId===ctx.localId);
+  if(!row||row.enabled===false)return false;
+  const perms=new Set(row.permissions||[]);
+  if(method.startsWith('tabs.')||method.startsWith('windows.'))return true;
+  if(method.startsWith('cookies.'))return perms.has('cookies');
+  if(method.startsWith('notifications.'))return perms.has('notifications');
+  if(method.startsWith('identity.'))return perms.has('identity');
+  return false;
+}
+async function dispatchPageApi(sender,method,params={}){
+  const ctx=contextForSender(sender);
+  if(!ctx){const err=new Error('unregistered extension page');err.status=403;throw err;}
+  const name=String(method||'');
+  if(!pageMethodAllowed(ctx,name)){const err=new Error('extension page API is not permitted');err.status=403;throw err;}
+  const fn=handlers?.[name];
+  if(typeof fn!=='function'){const err=new Error('extension page API is not implemented');err.status=501;throw err;}
+  return fn(ctx,params&&typeof params==='object'?params:{});
+}
+function actionPopupPath(localId){
+  try{
+    const manifest=JSON.parse(fs.readFileSync(path.join(managedDir(localId),'manifest.json'),'utf8'));
+    const action=(manifest.action&&typeof manifest.action==='object'&&manifest.action)||(manifest.browser_action&&typeof manifest.browser_action==='object'&&manifest.browser_action)||(manifest.page_action&&typeof manifest.page_action==='object'&&manifest.page_action)||null;
+    const popup=String(action?.default_popup||'').trim();
+    if(!popup||popup.includes('..')||/^[a-z][a-z0-9+.-]*:/i.test(popup))return '';
+    return popup.replace(/^\/+/, '');
+  }catch{return '';}
+}
+async function openAction(localId,context={}){
+  const row=base.list().find(x=>x.localId===String(localId));
+  if(!row)return{error:'extension not found'};
+  if(row.enabled===false)return{error:'extension is disabled'};
+  const popup=actionPopupPath(localId);
+  if(!popup)return{error:'this extension has no action popup'};
+  const candidates=contextsForLocalId(localId,context.workspaceId||'default',!!context.sealed);
+  if(candidates.length!==1)return{error:candidates.length?'extension is active in multiple matching sessions':'extension session is not ready'};
+  const ctx=candidates[0];
+  const ext=ctx.ses.extensions.getExtension(ctx.runtimeId);
+  if(!ext)return{error:'extension could not be loaded in this workspace'};
+  let popupUrl;try{popupUrl=new URL(popup,ext.url).toString();}catch{return{error:'extension popup path is invalid'};}
+  if(!popupUrl.startsWith(ext.url))return{error:'extension popup escaped its own origin'};
+  const w=createExtensionWindow(ctx,{url:popupUrl,type:'popup',focused:true,width:390,height:600});
+  return{ok:true,localId:String(localId),runtimeId:ctx.runtimeId,popup:true,windowId:w.id};
+}
+function installPageIpc(){
+  if(pageIpcReady||!ipcMain||typeof ipcMain.handle!=='function')return;
+  pageIpcReady=true;
+  try{ipcMain.removeHandler('extension:openAction');}catch{}
+  ipcMain.handle('extension:openAction',(_event,localId,context)=>openAction(String(localId||''),context||{}));
+  try{ipcMain.removeHandler('extension:pageApi');}catch{}
+  ipcMain.handle('extension:pageApi',(event,method,params)=>dispatchPageApi(event.sender,method,params));
+}
 async function launchWebAuthFlow(ctx,details={}){
   if(!BrowserWindow){ const err=new Error('web authentication requires Breeze desktop'); err.status=501; throw err; }
   const start=allowedUrl(ctx,details.url);
@@ -251,15 +335,21 @@ function hostHandlers(){
 
 function init(userDataPath){
   rootDir=path.join(userDataPath,'extensions');
-  compat.init({rootDir,handlers:hostHandlers()});
-  return base.init(userDataPath);
+  handlers=hostHandlers();
+  compat.init({rootDir,handlers});
+  const result=base.init(userDataPath);
+  installPageIpc();
+  return result;
 }
 function list(){ return base.list().map(row=>({...row,compatibilityBridge:compat.status(row.localId)})); }
 async function loadIntoSession(ses,workspaceId='default'){
   for(const row of base.list()) if(row.enabled!==false) await prepare(row);
   const result=await base.loadIntoSession(ses,workspaceId);
   for(const item of result||[]){
-    if(item?.ok&&item.runtimeId) compat.registerRuntime(item.localId,item.runtimeId,{ses,workspaceId:safeWorkspace(workspaceId),sealed:sealedSession(ses,workspaceId),private:false});
+    if(item?.ok&&item.runtimeId){
+      compat.registerRuntime(item.localId,item.runtimeId,{ses,workspaceId:safeWorkspace(workspaceId),sealed:sealedSession(ses,workspaceId),private:false});
+      rememberRuntime(item.localId,item.runtimeId,ses,workspaceId);
+    }
   }
   return result;
 }
@@ -270,15 +360,19 @@ async function setEnabled(localId,enabled,sessionEntries=[]){
   if(enabled){
     for(const {ses,workspaceId} of sessionEntries){
       const loaded=await base.loadIntoSession(ses,workspaceId);
-      for(const item of loaded||[]) if(item?.localId===localId&&item?.ok&&item.runtimeId) compat.registerRuntime(localId,item.runtimeId,{ses,workspaceId:safeWorkspace(workspaceId),sealed:sealedSession(ses,workspaceId),private:false});
+      for(const item of loaded||[]) if(item?.localId===localId&&item?.ok&&item.runtimeId){
+        compat.registerRuntime(localId,item.runtimeId,{ses,workspaceId:safeWorkspace(workspaceId),sealed:sealedSession(ses,workspaceId),private:false});
+        rememberRuntime(localId,item.runtimeId,ses,workspaceId);
+      }
     }
   }else{
-    for(const {ses,workspaceId} of sessionEntries) compat.unregisterRuntime(localId,{ses,workspaceId});
+    for(const {ses,workspaceId} of sessionEntries){compat.unregisterRuntime(localId,{ses,workspaceId});forgetRuntime(localId,ses);}
   }
   return result;
 }
 async function remove(localId,sessionEntries=[]){
   const result=await base.remove(localId,sessionEntries);
+  for(const {ses} of sessionEntries)forgetRuntime(localId,ses);
   compat.remove(localId);
   return result;
 }
@@ -291,6 +385,6 @@ function isAllowedExtensionUrl(ses,raw){
 
 module.exports={
   init,list,inspectDirectory:base.inspectDirectory,importDirectory:base.importDirectory,
-  loadIntoSession,setEnabled,remove,openAction:base.openAction,analyzeManifest:base.analyzeManifest,
-  setInternalInvoker,isAllowedExtensionUrl
+  loadIntoSession,setEnabled,remove,openAction,analyzeManifest:base.analyzeManifest,
+  setInternalInvoker,isAllowedExtensionUrl,dispatchPageApi
 };
