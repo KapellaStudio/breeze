@@ -9,6 +9,7 @@ const preferences = require('./preferences');
 const workspaces = require('./workspaces');
 const workspaceData = require('./workspace-data');
 const vault = require('./vault');
+const weather = require('./weather');
 
 let initialized = false;
 function ensureInit(){
@@ -103,6 +104,11 @@ handle('vault:importCsv', async () => {
   if(picked.canceled||!picked.filePaths[0])return{canceled:true};
   return vault.importCsv(path.resolve(picked.filePaths[0]));
 });
+
+/* Live weather uses the approximate network location already exposed to the
+   internet. No OS geolocation permission, Google API key or coordinate is
+   required from the renderer. The weather module keeps its caches in memory. */
+handle('weather:current', unit => weather.current(unit));
 
 app.whenReady().then(() => ensureInit());
 require('./main');
