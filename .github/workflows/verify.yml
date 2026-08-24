@@ -23,6 +23,22 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '24' }
 
+      - name: Apply staged Split View refactor
+        if: ${{ hashFiles('tools/apply_split_view.py') != '' }}
+        run: python3 tools/apply_split_view.py
+
+      - name: Finalize staged Split View refactor
+        if: ${{ hashFiles('tools/apply_split_view.py') != '' }}
+        run: |
+          rm -f tools/apply_split_view.py .github/workflows/split-view-refactor.yml
+          git config user.name "Kapella Venture Studio"
+          git config user.email "goldenmonkeyindex@gmail.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "[skip netlify] Wire native two-pane Split View end to end"
+          echo "Testing transformed commit $(git rev-parse HEAD)"
+          git push origin HEAD:${{ github.head_ref || github.ref_name }}
+
       - name: Reconstruct staged oversized source
         if: ${{ hashFiles('.sourceparts/manifest') != '' }}
         run: |
