@@ -41,6 +41,7 @@ if (typeof contextBridge.executeInMainWorld === 'function') {
         }
         windows.update = (id,details,cb) => dual('windows.update',{id,...(details||{})},cb);
         windows.remove = (id,cb) => dual('windows.remove',{id},cb);
+        if (windows.WINDOW_ID_NONE == null) windows.WINDOW_ID_NONE = -1;
       }
 
       const cookies = root('cookies');
@@ -66,6 +67,35 @@ if (typeof contextBridge.executeInMainWorld === 'function') {
           if(typeof cb==='function') queueMicrotask(()=>cb(rows));
           return Promise.resolve(rows);
         };
+      }
+
+      // Electron 43 can expose a native `browser` namespace that is only a
+      // partial WebExtension surface. webextension-polyfill deliberately uses
+      // that object as-is when browser.runtime.id exists, so extension UIs such
+      // as MetaMask would otherwise bypass the Breeze host-backed methods above.
+      // In Breeze-owned extension windows, make the supported browser methods
+      // resolve through the same narrow page bridge as their chrome aliases.
+      const browserApi = globalThis.browser;
+      if (browserApi && browserApi.runtime && browserApi.runtime.id) {
+        const sync = (name, props) => {
+          try {
+            const source = chrome[name];
+            if (!source) return;
+            if (!browserApi[name]) browserApi[name] = {};
+            const target = browserApi[name];
+            if (!target) return;
+            for (const prop of props) {
+              if (source[prop] === undefined) continue;
+              try { target[prop] = source[prop]; } catch {}
+            }
+          } catch {}
+        };
+        sync('tabs',['create','query','get','getCurrent','update','remove','onRemoved','onUpdated','onActivated']);
+        sync('windows',['create','getAll','getCurrent','getLastFocused','update','remove','onRemoved','onFocusChanged','WINDOW_ID_NONE']);
+        sync('cookies',['get','getAll','set','remove']);
+        sync('notifications',['create','clear','onClicked']);
+        sync('identity',['getRedirectURL','launchWebAuthFlow']);
+        sync('commands',['getAll']);
       }
     }
   });
