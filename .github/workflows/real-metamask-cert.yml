@@ -1,0 +1,64 @@
+name: real-metamask-cert
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'feature/extension-certification'
+    paths:
+      - 'shell/realmetamasktest.js'
+      - 'shell/extensions-runtime.js'
+      - 'shell/extension-compat.js'
+      - 'shell/extension-page-preload.js'
+      - '.github/workflows/real-metamask-cert.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  official-metamask:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Breeze
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned official MetaMask source
+        uses: actions/checkout@v4
+        with:
+          repository: MetaMask/metamask-extension
+          ref: 010e0528ff1a9883c83e2575eac07e18b38bd2d9
+          path: .vendor/metamask
+          fetch-depth: 1
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+
+      - name: Install MetaMask dependencies
+        working-directory: .vendor/metamask
+        env:
+          CI: '1'
+        run: |
+          corepack enable
+          yarn install --immutable
+
+      - name: Obtain official MetaMask Chromium test build
+        working-directory: .vendor/metamask
+        env:
+          CI: '1'
+        run: |
+          yarn download-builds --build-type test
+          test -f dist/chrome/manifest.json
+          node -e "const m=require('./dist/chrome/manifest.json'); console.log('MetaMask build',m.version,'MV'+m.manifest_version,m.action&&m.action.default_popup)"
+
+      - name: Install Breeze shell dependencies
+        working-directory: shell
+        run: npm install --no-audit --no-fund
+
+      - name: Run official MetaMask inside Breeze
+        working-directory: shell
+        env:
+          METAMASK_EXTENSION_DIR: ${{ github.workspace }}/.vendor/metamask/dist/chrome
+        run: xvfb-run -a npx electron realmetamasktest.js --no-sandbox
