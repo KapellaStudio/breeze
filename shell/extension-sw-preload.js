@@ -67,9 +67,15 @@ function patchMainWorld(){
         const registry = globalThis.__breezeExtensionEventRegistry instanceof Map
           ? globalThis.__breezeExtensionEventRegistry
           : new Map();
+        const extensionWindowTypes = globalThis.__breezeExtensionWindowTypes instanceof Map
+          ? globalThis.__breezeExtensionWindowTypes
+          : new Map();
         globalThis.__breezeExtensionEventRegistry = registry;
+        globalThis.__breezeExtensionWindowTypes = extensionWindowTypes;
         globalThis.__breezeDispatchExtensionEvent = (name,...args) => {
-          const entry=registry.get(String(name||''));
+          const key=String(name||'');
+          if(key==='windows.onRemoved'&&args[0]!=null) extensionWindowTypes.delete(Number(args[0]));
+          const entry=registry.get(key);
           if(!entry)return;
           for(const fn of [...entry.listeners]){
             try{fn(...args);}catch(err){queueMicrotask(()=>{throw err;});}
@@ -116,6 +122,14 @@ function patchMainWorld(){
           if (typeof cb === 'function') promise.then(value => cb(value)).catch(() => cb(undefined));
           return promise;
         };
+        const rememberWindowType = (row,fallback='normal') => {
+          if(!row||!Number.isInteger(Number(row.id)))return row;
+          const id=Number(row.id);
+          const remembered=extensionWindowTypes.get(id);
+          const type=remembered||String(row.type||fallback||'normal');
+          if(type)extensionWindowTypes.set(id,type);
+          return row.type===type?row:{...row,type};
+        };
 
         const tabs = ensureOn(chrome,'tabs');
         if(tabs){
@@ -138,14 +152,32 @@ function patchMainWorld(){
           if(!windows.onRemoved)assign(windows,'onRemoved',event('windows.onRemoved'));
           if(!windows.onFocusChanged)assign(windows,'onFocusChanged',event('windows.onFocusChanged'));
           if(windows.WINDOW_ID_NONE==null)assign(windows,'WINDOW_ID_NONE',-1);
-          if(typeof windows.create!=='function')assign(windows,'create',wrap('windows.create'));
-          for(const name of ['getAll','getCurrent','getLastFocused']) if(typeof windows[name]!=='function')assign(windows,name,wrap('windows.'+name));
+          if(typeof windows.create!=='function')assign(windows,'create',function(details,cb){
+            const clean=details&&typeof details==='object'?details:{};
+            const requestedType=clean.type==='popup'?'popup':'normal';
+            const p=bridgeReady?bridge.invoke('windows.create',clean).then(row=>{
+              if(row&&Number.isInteger(Number(row.id)))extensionWindowTypes.set(Number(row.id),requestedType);
+              return rememberWindowType(row,requestedType);
+            }):Promise.reject(new Error('Breeze extension host is not ready'));
+            if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;
+          });
+          if(typeof windows.getAll!=='function')assign(windows,'getAll',function(details,cb){
+            if(typeof details==='function'){cb=details;details={};}
+            const p=bridgeReady?bridge.invoke('windows.getAll',details&&typeof details==='object'?details:{}).then(rows=>Array.isArray(rows)?rows.map(row=>rememberWindowType(row)):[]):Promise.reject(new Error('Breeze extension host is not ready'));
+            if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;
+          });
+          for(const name of ['getCurrent','getLastFocused']) if(typeof windows[name]!=='function')assign(windows,name,function(details,cb){
+            if(typeof details==='function'){cb=details;details={};}
+            const p=bridgeReady?bridge.invoke('windows.'+name,details&&typeof details==='object'?details:{}).then(row=>rememberWindowType(row)):Promise.reject(new Error('Breeze extension host is not ready'));
+            if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;
+          });
           if(typeof windows.update!=='function')assign(windows,'update',function(id, details, cb){
-            const p=bridgeReady?bridge.invoke('windows.update',{id,...(details||{})}):Promise.reject(new Error('Breeze extension host is not ready'));
+            const p=bridgeReady?bridge.invoke('windows.update',{id,...(details||{})}).then(row=>rememberWindowType(row)):Promise.reject(new Error('Breeze extension host is not ready'));
             if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;
           });
           if(typeof windows.remove!=='function')assign(windows,'remove',function(id, cb){
-            const p=bridgeReady?bridge.invoke('windows.remove',{id}):Promise.reject(new Error('Breeze extension host is not ready'));
+            const numeric=Number(id);
+            const p=bridgeReady?bridge.invoke('windows.remove',{id}).then(value=>{extensionWindowTypes.delete(numeric);return value;}):Promise.reject(new Error('Breeze extension host is not ready'));
             if(typeof cb==='function')p.then(v=>cb(v)).catch(()=>cb(undefined));return p;
           });
         }
