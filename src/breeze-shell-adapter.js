@@ -47,6 +47,7 @@
       u: isPdf && st.fileName ? st.fileName : host + pathOf(st.url),
       kind: isPdf ? 'pdf' : 'page',
       active: st.active,
+      asleep: !!st.sleeping,
       _blocked: st.blocked,
       _canBack: st.canGoBack,
       _canFwd: st.canGoForward,

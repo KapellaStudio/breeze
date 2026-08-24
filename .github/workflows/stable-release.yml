@@ -46,7 +46,7 @@ jobs:
         with: { python-version: '3.11' }
 
       - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with: { node-version: '24' }
 
       - name: Require Windows signing credentials
         shell: pwsh
@@ -106,7 +106,7 @@ jobs:
         with: { python-version: '3.11' }
 
       - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with: { node-version: '24' }
 
       - name: Require macOS signing/notarization credentials
         env:
@@ -184,7 +184,7 @@ jobs:
         with: { python-version: '3.11' }
 
       - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with: { node-version: '24' }
 
       - name: Build Breeze UI
         run: python3 build.py

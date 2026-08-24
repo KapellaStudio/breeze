@@ -23,6 +23,7 @@ const search = require('./search');
 const media = require('./media');
 const extensions = require('./extensions');
 const downloads = require('./downloads');
+const preferences = require('./preferences');
 const browserState = require('./state');
 const permissionBroker = require('./permissions');
 const library = require('./library');
@@ -30,17 +31,7 @@ const displayShare = require('./display');
 const documents = require('./documents');
 
 const SMOKE = process.argv.includes('--smoke-test');
-
-/* Chrome geometry — must match breeze-desktop.html's layout. The renderer
-   reports its real measurements on boot, so these are only a first paint. */
 const CHROME = { top: 48, side: 188, panel: 0 };
-
-/* ── tracker blocking ──────────────────────────────────────────────────────
-   A starter list. Production should consume EasyList/EasyPrivacy, but the
-   mechanism is what matters: blocked BEFORE the request leaves, not hidden
-   after it lands. Counted per tab so the shield badge tells the truth. */
-/* Tracking parameters stripped from every navigation. Advertised in Settings,
-   so it must actually happen. */
 const STRIP_PARAMS = [
   'utm_source','utm_medium','utm_campaign','utm_term','utm_content','utm_id',
   'fbclid','gclid','dclid','msclkid','twclid','igshid','mc_eid','mc_cid',
@@ -48,20 +39,33 @@ const STRIP_PARAMS = [
 ];
 
 let win = null;
-const tabs = new Map();          // id -> {view, session, workspace, blocked}
+const tabs = new Map();
 let activeTabId = null;
 let nextTabId = 1;
-let internalView = false;          // home / reader / extensions / Flow live in Breeze chrome
-let privateGeneration = 1;          // rotates after the final private tab closes
-const recentlyClosed = [];          // normal tabs only; private tabs never enter recovery
+let internalView = false;
+let privateGeneration = 1;
+const recentlyClosed = [];
+const TAB_SLEEP_AFTER_MS = 30 * 60 * 1000;
+let tabSleepTimer = null;
 
-/* ── sessions ─────────────────────────────────────────────────────────────── */
 const sessions = new Map();
 const sessionContexts = new Map();
+function liveWebContents(t){
+  const wc=t?.view?.webContents;
+  return wc && !wc.isDestroyed() ? wc : null;
+}
+function currentTabUrl(t){
+  const wc=liveWebContents(t);
+  return wc ? wc.getURL() : String(t?.sleepState?.url || '');
+}
+function currentTabTitle(t){
+  const wc=liveWebContents(t);
+  return wc ? wc.getTitle() : String(t?.sleepState?.title || t?.fileName || '');
+}
 function downloadContextForWebContents(wcId){
   const tid = tabIdForWebContents(wcId);
   const t = tid != null ? tabs.get(tid) : null;
-  return t ? { url:t.view.webContents.getURL(), workspace:t.workspace, private:!!t.private } : {};
+  return t ? { url:currentTabUrl(t), workspace:t.workspace, private:!!t.private } : {};
 }
 function sessionEntries(){ return [...sessionContexts.values()].filter(x => !x.private); }
 function sessionFor(workspaceId, sealed, privateMode = false){
@@ -79,8 +83,6 @@ function sessionFor(workspaceId, sealed, privateMode = false){
   displayShare.attach(ses, send);
   sessionContexts.set(key, { ses, workspaceId:safeWs, private:privateMode });
   sessions.set(key, ses);
-  // Extensions are off in private browsing by default. Full per-extension
-  // incognito permission arrives with the Chromium Core extension layer.
   if (!privateMode) extensions.loadIntoSession(ses, safeWs).catch(() => {});
   return ses;
 }
@@ -100,51 +102,37 @@ async function purgePrivateSessions(){
 }
 
 function tabIdForWebContents(id){
-  for (const [tid, t] of tabs) if (t.view.webContents.id === id) return tid;
+  for (const [tid, t] of tabs){
+    const wc=liveWebContents(t);
+    if (wc && wc.id === id) return tid;
+  }
   return null;
 }
 
-/* ── url handling ─────────────────────────────────────────────────────────── */
 function cleanUrl(raw){
   let u;
   try { u = new URL(raw); } catch { return raw; }
-  if (!['http:','https:'].includes(u.protocol)) return null;   // no file:, no javascript:
+  if (!['http:','https:'].includes(u.protocol)) return null;
   STRIP_PARAMS.forEach(p => u.searchParams.delete(p));
   return u.toString();
 }
 
-/* The engine table lives in search.js now — one definition, used by both the
-   omnibox fallback here and the native results path. */
 const ENGINES = search.REDIRECT;
-
-/* Looks like a host? go there. Otherwise search. An omnibox that searches when
-   you typed an address is the most irritating thing a browser can do. */
 function resolveInput(input){
   const s = String(input || '').trim();
   if (!s) return null;
-  // Anything carrying an explicit scheme is judged on that scheme FIRST.
-  // Falling through to "just search for it" would be safe by luck, not by
-  // design — and in an Electron app a file:// navigation from the omnibox is
-  // a local-file read. Refuse loudly instead.
   const scheme = s.match(/^([a-z][a-z0-9+.\-]*):/i);
   if (scheme && !/^https?$/i.test(scheme[1])) return null;
   if (/^https?:\/\//i.test(s)) return cleanUrl(s);
   if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(s) && !s.includes(' ')) return cleanUrl('https://' + s);
-  // A bare query from the omnibox always resolves to a real engine URL, even
-  // when the user has picked a native provider. Native results are rendered by
-  // the chrome, not navigated to, so the omnibox still needs somewhere to go
-  // if the chrome hands us a query directly.
   return search.redirectUrl(s);
 }
 
-/* ── tab lifecycle ────────────────────────────────────────────────────────── */
-function createTab({ url, workspaceId = 'default', sealed = false, privateMode = false, localPdfPath = null } = {}){
-  const ses = sessionFor(workspaceId, sealed, privateMode);
-  const trustedPdfPath = localPdfPath ? documents.cleanPdfPath(String(localPdfPath)).full : null;
-  const pdfToken = trustedPdfPath ? documents.token() : null;
+function mountTabView(id,t){
+  const trustedPdfPath=t.localPdfPath;
   const view = new WebContentsView({
     webPreferences: {
-      session: ses,
+      session: t.session,
       preload: trustedPdfPath ? path.join(__dirname,'pdf-preload.js') : undefined,
       contextIsolation: true,
       nodeIntegration: false,
@@ -155,83 +143,182 @@ function createTab({ url, workspaceId = 'default', sealed = false, privateMode =
       plugins: false
     }
   });
-  const id = nextTabId++;
-  tabs.set(id, { view, session: ses, workspace: workspaceId, sealed, private:!!privateMode, blocked: 0,
-    kind: trustedPdfPath ? 'pdf' : 'page', localPdfPath: trustedPdfPath, pdfToken, fileName: trustedPdfPath ? path.basename(trustedPdfPath) : null });
+  t.view=view;
+  t.loading=false;
+  const wc=view.webContents;
 
-  const wc = view.webContents;
-
-  // Never let a page open an uncontrolled window. Same-tab or a new Breeze tab.
   wc.setWindowOpenHandler(({ url: target }) => {
     const clean = cleanUrl(target);
-    if (clean) createTab({ url: clean, workspaceId, sealed, privateMode });
+    if (clean) createTab({ url: clean, workspaceId:t.workspace, sealed:t.sealed, privateMode:t.private });
     return { action: 'deny' };
   });
-
-  // Block navigation to non-http schemes outright; hand real external
-  // protocols to the OS only after an explicit user gesture would be needed.
   wc.on('will-navigate', (e, target) => {
     if (trustedPdfPath && target.startsWith(pathToFileURL(path.join(__dirname,'ui','pdf-viewer.html')).toString())) return;
-    if (!cleanUrl(target)){ e.preventDefault(); }
+    if (!cleanUrl(target)) e.preventDefault();
   });
 
-  const push = () => send('tab:update', tabState(id));
-  const remember = () => library.recordVisit({url:wc.getURL(),title:wc.getTitle(),workspace:workspaceId,privateMode:!!privateMode});
+  const push = () => { if(tabs.has(id)) send('tab:update', tabState(id)); };
+  const remember = () => library.recordVisit({url:wc.getURL(),title:wc.getTitle(),workspace:t.workspace,privateMode:!!t.private});
   wc.on('page-title-updated', () => { push(); remember(); });
   wc.on('did-navigate', () => { push(); remember(); scheduleStateSave(); });
   wc.on('did-navigate-in-page', () => { push(); scheduleStateSave(); });
-  wc.on('did-start-loading', () => send('tab:loading', { id, loading: true }));
-  wc.on('did-stop-loading',  () => { send('tab:loading', { id, loading: false }); push(); });
-  wc.on('page-favicon-updated', (e, icons) => send('tab:favicon', { id, icon: icons[0] || null }));
-  wc.on('did-fail-load', (e, code, desc, failedUrl) => {
-    if (code === -3) return;                       // aborted, not an error
+  wc.on('did-start-loading', () => { t.loading=true; send('tab:loading', { id, loading: true }); });
+  wc.on('did-stop-loading',  () => { t.loading=false; send('tab:loading', { id, loading: false }); push(); });
+  wc.on('page-favicon-updated', (_e, icons) => send('tab:favicon', { id, icon: icons[0] || null }));
+  wc.on('did-fail-load', (_e, code, desc, failedUrl) => {
+    t.loading=false;
+    if (code === -3) return;
     send('tab:error', { id, code, desc, url: failedUrl });
   });
 
   win.contentView.addChildView(view);
+  return wc;
+}
+
+function createTab({ url, workspaceId = 'default', sealed = false, privateMode = false, localPdfPath = null } = {}){
+  const ses = sessionFor(workspaceId, sealed, privateMode);
+  const trustedPdfPath = localPdfPath ? documents.cleanPdfPath(String(localPdfPath)).full : null;
+  const id = nextTabId++;
+  const t={
+    view:null, session:ses, workspace:workspaceId, sealed, private:!!privateMode, blocked:0,
+    kind:trustedPdfPath?'pdf':'page', localPdfPath:trustedPdfPath,
+    pdfToken:trustedPdfPath?documents.token():null,
+    fileName:trustedPdfPath?path.basename(trustedPdfPath):null,
+    sleeping:false, waking:false, wakePromise:null, sleepState:null, loading:false,
+    lastActiveAt:Date.now(), closing:false
+  };
+  tabs.set(id,t);
+  const wc=mountTabView(id,t);
   setActiveTab(id);
-  if (trustedPdfPath) wc.loadFile(path.join(__dirname,'ui','pdf-viewer.html'),{query:{token:pdfToken}});
+  if (trustedPdfPath) wc.loadFile(path.join(__dirname,'ui','pdf-viewer.html'),{query:{token:t.pdfToken}});
   else if (url) wc.loadURL(url);
   layout();
   scheduleStateSave();
   return id;
 }
 
+function sleepBlockReason(id){
+  const t=tabs.get(id); if(!t)return'no tab';
+  const wc=liveWebContents(t); if(!wc)return t.sleeping?null:'no renderer';
+  if(id===activeTabId)return'active tab';
+  if(t.private)return'private tab';
+  if(t.kind!=='page'||t.localPdfPath)return'document tab';
+  const url=wc.getURL();
+  const smokeData=SMOKE && /^data:/i.test(url);
+  const mainFrameLoading=typeof wc.isLoadingMainFrame==='function' ? wc.isLoadingMainFrame() : t.loading;
+  if(mainFrameLoading && !smokeData)return'page is loading';
+  if(!/^https?:\/\//i.test(url) && !smokeData)return'not a web page';
+  if(typeof wc.isCurrentlyAudible==='function' && wc.isCurrentlyAudible())return'audio is playing';
+  if(typeof wc.isBeingCaptured==='function' && wc.isBeingCaptured())return'tab is being captured';
+  if(typeof wc.isDevToolsOpened==='function' && wc.isDevToolsOpened())return'DevTools are open';
+  if(downloads.hasActiveForSource(url,t.workspace))return'download is active';
+  return null;
+}
+
+function sleepTab(id){
+  const t=tabs.get(id); if(!t)return{error:'no tab'};
+  if(t.sleeping)return{ok:true,sleeping:true,releasedRenderer:true};
+  const reason=sleepBlockReason(id); if(reason)return{error:reason};
+  const wc=liveWebContents(t); if(!wc)return{error:'no renderer'};
+  let entries=[],index=0;
+  try{entries=wc.navigationHistory.getAllEntries();index=wc.navigationHistory.getActiveIndex();}catch{}
+  t.sleepState={
+    url:wc.getURL(), title:wc.getTitle(), entries, index,
+    canGoBack:wc.navigationHistory.canGoBack(), canGoForward:wc.navigationHistory.canGoForward(),
+    zoom:wc.getZoomFactor(), sleptAt:Date.now()
+  };
+  t.sleeping=true;t.waking=false;t.loading=false;
+  const old=t.view;t.view=null;
+  try{win.contentView.removeChildView(old);}catch{}
+  try{wc.close();}catch{}
+  send('tab:update',tabState(id));
+  scheduleStateSave();
+  return{ok:true,sleeping:true,releasedRenderer:true,sleptAt:t.sleepState.sleptAt};
+}
+
+async function wakeTab(id){
+  const t=tabs.get(id); if(!t)return{error:'no tab'};
+  if(!t.sleeping && !t.waking)return{ok:true,sleeping:false};
+  if(t.wakePromise)return t.wakePromise;
+  const snap=t.sleepState||{};
+  t.sleeping=false;t.waking=true;
+  t.wakePromise=(async()=>{
+    const wc=mountTabView(id,t);
+    let restored=false;
+    try{
+      if(Array.isArray(snap.entries)&&snap.entries.length){
+        await wc.navigationHistory.restore({entries:snap.entries,index:Number.isInteger(snap.index)?snap.index:undefined});
+        restored=true;
+      }
+    }catch{}
+    if(!tabs.has(id)||t.closing){try{wc.close();}catch{};return{error:'tab closed while waking'};}
+    if(!restored && snap.url){
+      try{await wc.loadURL(snap.url);}catch{}
+    }
+    if(Number.isFinite(snap.zoom)){try{wc.setZoomFactor(snap.zoom);}catch{}}
+    t.waking=false;t.sleepState=null;
+    layout();send('tab:update',tabState(id));scheduleStateSave();
+    return{ok:true,sleeping:false,restoredHistory:restored};
+  })();
+  try{return await t.wakePromise;}finally{t.wakePromise=null;}
+}
+
+function sleepSweep(){
+  if(!preferences.get().sleep)return;
+  const now=Date.now();
+  for(const [id,t] of tabs){
+    if(id===activeTabId||t.sleeping||t.waking)continue;
+    if(now-Number(t.lastActiveAt||now)>=TAB_SLEEP_AFTER_MS)sleepTab(id);
+  }
+}
+
 function tabState(id){
   const t = tabs.get(id); if (!t) return null;
-  const wc = t.view.webContents;
-  const liveUrl=wc.getURL();
+  const wc=liveWebContents(t), snap=t.sleepState||{};
+  const liveUrl=wc?.getURL() || snap.url || '';
   const inferredPdf=t.kind==='pdf' || /\.pdf(?:$|[?#])/i.test(liveUrl);
-  if(inferredPdf) t.kind='pdf';
+  if(inferredPdf)t.kind='pdf';
+  const nav=wc?.navigationHistory;
   return {
-    id, url: t.localPdfPath ? '' : liveUrl, title: t.fileName || wc.getTitle() || '', kind:t.kind||'page', fileName:t.fileName||null,
-    canGoBack: wc.navigationHistory.canGoBack(),
-    canGoForward: wc.navigationHistory.canGoForward(),
-    blocked: t.blocked, workspace: t.workspace, sealed: t.sealed, private:!!t.private,
-    active: id === activeTabId
+    id, url:t.localPdfPath?'':liveUrl,
+    title:t.fileName || wc?.getTitle() || snap.title || '', kind:t.kind||'page', fileName:t.fileName||null,
+    canGoBack:nav?nav.canGoBack():!!snap.canGoBack,
+    canGoForward:nav?nav.canGoForward():!!snap.canGoForward,
+    blocked:t.blocked, workspace:t.workspace, sealed:t.sealed, private:!!t.private,
+    sleeping:!!t.sleeping, waking:!!t.waking, lastActiveAt:Number(t.lastActiveAt||0),
+    active:id===activeTabId
   };
 }
 
 function setActiveTab(id){
   if (!tabs.has(id)) return;
-  activeTabId = id;
-  for (const [tid, t] of tabs) t.view.setVisible(!internalView && tid === id);
+  const previous=tabs.get(activeTabId);
+  if(previous && activeTabId!==id)previous.lastActiveAt=Date.now();
+  activeTabId=id;
+  const target=tabs.get(id);target.lastActiveAt=Date.now();
+  if(target.sleeping)wakeTab(id).catch(()=>{});
+  for (const [tid, t] of tabs){
+    if(t.view)t.view.setVisible(!internalView && tid===id);
+  }
   layout();
-  send('tab:update', tabState(id));
+  send('tab:update',tabState(id));
   scheduleStateSave();
 }
 
 function closeTab(id){
   const t = tabs.get(id); if (!t) return;
+  t.closing=true;
   if (!t.private){
-    const url=cleanUrl(t.view.webContents.getURL());
+    const url=cleanUrl(currentTabUrl(t));
     if (url){
       recentlyClosed.push({url,workspaceId:t.workspace,sealed:!!t.sealed,closedAt:Date.now()});
       if (recentlyClosed.length > 20) recentlyClosed.shift();
     }
   }
-  win.contentView.removeChildView(t.view);
-  t.view.webContents.close();
+  const wc=liveWebContents(t);
+  if(t.view){try{win.contentView.removeChildView(t.view);}catch{}}
+  if(wc){try{wc.close();}catch{}}
+  t.view=null;
   tabs.delete(id);
   if (activeTabId === id){
     const next = [...tabs.keys()].pop();
@@ -242,9 +329,6 @@ function closeTab(id){
   if (t.private && ![...tabs.values()].some(x => x.private)) purgePrivateSessions().catch(()=>{});
 }
 
-/* ── layout ───────────────────────────────────────────────────────────────
-   The chrome tells us its real geometry; we position content in the gap it
-   leaves. Recomputed on resize and whenever the sidebar or a panel toggles. */
 function layout(){
   if (!win) return;
   const [w, h] = win.getContentSize();
@@ -252,6 +336,7 @@ function layout(){
   const width  = Math.max(0, w - CHROME.side - CHROME.panel);
   const height = Math.max(0, h - CHROME.top);
   for (const [id, t] of tabs){
+    if(!t.view)continue;
     const live = !internalView && id === activeTabId;
     t.view.setVisible(live);
     t.view.setBounds(live ? { x, y, width, height } : { x: 0, y: 0, width: 0, height: 0 });
@@ -267,7 +352,7 @@ function stateSnapshot(){
   return {
     version:1, activeTabId, savedAt:Date.now(),
     tabs:[...tabs.entries()].filter(([,t]) => !t.private).map(([id,t]) => ({
-      id, url:cleanUrl(t.view.webContents.getURL()), workspaceId:t.workspace, sealed:!!t.sealed,
+      id, url:cleanUrl(currentTabUrl(t)), workspaceId:t.workspace, sealed:!!t.sealed,
       active:id===activeTabId
     })).filter(t => t.url)
   };
@@ -288,7 +373,6 @@ function restoreSavedTabs(){
   if (active != null) setActiveTab(active);
 }
 
-/* ── window ───────────────────────────────────────────────────────────────── */
 function createWindow(){
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 900, minHeight: 600,
@@ -298,7 +382,7 @@ function createWindow(){
     frame: process.platform === 'darwin',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,      // the shell API is the ONLY bridge
+      contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true
@@ -316,21 +400,13 @@ function createWindow(){
   win.on('maximize',   () => send('win:state', { maximized: true  }));
   win.on('unmaximize', () => send('win:state', { maximized: false }));
   win.on('closed', () => { win = null; });
-
 }
 
-/* ── IPC ──────────────────────────────────────────────────────────────────
-   Every handler validates its input. The renderer is trusted more than a web
-   page, but "more" is not "completely" — a chrome XSS would speak through
-   exactly this surface, which is why breach.py exists. */
 function reg(channel, fn){ ipcMain.handle(channel, (e, ...a) => {
-  if (e.sender !== win?.webContents) return null;      // only our chrome may call
+  if (e.sender !== win?.webContents) return null;
   try { return fn(...a); } catch (err) { return { error: String(err.message || err) }; }
 }); }
 
-/* Dedicated PDF renderer IPC. Unlike `reg`, this accepts only the sandboxed
-   WebContentsView that owns the matching opaque token. It has no access to
-   general browser IPC and never receives a filesystem path. */
 function pdfContext(sender, token){
   const id=tabIdForWebContents(sender?.id); const t=id!=null?tabs.get(id):null;
   return t && t.localPdfPath && t.pdfToken===String(token||'') ? {id,t} : null;
@@ -390,57 +466,48 @@ reg('document:openPdf', async () => {
 reg('tab:close',    id => { closeTab(Number(id)); return true; });
 reg('tab:select',   id => { setActiveTab(Number(id)); return true; });
 reg('tab:list',     () => [...tabs.keys()].map(tabState));
-reg('tab:navigate', (id, input) => {
-  const t = tabs.get(Number(id)); if (!t) return null;
-  const url = resolveInput(input); if (!url) return { error: 'blocked scheme' };
-  t.blocked = 0;
-  t.view.webContents.loadURL(url);
-  return url;
+reg('tab:sleep', id => sleepTab(Number(id)));
+reg('tab:wake',  id => wakeTab(Number(id)));
+reg('tab:navigate', async (id, input) => {
+  const t=tabs.get(Number(id)); if(!t)return null;
+  const url=resolveInput(input); if(!url)return{error:'blocked scheme'};
+  if(t.sleeping||t.waking)await wakeTab(Number(id));
+  const wc=liveWebContents(t); if(!wc)return{error:'no renderer'};
+  t.blocked=0;await wc.loadURL(url);return url;
 });
-reg('tab:back',    id => { const t = tabs.get(Number(id)); t?.view.webContents.navigationHistory.goBack(); });
-reg('tab:forward', id => { const t = tabs.get(Number(id)); t?.view.webContents.navigationHistory.goForward(); });
-reg('tab:reload',  (id, hard) => {
-  const t = tabs.get(Number(id));
-  hard ? t?.view.webContents.reloadIgnoringCache() : t?.view.webContents.reload();
+reg('tab:back', async id => { const t=tabs.get(Number(id));if(!t)return;if(t.sleeping||t.waking)await wakeTab(Number(id));liveWebContents(t)?.navigationHistory.goBack(); });
+reg('tab:forward', async id => { const t=tabs.get(Number(id));if(!t)return;if(t.sleeping||t.waking)await wakeTab(Number(id));liveWebContents(t)?.navigationHistory.goForward(); });
+reg('tab:reload', async (id, hard) => {
+  const t=tabs.get(Number(id));if(!t)return;if(t.sleeping||t.waking)await wakeTab(Number(id));const wc=liveWebContents(t);if(!wc)return;
+  hard ? wc.reloadIgnoringCache() : wc.reload();
 });
-reg('tab:find', (id, text, forward = true) => {
-  const t = tabs.get(Number(id)); if (!t) return 0;
-  if (!text) { t.view.webContents.stopFindInPage('clearSelection'); return 0; }
-  return t.view.webContents.findInPage(String(text), { forward, findNext: false });
+reg('tab:find', async (id, text, forward = true) => {
+  const t=tabs.get(Number(id));if(!t)return 0;if(t.sleeping||t.waking)await wakeTab(Number(id));const wc=liveWebContents(t);if(!wc)return 0;
+  if(!text){wc.stopFindInPage('clearSelection');return 0;}return wc.findInPage(String(text),{forward,findNext:false});
 });
-reg('tab:zoom', (id, factor) => {
-  const t = tabs.get(Number(id)); if (!t) return;
-  t.view.webContents.setZoomFactor(Math.max(.5, Math.min(2, Number(factor) || 1)));
+reg('tab:zoom', async (id, factor) => {
+  const t=tabs.get(Number(id));if(!t)return;if(t.sleeping||t.waking)await wakeTab(Number(id));liveWebContents(t)?.setZoomFactor(Math.max(.5,Math.min(2,Number(factor)||1)));
 });
 
-/* Session recovery — the feature the whole product is named around.
-   Three graduated repairs, each doing exactly what its label promises. */
 reg('session:repair', async (id, kind) => {
-  const t = tabs.get(Number(id)); if (!t) return { error: 'no tab' };
-  const wc = t.view.webContents;
-  const origin = (() => { try { return new URL(wc.getURL()).origin; } catch { return null; } })();
-  if (kind === 'reload'){ wc.reload(); return { ok: 'Reloaded past cache' }; }
-  if (kind === 'rebuild'){
-    // Clears the broken scratch state and the stale worker, and DOES NOT touch
-    // cookies — so you stay signed in. This is the whole point.
-    await t.session.clearStorageData({
-      origin, storages: ['cachestorage','serviceworkers','shadercache','websql','indexdb']
-    });
-    await t.session.clearCache();
-    wc.reloadIgnoringCache();
-    return { ok: 'Page state rebuilt — you are still signed in' };
+  const t=tabs.get(Number(id));if(!t)return{error:'no tab'};
+  if(t.sleeping||t.waking)await wakeTab(Number(id));
+  const wc=liveWebContents(t);if(!wc)return{error:'no renderer'};
+  const origin=(()=>{try{return new URL(wc.getURL()).origin;}catch{return null;}})();
+  if(kind==='reload'){wc.reload();return{ok:'Reloaded past cache'};}
+  if(kind==='rebuild'){
+    await t.session.clearStorageData({origin,storages:['cachestorage','serviceworkers','shadercache','websql','indexdb']});
+    await t.session.clearCache();wc.reloadIgnoringCache();return{ok:'Page state rebuilt — you are still signed in'};
   }
-  if (kind === 'reset'){
-    await t.session.clearStorageData({ origin });     // includes cookies
-    wc.reloadIgnoringCache();
-    return { ok: 'Site reset — you have been signed out of this site' };
+  if(kind==='reset'){
+    await t.session.clearStorageData({origin});wc.reloadIgnoringCache();return{ok:'Site reset — you have been signed out of this site'};
   }
-  return { error: 'unknown repair' };
+  return{error:'unknown repair'};
 });
 
 reg('chrome:geometry', g => {
-  if (typeof g?.top === 'number')   CHROME.top   = g.top;
-  if (typeof g?.side === 'number')  CHROME.side  = g.side;
+  if (typeof g?.top === 'number') CHROME.top = g.top;
+  if (typeof g?.side === 'number') CHROME.side = g.side;
   if (typeof g?.panel === 'number') CHROME.panel = g.panel;
   layout();
   return CHROME;
@@ -450,24 +517,17 @@ reg('chrome:internalView', on => {
   layout();
   return internalView;
 });
-reg('engine:set',  name => search.setProvider(String(name || '')));
+reg('engine:set', name => search.setProvider(String(name || '')));
 reg('engine:list', () => Object.keys(ENGINES));
-
-/* ── search ───────────────────────────────────────────────────────────────
-   The key never crosses back to the renderer. search:config reports whether a
-   provider is ready, not what it was configured with. */
-reg('search:config',    () => search.config());
-reg('search:provider',  name => search.setProvider(String(name || '')));
-reg('search:setKey',    (id, key) => search.setKey(String(id || ''), key));
-reg('search:clearKey',  id => search.clearKey(String(id || '')));
+reg('search:config', () => search.config());
+reg('search:provider', name => search.setProvider(String(name || '')));
+reg('search:setKey', (id, key) => search.setKey(String(id || ''), key));
+reg('search:clearKey', id => search.clearKey(String(id || '')));
 reg('search:searxngUrl', url => search.setSearxngUrl(url));
-reg('search:signals',   on => search.setSignals(!!on));
-reg('search:run',       q => search.search(q));
-reg('search:measure',   url => search.measure(url));
+reg('search:signals', on => search.setSignals(!!on));
+reg('search:run', q => search.search(q));
+reg('search:measure', url => search.measure(url));
 
-
-/* ── Breeze Flow: local media conversion ─────────────────────────────────
-   Paths stay in the main process. The renderer gets an opaque job id only. */
 reg('flow:mediaCapabilities', () => media.capabilities());
 reg('flow:ingestMediaPath', filePath => {
   if(typeof filePath !== 'string' || !filePath || filePath.length > 4096) return {error:'invalid media path'};
@@ -490,8 +550,6 @@ reg('flow:convertMedia', async (id,opts={}) => {
 });
 reg('flow:clearMedia', id => media.clear(id));
 
-/* Extensions — compatible unpacked extensions today; the manager reports
-   unsupported MV3/service-worker requirements instead of silently breaking. */
 reg('extension:list', () => extensions.list());
 reg('extension:installUnpacked', async () => {
   const picked = await dialog.showOpenDialog(win,{properties:['openDirectory'],title:'Choose an unpacked Chrome extension'});
@@ -507,7 +565,6 @@ reg('extension:installUnpacked', async () => {
 reg('extension:setEnabled', async (id,on) => extensions.setEnabled(String(id||''),!!on,sessionEntries()));
 reg('extension:remove', async id => extensions.remove(String(id||''),sessionEntries()));
 
-/* Real Chromium downloads. Paths never cross into the chrome renderer. */
 reg('download:list', () => downloads.list());
 reg('download:open', id => downloads.open(String(id||'')));
 reg('download:show', id => downloads.show(String(id||'')));
@@ -522,34 +579,36 @@ reg('permission:reset', (origin,permission) => permissionBroker.reset(origin,per
 reg('display:respond', (id,sourceId) => displayShare.respond(id,sourceId));
 reg('display:cancel', id => displayShare.cancel(id));
 
-/* Local browser library. History is automatic for normal tabs; private tabs
-   never enter it. Bookmarks are explicit and can be saved from any tab. */
 reg('history:list', q => library.listHistory(String(q||'')));
 reg('history:clear', () => library.clearHistory());
 reg('bookmark:list', q => library.listBookmarks(String(q||'')));
-reg('bookmark:is', id => { const t=tabs.get(Number(id)); return t ? library.isBookmarked(t.view.webContents.getURL()) : false; });
+reg('bookmark:is', id => { const t=tabs.get(Number(id)); return t ? library.isBookmarked(currentTabUrl(t)) : false; });
 reg('bookmark:add', id => {
-  const t=tabs.get(Number(id)); if(!t) return {error:'no tab'};
-  return library.addBookmark({url:t.view.webContents.getURL(),title:t.view.webContents.getTitle(),workspace:t.workspace});
+  const t=tabs.get(Number(id));if(!t)return{error:'no tab'};
+  return library.addBookmark({url:currentTabUrl(t),title:currentTabTitle(t),workspace:t.workspace});
 });
 reg('bookmark:remove', key => library.removeBookmark(String(key||'')));
-reg('bookmark:toggle', id => { const t=tabs.get(Number(id)); if(!t)return {error:'no tab'}; const url=t.view.webContents.getURL(); if(library.isBookmarked(url)){ library.removeBookmark(url); return {ok:true,saved:false}; } const row=library.addBookmark({url,title:t.view.webContents.getTitle(),workspace:t.workspace}); return row?.error?row:{ok:true,saved:true,bookmark:row}; });
+reg('bookmark:toggle', id => {
+  const t=tabs.get(Number(id));if(!t)return{error:'no tab'};const url=currentTabUrl(t);
+  if(library.isBookmarked(url)){library.removeBookmark(url);return{ok:true,saved:false};}
+  const row=library.addBookmark({url,title:currentTabTitle(t),workspace:t.workspace});
+  return row?.error?row:{ok:true,saved:true,bookmark:row};
+});
 
-reg('win:minimize',       () => win?.minimize());
+reg('win:minimize', () => win?.minimize());
 reg('win:toggleMaximize', () => { win?.isMaximized() ? win.unmaximize() : win?.maximize(); });
-reg('win:isMaximized',    () => !!win?.isMaximized());
-reg('win:close',          () => win?.close());
+reg('win:isMaximized', () => !!win?.isMaximized());
+reg('win:close', () => win?.close());
 reg('win:toggleFullScreen', () => win?.setFullScreen(!win.isFullScreen()));
-reg('win:new',            () => createWindow());
-reg('app:openDevTools',   () => tabs.get(activeTabId)?.view.webContents.openDevTools({ mode: 'bottom' }));
-reg('app:print',          () => tabs.get(activeTabId)?.view.webContents.print());
-reg('app:version',        () => ({
+reg('win:new', () => createWindow());
+reg('app:openDevTools', () => liveWebContents(tabs.get(activeTabId))?.openDevTools({ mode: 'bottom' }));
+reg('app:print', () => liveWebContents(tabs.get(activeTabId))?.print());
+reg('app:version', () => ({
   version: app.getVersion(), electron: process.versions.electron,
   chrome: process.versions.chrome, platform: process.platform
 }));
 reg('app:clearData', async (kinds = []) => {
-  const map = { cache:['cachestorage'], history:[], cookies:['cookies'],
-                storage:['localstorage','indexdb','websql','serviceworkers'] };
+  const map = { cache:['cachestorage'], history:[], cookies:['cookies'], storage:['localstorage','indexdb','websql','serviceworkers'] };
   const storages = kinds.flatMap(k => map[k] || []);
   if (kinds.includes('history')) library.clearHistory();
   for (const ses of sessions.values()){
@@ -559,9 +618,7 @@ reg('app:clearData', async (kinds = []) => {
   return { ok: true };
 });
 
-/* ── app lifecycle ────────────────────────────────────────────────────────── */
 app.whenReady().then(() => {
-  // Local browser services initialize before any page sessions are created.
   const userDataPath = app.getPath('userData');
   search.init({ userDataPath, safeStorage });
   extensions.init(userDataPath);
@@ -572,17 +629,14 @@ app.whenReady().then(() => {
   installGuards(app, shell, path.join(__dirname, 'ui'));
   hardenSession(session.defaultSession);
   createWindow();
+  tabSleepTimer=setInterval(sleepSweep,60*1000);
+  if(typeof tabSleepTimer.unref==='function')tabSleepTimer.unref();
   win.webContents.once('did-finish-load', () => { if (!SMOKE) setTimeout(restoreSavedTabs, 40); });
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length){ createWindow(); win.webContents.once('did-finish-load', () => { if (!SMOKE) setTimeout(restoreSavedTabs,40); }); } });
 });
-app.on('before-quit', () => { try { browserState.write(stateSnapshot()); } catch {} });
+app.on('before-quit', () => { if(tabSleepTimer)clearInterval(tabSleepTimer); try { browserState.write(stateSnapshot()); } catch {} });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
-
-/* ── smoke test ───────────────────────────────────────────────────────────
-   Run with `npm run smoke`. Exercises the real pipeline headlessly: create a
-   tab, load a data: page, verify title, check sealed sessions are genuinely
-   separate, confirm dangerous schemes are refused. Exits non-zero on failure. */
 async function runSmokeTest(){
   const results = [];
   const ok = (name, cond, extra = '') => { results.push([cond ? 'PASS' : 'FAIL', name, extra]); };
@@ -594,13 +648,11 @@ async function runSmokeTest(){
     await new Promise(r => wc.once('did-finish-load', r));
     ok('tab loads and reports title', wc.getTitle() === 'Breeze Smoke', wc.getTitle());
 
-    ok('javascript: scheme refused',  resolveInput('javascript:alert(1)') === null);
-    ok('file: scheme refused',        resolveInput('file:///etc/passwd') === null);
-    ok('host goes to host',           resolveInput('example.com').startsWith('https://example.com'));
-    ok('query goes to search',        resolveInput('offline first').includes('search.brave.com'));
-    ok('utm params stripped',
-       !resolveInput('https://x.com/a?utm_source=n&b=1').includes('utm_source'),
-       resolveInput('https://x.com/a?utm_source=n&b=1'));
+    ok('javascript: scheme refused', resolveInput('javascript:alert(1)') === null);
+    ok('file: scheme refused', resolveInput('file:///etc/passwd') === null);
+    ok('host goes to host', resolveInput('example.com').startsWith('https://example.com'));
+    ok('query goes to search', resolveInput('offline first').includes('search.brave.com'));
+    ok('utm params stripped', !resolveInput('https://x.com/a?utm_source=n&b=1').includes('utm_source'), resolveInput('https://x.com/a?utm_source=n&b=1'));
 
     const sMain = sessionFor('default', false);
     const sSeal = sessionFor('northwind', true);
@@ -609,12 +661,24 @@ async function runSmokeTest(){
 
     const id2 = createTab({ url: page, workspaceId: 'northwind', sealed: true });
     await new Promise(r => tabs.get(id2).view.webContents.once('did-finish-load', r));
-    ok('sealed tab uses sealed partition',
-       tabs.get(id2).session === sSeal && tabs.get(id).session !== sSeal);
+    ok('sealed tab uses sealed partition', tabs.get(id2).session === sSeal && tabs.get(id).session !== sSeal);
 
     setActiveTab(id);
-    ok('active tab is visible, others hidden',
-       tabs.get(id).view.getVisible() === true && tabs.get(id2).view.getVisible() === false);
+    ok('active tab is visible, others hidden', tabs.get(id).view.getVisible() === true && tabs.get(id2).view.getVisible() === false);
+
+    const beforeSleep=tabs.get(id2).view.webContents;
+    const beforeSleepId=beforeSleep.id;
+    const destroyedPromise=beforeSleep.isDestroyed()
+      ? Promise.resolve(true)
+      : new Promise(resolve => beforeSleep.once('destroyed', () => resolve(true)));
+    const slept=sleepTab(id2);
+    ok('inactive tab releases its renderer', slept.ok===true && tabs.get(id2).sleeping===true && tabs.get(id2).view===null, slept.error||'');
+    const destroyed=await Promise.race([destroyedPromise,new Promise(r=>setTimeout(()=>r(false),1000))]);
+    ok('released WebContents is destroyed', destroyed===true && beforeSleep.isDestroyed()===true);
+    const woke=await wakeTab(id2);
+    const afterWake=liveWebContents(tabs.get(id2));
+    ok('sleeping tab reconstructs a new renderer', woke.ok===true && !!afterWake && afterWake.id!==beforeSleepId);
+    ok('navigation history restores page state', afterWake?.getTitle()==='Breeze Smoke');
 
     closeTab(id2);
     ok('tab closes cleanly', !tabs.has(id2));

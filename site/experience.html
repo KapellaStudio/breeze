@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#06090e">
+<title>Experience Breeze — interactive web preview</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--bg:#06090e;--line:rgba(255,255,255,.10);--muted:#8d9bad;--mint:#78f1cf;--cyan:#35d9f3;--blue:#4b7cff}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(900px 600px at 60% -10%,rgba(75,124,255,.19),transparent 65%),var(--bg);color:#f5f9fc;min-height:100svh}
+a{color:inherit}button,input{font:inherit}.shell{width:min(1500px,100%);margin:auto;min-height:100svh;display:flex;flex-direction:column}
+.top{height:66px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid var(--line);background:rgba(7,10,16,.68);backdrop-filter:blur(18px);position:sticky;top:0;z-index:10}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:700;letter-spacing:-.03em}.brand svg{width:32px}
+.back{font-size:12px;color:#a6b2c0;text-decoration:none;padding:9px 12px;border:1px solid var(--line);border-radius:999px}
+.canvas{flex:1;padding:28px;display:grid;place-items:center}
+.browser{width:min(1320px,100%);height:min(820px,calc(100svh - 122px));min-height:620px;border:1px solid rgba(255,255,255,.13);border-radius:30px;overflow:hidden;background:#090d13;box-shadow:0 50px 140px rgba(0,0,0,.55);display:grid;grid-template-columns:230px 1fr}
+.sidebar{border-right:1px solid var(--line);padding:16px 12px;background:linear-gradient(180deg,rgba(255,255,255,.04),transparent);display:flex;flex-direction:column}
+.traffic{display:flex;gap:7px;padding:6px 8px 20px}.traffic i{width:8px;height:8px;border-radius:50%;background:#4c5968}.traffic i:first-child{background:#ff6c6c}.traffic i:nth-child(2){background:#ffd661}.traffic i:nth-child(3){background:#68dfa0}
+.ws{padding:8px 9px 5px;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#637285}
+.tab{display:flex;gap:10px;align-items:center;padding:10px;border-radius:12px;color:#93a2b4;font-size:13px}.tab.on{background:rgba(255,255,255,.07);color:white}
+.icon{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(120,241,207,.25),rgba(75,124,255,.25));font-size:10px}
+.sleep{margin-top:auto;color:#647486;font-size:10px;padding:10px}
+.main{min-width:0;display:flex;flex-direction:column}.bar{height:58px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:0 15px}
+.nav{color:#617286}.omni{flex:1;max-width:800px;height:38px;display:flex;align-items:center;gap:9px;padding:0 12px;background:rgba(255,255,255,.045);border:1px solid var(--line);border-radius:12px}
+.omni input{min-width:0;flex:1;border:0;background:none;outline:0;color:#fff}.privacy{margin-left:auto;font-size:11px;color:#78e7d0}
+.page{flex:1;position:relative;padding:56px;background:radial-gradient(660px 420px at 15% 10%,rgba(53,217,243,.10),transparent 65%),radial-gradient(550px 420px at 92% 88%,rgba(75,124,255,.15),transparent 72%),#090d13;overflow:auto}
+.logo{display:flex;gap:10px;align-items:center;font-size:14px}.logo svg{width:34px}h1{font-size:clamp(48px,7vw,92px);line-height:.92;letter-spacing:-.065em;margin:30px 0 18px;max-width:850px}
+p{color:#8e9daf;line-height:1.62;max-width:690px;font-size:17px}.search{display:flex;gap:8px;max-width:760px;margin-top:32px;padding:8px;border:1px solid var(--line);background:rgba(255,255,255,.05);border-radius:17px}
+.search input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:white;padding:10px 11px}.search button{border:0;border-radius:11px;padding:10px 15px;background:linear-gradient(110deg,#bcfae8,#8ce3fa);color:#061016;font-weight:650;cursor:pointer}
+.results{max-width:760px;margin-top:12px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:rgba(10,15,22,.84);display:none}.results.on{display:block}
+.row{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.055);display:flex;justify-content:space-between;gap:20px;font-size:12px;color:#b5c0cb}.row:last-child{border:0}.row span{color:#68798c}
+.note{position:absolute;right:28px;bottom:24px;width:255px;padding:16px;border:1px solid var(--line);background:rgba(13,19,28,.75);backdrop-filter:blur(18px);border-radius:18px;font-size:11px;color:#8291a2;line-height:1.5}.note b{display:block;color:#dce7f1;margin-bottom:5px}
+@media(max-width:850px){.canvas{padding:12px}.browser{grid-template-columns:1fr;height:calc(100svh - 90px);border-radius:22px}.sidebar{display:none}.page{padding:40px 22px}.privacy{display:none}.search{flex-direction:column}.search button{width:100%}.note{position:relative;right:auto;bottom:auto;width:auto;margin-top:24px}}
+</style></head>
+<body><div class="shell">
+<header class="top"><a class="brand" href="../index.html"><svg viewBox="0 0 240 240" aria-hidden="true"><defs><linearGradient id="g1" x1="34" y1="24" x2="188" y2="162" gradientUnits="userSpaceOnUse"><stop stop-color="#B8FFE7"/><stop offset=".32" stop-color="#7EF3D6"/><stop offset=".7" stop-color="#22D3EE"/><stop offset="1" stop-color="#0891B2"/></linearGradient><linearGradient id="g2" x1="30" y1="96" x2="196" y2="183" gradientUnits="userSpaceOnUse"><stop stop-color="#8DFFE6"/><stop offset=".45" stop-color="#22D3EE"/><stop offset="1" stop-color="#2563EB"/></linearGradient><linearGradient id="g3" x1="42" y1="142" x2="202" y2="208" gradientUnits="userSpaceOnUse"><stop stop-color="#5EEAD4"/><stop offset=".42" stop-color="#0EA5E9"/><stop offset="1" stop-color="#2563EB"/></linearGradient></defs><path d="M29 206C49 172 57 133 54 95C52 60 66 34 93 23C121 12 160 18 181 39C202 61 200 91 182 111C165 130 137 136 111 137C82 139 56 160 29 206Z" fill="url(#g1)"/><path d="M29 206C57 168 78 130 111 113C139 99 174 102 192 123C209 143 203 169 181 182C157 196 125 189 98 185C73 182 50 190 29 206Z" fill="url(#g2)" opacity=".96"/><path d="M29 206C62 186 92 163 125 160C157 157 190 169 201 192C209 211 193 224 166 222C132 219 105 204 78 200C59 197 43 201 29 206Z" fill="url(#g3)" opacity=".94"/></svg><span>Breeze</span></a><a class="back" href="../index.html">← Back to Breeze</a></header>
+<div class="canvas"><div class="browser">
+<aside class="sidebar"><div class="traffic"><i></i><i></i><i></i></div><div class="ws">Personal</div><div class="tab on"><span class="icon">B</span>New tab</div><div class="tab"><span class="icon">K</span>Kapella</div><div class="tab"><span class="icon">PDF</span>Design notes</div><div class="ws">Research</div><div class="tab"><span class="icon">R</span>Reading queue</div><div class="sleep">2 inactive renderers released</div></aside>
+<section class="main"><div class="bar"><span class="nav">←</span><span class="nav">→</span><span class="nav">↻</span><label class="omni"><span>⌕</span><input id="omni" placeholder="Search the web or enter an address"><span style="color:#607083;font-size:11px">⌘K</span></label><span class="privacy">● Protected</span></div>
+<div class="page"><div class="logo"><svg viewBox="0 0 240 240" aria-hidden="true"><defs><linearGradient id="g1b" x1="34" y1="24" x2="188" y2="162" gradientUnits="userSpaceOnUse"><stop stop-color="#B8FFE7"/><stop offset=".32" stop-color="#7EF3D6"/><stop offset=".7" stop-color="#22D3EE"/><stop offset="1" stop-color="#0891B2"/></linearGradient><linearGradient id="g2b" x1="30" y1="96" x2="196" y2="183" gradientUnits="userSpaceOnUse"><stop stop-color="#8DFFE6"/><stop offset=".45" stop-color="#22D3EE"/><stop offset="1" stop-color="#2563EB"/></linearGradient><linearGradient id="g3b" x1="42" y1="142" x2="202" y2="208" gradientUnits="userSpaceOnUse"><stop stop-color="#5EEAD4"/><stop offset=".42" stop-color="#0EA5E9"/><stop offset="1" stop-color="#2563EB"/></linearGradient></defs><path d="M29 206C49 172 57 133 54 95C52 60 66 34 93 23C121 12 160 18 181 39C202 61 200 91 182 111C165 130 137 136 111 137C82 139 56 160 29 206Z" fill="url(#g1b)"/><path d="M29 206C57 168 78 130 111 113C139 99 174 102 192 123C209 143 203 169 181 182C157 196 125 189 98 185C73 182 50 190 29 206Z" fill="url(#g2b)" opacity=".96"/><path d="M29 206C62 186 92 163 125 160C157 157 190 169 201 192C209 211 193 224 166 222C132 219 105 204 78 200C59 197 43 201 29 206Z" fill="url(#g3b)" opacity=".94"/></svg><span>Breeze new tab</span></div><h1>The web, with less friction.</h1><p>This is the public web preview. Search is real: Breeze resolves a typed address as a site and everything else as a web search. The installable browser adds your local tabs, history, bookmarks and Reading Queue to the omnibox.</p>
+<form class="search" id="search"><input id="query" placeholder="Search with Breeze"><button>Search</button></form>
+<div class="results" id="results"><div class="row"><b id="kind">Web search</b><span id="dest">Brave Search</span></div><div class="row"><b>Privacy note</b><span>Private app windows suppress remote autocomplete</span></div></div>
+<div class="note"><b>Preview vs installed app</b>This page demonstrates Breeze interaction and design. It does not pretend a web page can replace the Electron/Chromium desktop application.</div>
+</div></section>
+</div></div></div>
+<script>
+function resolvePreviewInput(raw){
+  const s=String(raw||'').trim();if(!s)return null;
+  if(/^https?:\/\//i.test(s)){try{const u=new URL(s);return ['http:','https:'].includes(u.protocol)?{kind:'address',url:u.href}:null}catch{return null}}
+  if(/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(s)&&!s.includes(' '))return {kind:'address',url:'https://'+s};
+  return {kind:'search',url:'https://search.brave.com/search?q='+encodeURIComponent(s)};
+}
+window.BreezePreview={resolveInput:resolvePreviewInput};
+function show(raw){
+  const r=resolvePreviewInput(raw);if(!r)return;
+  document.querySelector('#results').classList.add('on');document.querySelector('#kind').textContent=r.kind==='address'?'Website':'Web search';document.querySelector('#dest').textContent=r.url.replace(/^https?:\/\//,'').slice(0,66);
+  window.open(r.url,'_blank','noopener,noreferrer');
+}
+document.querySelector('#search').addEventListener('submit',e=>{e.preventDefault();show(document.querySelector('#query').value)});
+document.querySelector('#omni').addEventListener('keydown',e=>{if(e.key==='Enter')show(e.currentTarget.value)});
+</script></body></html>

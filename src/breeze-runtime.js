@@ -9,6 +9,7 @@
   const $$=s=>[...document.querySelectorAll(s)];
   const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n;};
   let active=null;
+  let tabCache=[];
 
   const style=document.createElement('style');
   style.textContent=`
@@ -52,7 +53,20 @@
     configureSwitch('[data-pane="privacy"]','Strip tracking parameters',true,'utm_, fbclid, gclid and other common tracking parameters are stripped from navigations.');
   }
   function correctDownloadSettings(){configureSwitch('[data-pane="downloads"]','Detect newer versions',false,'Not active in this RC. Breeze will not simulate version detection.');}
-  function correctTabSettings(){configureSwitch('[data-pane="tabs"]','Sleep inactive tabs',false,'Real renderer discard is not enabled in this RC, so Breeze does not report fictional memory savings.');}
+  function correctTabSettings(){
+    const rows=$$('[data-pane="tabs"] .setRow');const r=rows.find(x=>x.querySelector('.t')?.textContent?.trim()==='Sleep inactive tabs');if(!r)return;
+    const sw=r.querySelector('.switch');if(sw){sw.disabled=false;delete sw.dataset.shellDisabled;}
+    const d=r.querySelector('.d');if(d)d.textContent='After 30 minutes, inactive web tabs release their Chromium renderer and restore navigation history plus best-effort page state when reopened. Private, audio, captured, downloading, loading, DevTools and PDF tabs stay awake.';
+    const stat=document.querySelector('.sleepStat');if(stat)stat.style.display='';
+  }
+  function renderSleepStat(){
+    const stat=document.querySelector('.sleepStat');if(!stat)return;
+    const sleeping=tabCache.filter(t=>t?.sleeping).length,waking=tabCache.filter(t=>t?.waking).length;
+    stat.style.display='';
+    stat.textContent=waking?`Waking ${waking} tab${waking===1?'':'s'}…`:sleeping?`${sleeping} inactive renderer${sleeping===1?'':'s'} released`:'No tabs sleeping';
+    stat.title='Breeze counts released tab renderers. It does not invent a memory-saved estimate.';
+  }
+  function upsertTab(st){if(!st)return;const i=tabCache.findIndex(t=>t.id===st.id);if(i>=0)tabCache[i]={...tabCache[i],...st};else tabCache.push(st);renderSleepStat();}
 
   async function createWorkspaceFromCommand(){
     const name=prompt('Name this workspace','New workspace');if(!name||!name.trim())return;
@@ -98,8 +112,9 @@
     }catch{}
   }
 
-  S.listTabs().then(t=>{active=(t||[]).find(x=>x.active)||null;renderPrivacy();}).catch(()=>{});
-  S.on('tab:update',st=>{if(st?.active){active=st;renderPrivacy();}});
+  S.listTabs().then(t=>{tabCache=Array.isArray(t)?t:[];active=tabCache.find(x=>x.active)||null;renderSleepStat();renderPrivacy();}).catch(()=>{});
+  S.on('tab:update',st=>{upsertTab(st);if(st?.active){active=st;renderPrivacy();}});
+  S.on('tab:closed',({id})=>{tabCache=tabCache.filter(t=>t.id!==id);renderSleepStat();});
   const shield=$('#shieldBtn');if(shield){shield.title='Privacy and session tools';shield.addEventListener('click',()=>setTimeout(renderPrivacy,0),true);}
   correctProtectionSettings();correctDownloadSettings();correctTabSettings();removeUnsupportedControls();
 })();

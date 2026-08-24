@@ -36,6 +36,10 @@ function safePublic(r){
   };
 }
 function list(){ return rows.map(safePublic); }
+function hasActiveForSource(url, workspace){
+  const target=String(url||'');const ws=String(workspace||'');
+  return rows.some(r=>active.has(r.id) && String(r.source||'')===target && (!ws || String(r.workspace||'')===ws));
+}
 function uniquePath(filename){
   const ext = path.extname(filename), stem = path.basename(filename, ext);
   let candidate = path.join(downloadsDir, filename), n = 1;
@@ -113,4 +117,4 @@ function endPrivateSession(){
   return {ok:true};
 }
 
-module.exports = { init, wireSession, list, open, show, pause, resume, cancel, clearFinished, endPrivateSession };
+module.exports = { init, wireSession, list, hasActiveForSource, open, show, pause, resume, cancel, clearFinished, endPrivateSession };

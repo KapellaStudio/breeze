@@ -10,6 +10,8 @@ const workspaces = require('./workspaces');
 const workspaceData = require('./workspace-data');
 const vault = require('./vault');
 const weather = require('./weather');
+const search = require('./search');
+const omnibox = require('./omnibox');
 
 let initialized = false;
 function ensureInit(){
@@ -48,18 +50,12 @@ handle('launch:reset', () => launch.resetFirstRun());
 handle('launch:sources', () => launch.detectSources());
 handle('launch:importBrowser', (browser, options={}) => launch.importBrowserData(String(browser||''), options || {}));
 handle('launch:importBookmarksHtml', async () => {
-  const picked = await dialog.showOpenDialog({
-    title: 'Import bookmarks into Breeze', properties: ['openFile'],
-    filters: [{ name:'Bookmarks HTML', extensions:['html','htm'] }]
-  });
+  const picked = await dialog.showOpenDialog({title:'Import bookmarks into Breeze',properties:['openFile'],filters:[{name:'Bookmarks HTML',extensions:['html','htm']}]});
   if (picked.canceled || !picked.filePaths[0]) return { canceled:true };
   return launch.importBookmarksHtml(path.resolve(picked.filePaths[0]));
 });
 handle('launch:exportBookmarksHtml', async () => {
-  const picked = await dialog.showSaveDialog({
-    title: 'Export Breeze bookmarks', defaultPath: path.join(app.getPath('documents'), 'Breeze Bookmarks.html'),
-    filters: [{ name:'Bookmarks HTML', extensions:['html'] }]
-  });
+  const picked = await dialog.showSaveDialog({title:'Export Breeze bookmarks',defaultPath:path.join(app.getPath('documents'),'Breeze Bookmarks.html'),filters:[{name:'Bookmarks HTML',extensions:['html']}]});
   if (picked.canceled || !picked.filePath) return { canceled:true };
   return launch.exportBookmarksHtml(path.resolve(picked.filePath));
 });
@@ -71,6 +67,16 @@ handle('prefs:get', () => preferences.get());
 handle('prefs:set', (key,value) => preferences.set(String(key||''),value));
 handle('prefs:setMany', patch => preferences.setMany(patch || {}));
 handle('prefs:reset', () => preferences.reset());
+
+/* Browser-grade omnibox helpers. Remote suggestions are never persisted, can
+   be disabled in preferences, and are suppressed by the preload in Private. */
+handle('omnibox:resolve', value => omnibox.resolve(value,search.config().provider));
+handle('omnibox:shortcuts', () => omnibox.shortcuts());
+handle('omnibox:suggest', (query,privateMode=false) => omnibox.suggest(query,{
+  provider:search.config().provider,
+  privateMode:!!privateMode,
+  enabled:preferences.get().searchSuggestions!==false
+}));
 
 handle('workspace:list', () => workspaces.list());
 handle('workspace:get', id => workspaces.get(String(id||'')));
@@ -91,7 +97,6 @@ handle('snapshot:list', workspace => workspaceData.listSnapshots(workspace));
 handle('snapshot:save', item => workspaceData.saveSnapshot(item || {}));
 handle('snapshot:remove', id => workspaceData.removeSnapshot(String(id||'')));
 
-/* Breeze Vault: passwords never cross back into the chrome renderer. */
 handle('vault:status', () => vault.securityStatus());
 handle('vault:list', q => vault.list(String(q||'')));
 handle('vault:add', item => vault.add(item || {}));
@@ -105,9 +110,6 @@ handle('vault:importCsv', async () => {
   return vault.importCsv(path.resolve(picked.filePaths[0]));
 });
 
-/* Live weather uses the approximate network location already exposed to the
-   internet. No OS geolocation permission, Google API key or coordinate is
-   required from the renderer. The weather module keeps its caches in memory. */
 handle('weather:current', unit => weather.current(unit));
 
 app.whenReady().then(() => ensureInit());

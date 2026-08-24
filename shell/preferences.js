@@ -14,18 +14,20 @@ const DEFAULTS = Object.freeze({
   comfort: 'comfort',
   sidebar: 'on',
   compact: false,
-  // Location is opt-in. Coordinates themselves are never persisted.
   weatherEnabled: false,
-  // Real renderer discard/version polling are not enabled in this Electron RC.
-  // Keep their stored defaults off rather than persisting a visual promise.
-  sleep: false,
+  // Search suggestions are useful browser behavior, but they may send partial
+  // queries to the selected engine. Private browsing suppresses remote calls.
+  searchSuggestions: true,
+  searchLibrary: true,
+  sleep: true,
   tint: true,
   group: true,
   askwhere: false,
   provenance: true,
   versionDetection: false
 });
-let state = { ...DEFAULTS };
+const SLEEP_POLICY_VERSION = 1;
+let state = { ...DEFAULTS, _sleepPolicyVersion:SLEEP_POLICY_VERSION };
 
 const ENUMS = {
   theme: new Set(['light','dark','auto']),
@@ -36,7 +38,7 @@ const ENUMS = {
   comfort: new Set(['bright','comfort','dim']),
   sidebar: new Set(['on','auto','off'])
 };
-const BOOLS = new Set(['compact','weatherEnabled','sleep','tint','group','askwhere','provenance','versionDetection']);
+const BOOLS = new Set(['compact','weatherEnabled','searchSuggestions','searchLibrary','sleep','tint','group','askwhere','provenance','versionDetection']);
 
 function atomicWrite(value){
   if(!file) return;
@@ -45,26 +47,24 @@ function atomicWrite(value){
   fs.renameSync(tmp,file);
 }
 function normalize(raw={}){
-  const out={...DEFAULTS};
-  for(const [key,allowed] of Object.entries(ENUMS)){
-    if(allowed.has(raw[key])) out[key]=raw[key];
+  const out={...DEFAULTS,_sleepPolicyVersion:SLEEP_POLICY_VERSION};
+  for(const [key,allowed] of Object.entries(ENUMS)) if(allowed.has(raw[key])) out[key]=raw[key];
+  for(const key of BOOLS){
+    if(key==='sleep') continue;
+    if(typeof raw[key]==='boolean') out[key]=raw[key];
   }
-  for(const key of BOOLS) if(typeof raw[key]==='boolean') out[key]=raw[key];
-  // Migrate the short-lived boolean rail preference from early RC builds.
+  out.sleep=raw._sleepPolicyVersion===SLEEP_POLICY_VERSION && typeof raw.sleep==='boolean' ? raw.sleep : true;
   if(!ENUMS.sidebar.has(raw.sidebar) && typeof raw.rail==='boolean') out.sidebar=raw.rail?'auto':'on';
-  // Old prototypes used neutral/warm labels that never existed in the UI.
   if(raw.comfort==='neutral') out.comfort='comfort';
   if(raw.comfort==='warm') out.comfort='dim';
-  // Unsupported switches remain off even if an earlier build persisted them on.
-  out.sleep=false;
   out.versionDetection=false;
   return out;
 }
 function init(userDataPath){
   file=path.join(userDataPath,'preferences.json');
-  try{state=normalize(JSON.parse(fs.readFileSync(file,'utf8')));}catch{state={...DEFAULTS};}
+  try{state=normalize(JSON.parse(fs.readFileSync(file,'utf8')));}catch{state={...DEFAULTS,_sleepPolicyVersion:SLEEP_POLICY_VERSION};}
 }
-function get(){return {...state};}
+function get(){const {_sleepPolicyVersion,...publicState}=state;return {...publicState};}
 function set(key,value){
   key=String(key||'');
   if(ENUMS[key]){
@@ -72,8 +72,9 @@ function set(key,value){
     state[key]=value;
   } else if(BOOLS.has(key)){
     if(typeof value!=='boolean') return {error:'invalid preference value'};
-    if(key==='sleep'||key==='versionDetection') value=false;
+    if(key==='versionDetection') value=false;
     state[key]=value;
+    if(key==='sleep') state._sleepPolicyVersion=SLEEP_POLICY_VERSION;
   } else return {error:'unknown preference'};
   atomicWrite(state); return {ok:true,preferences:get()};
 }
@@ -85,12 +86,12 @@ function setMany(patch={}){
     if(ENUMS[key]){if(!ENUMS[key].has(value))return {error:`invalid ${key}`};next[key]=value;}
     else if(BOOLS.has(key)){
       if(typeof value!=='boolean')return {error:`invalid ${key}`};
-      if(key==='sleep'||key==='versionDetection') value=false;
+      if(key==='versionDetection') value=false;
       next[key]=value;
-    }
-    else return {error:`unknown preference ${key}`};
+      if(key==='sleep') next._sleepPolicyVersion=SLEEP_POLICY_VERSION;
+    } else return {error:`unknown preference ${key}`};
   }
   state=next; atomicWrite(state); return {ok:true,preferences:get()};
 }
-function reset(){state={...DEFAULTS};atomicWrite(state);return get();}
+function reset(){state={...DEFAULTS,_sleepPolicyVersion:SLEEP_POLICY_VERSION};atomicWrite(state);return get();}
 module.exports={init,get,set,setMany,reset,DEFAULTS};

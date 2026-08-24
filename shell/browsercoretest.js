@@ -46,7 +46,7 @@ ok('preload exposes named private-tab IPC only',/newPrivateTab/.test(preload)&&/
 ok('normal closed tabs can be reopened',/tab:reopenClosed/.test(main)&&/reopenClosedTab/.test(preload));
 ok('private tabs never enter recently closed recovery',/if \(!t\.private\)\{/.test(main)&&/recentlyClosed\.push/.test(main));
 ok('local PDFs use a trusted named file-picker IPC',/document:openPdf/.test(main)&&/openPdf:/.test(preload)&&/showOpenDialog/.test(main));
-ok('local PDF filesystem paths never cross into chrome state',/url: t\.localPdfPath \? '' : liveUrl/.test(main)&&!/localPdfPath/.test(preload));
+ok('local PDF filesystem paths never cross into chrome state',/url\s*:\s*t\.localPdfPath\s*\?\s*''\s*:\s*liveUrl/.test(main)&&!/localPdfPath/.test(preload));
 ok('local PDF uses dedicated sandboxed viewer preload',/pdf-preload\.js/.test(main)&&/pdf:load/.test(main)&&!/__BREEZE_SHELL__/.test(fs.readFileSync(path.join(__dirname,'pdf-preload.js'),'utf8')));
 ok('PDF.js patched release is pinned',/"pdfjs-dist"\s*:\s*"6\.2\.108"/.test(fs.readFileSync(path.join(__dirname,'package.json'),'utf8')));
 ok('PDF viewer disables document scripting and eval',/enableScripting:false/.test(fs.readFileSync(path.join(__dirname,'ui','pdf-viewer.js'),'utf8'))&&/isEvalSupported:false/.test(fs.readFileSync(path.join(__dirname,'ui','pdf-viewer.js'),'utf8')));

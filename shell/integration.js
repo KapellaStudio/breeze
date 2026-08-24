@@ -27,7 +27,7 @@ const results = [];
 const ok = (n, c, x = '') => results.push([c ? 'PASS' : 'FAIL', n, x]);
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-require('./bootstrap.js');       // same entry point the packaged app uses
+require('./bootstrap.js');
 
 app.whenReady().then(async () => {
   await new Promise(r => server.listen(0, '127.0.0.1', () => { PORT = server.address().port; r(); }));
@@ -45,8 +45,13 @@ app.whenReady().then(async () => {
     ok('trusted bridge reachable', await exec(`typeof window.__BREEZE_SHELL__ === 'object'`));
     ok('packaged first-run service reachable', await exec(`window.__BREEZE_SHELL__.firstRunStatus().then(x=>typeof x.firstRunComplete==='boolean')`));
     ok('live weather bridge is present', await exec(`typeof window.__BREEZE_SHELL__.currentWeather === 'function'`));
+    ok('true tab sleep bridge is present', await exec(`typeof window.__BREEZE_SHELL__.sleepTab === 'function' && typeof window.__BREEZE_SHELL__.wakeTab === 'function'`));
+    ok('browser-grade omnibox bridge is present', await exec(`typeof window.__BREEZE_SHELL__.resolveOmnibox==='function' && typeof window.__BREEZE_SHELL__.omniboxSuggestions==='function'`));
+    ok('Google shortcut resolves to a real search URL', await exec(`window.__BREEZE_SHELL__.resolveOmnibox('!g breeze browser').then(x=>x.kind==='engine'&&x.engine==='Google'&&/google\\.com\\/search/.test(x.url))`));
     ok('New Tab keeps a real weather control', await exec(`!!document.querySelector('.homebar .wx') && /Weather/.test(document.querySelector('.homebar .wx').textContent)`));
     ok('weather starts opt-in, not as a fake reading', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>p.weatherEnabled===false)`));
+    ok('real tab sleeping defaults on', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>p.sleep===true)`));
+    ok('search suggestions are a real persisted preference', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>typeof p.searchSuggestions==='boolean'&&typeof p.searchLibrary==='boolean')`));
     ok('unsupported split control is hidden', await exec(`getComputedStyle(document.querySelector('#splitBtn')).display === 'none'`));
 
     const id = await exec(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(site('alpha'))}})`);
@@ -65,13 +70,48 @@ app.whenReady().then(async () => {
     await wait(1000);
     ok('back returns to previous real page', /Alpha Site/.test(await titles()));
 
+    /* The visible omnibox must search the browser itself, not a canned array. */
+    await exec(`(()=>{openOmni();const i=document.querySelector('#omniInput');i.value='@tabs Alpha';i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await wait(350);
+    ok('@tabs renders the real open Alpha tab', await exec(`([...document.querySelectorAll('#omniList .ovRow .t')].some(x=>/Alpha Site/.test(x.textContent)))`));
+    await exec(`closeAll()`);
+
+    /* Private browsing owns the remote-suggestion decision inside preload.
+       The chrome cannot pass a false flag to opt a Private tab into sending
+       partial queries to an autocomplete provider. */
+    const privateId=await exec(`window.__BREEZE_SHELL__.newPrivateTab({url:${JSON.stringify(site('beta'))}})`);
+    await wait(650);
+    const privateSuggest=await exec(`window.__BREEZE_SHELL__.omniboxSuggestions('private search text')`);
+    ok('Private browsing suppresses remote omnibox suggestions', privateSuggest?.reason==='private' && Array.isArray(privateSuggest?.suggestions) && privateSuggest.suggestions.length===0, privateSuggest?.reason||'');
+    await exec(`window.__BREEZE_SHELL__.closeTab(${privateId});window.__BREEZE_SHELL__.selectTab(${id})`);
+    await wait(300);
+
+    /* Real sleeping destroys the inactive renderer, keeps the tab in chrome,
+       then restores its navigation stack into a fresh renderer. */
+    const sleeper = await exec(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(site('beta'))}})`);
+    await wait(900);
+    await exec(`window.__BREEZE_SHELL__.selectTab(${id})`);
+    await wait(200);
+    const slept = await exec(`window.__BREEZE_SHELL__.sleepTab(${sleeper})`);
+    ok('inactive web tab actually enters sleep', slept?.ok===true && slept?.releasedRenderer===true);
+    ok('sleep state is observable from tab:list', await exec(`window.__BREEZE_SHELL__.listTabs().then(x=>x.some(t=>t.id===${sleeper}&&t.sleeping===true))`));
+    await wait(120);
+    ok('sidebar marks released renderer as sleeping', await exec(`!!document.querySelector('.tab[data-asleep="1"] .zzz')`));
+    ok('sleep status reports released renderers, not fake MB', await exec(`(()=>{const s=document.querySelector('.sleepStat');return !!s && /renderer/.test(s.textContent) && !/MB|GB/.test(s.textContent);})()`));
+    await exec(`window.__BREEZE_SHELL__.selectTab(${sleeper})`);
+    await wait(1200);
+    ok('selecting sleeping tab reconstructs Chromium', await exec(`window.__BREEZE_SHELL__.listTabs().then(x=>x.some(t=>t.id===${sleeper}&&!t.sleeping&&!t.waking))`));
+    ok('woken tab restores its real page', /Beta Site/.test(await titles()));
+    await exec(`window.__BREEZE_SHELL__.closeTab(${sleeper})`);
+    await wait(250);
+    await exec(`window.__BREEZE_SHELL__.selectTab(${id})`);
+
     const hits = await exec(`window.__BREEZE_SHELL__.find(${id},'browser')`);
     ok('findInPage runs against real content', typeof hits === 'number', 'req=' + hits);
 
     const geo = await exec(`(()=>{const r=document.querySelector('#content').getBoundingClientRect();return Math.round(r.left)+','+Math.round(r.top);})()`);
     ok('chrome reports a real content gap', /^\d+,\d+$/.test(geo) && !geo.startsWith('0,'), geo);
 
-    /* Persistent settings must drive the actual packaged DOM, not just JSON. */
     await exec(`document.querySelector('[data-seg="rail"] [data-v="off"]').click()`);
     await wait(180);
     ok('Sidebar Hidden setting changes real layout', await exec(`document.documentElement.dataset.sidebar==='off' && getComputedStyle(document.querySelector('.side')).display==='none'`));
@@ -79,9 +119,6 @@ app.whenReady().then(async () => {
     await exec(`document.querySelector('[data-seg="rail"] [data-v="on"]').click()`);
     await wait(120);
 
-    /* Native-result rendering used to leave prototype toast-only handlers in
-       place. Render a known local result, verify Queue persists it, then verify
-       clicking the result navigates the real active WebContentsView. */
     await exec(`(()=>{
       SR_DATA.length=0;
       SR_DATA.push({title:'Beta Search Hit',dom:'127.0.0.1',path:'/beta.html',url:${JSON.stringify(site('beta'))},kind:'Web',snip:'A local integration search result',k:null,read:null,tr:null,kb:null});
