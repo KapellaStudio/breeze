@@ -1,26 +1,451 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-accent="blue">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#05070a">
-<title>Breeze — the browser after the click</title>
-<meta name="description" content="Breeze by Kapella is a privacy-first Chromium browser built around context, recovery, local tools and calm power.">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#050816">
+<meta name="color-scheme" content="dark light">
+<title>Breeze — Power without friction</title>
+<meta name="description" content="Breeze by Kapella. Power without friction.">
 <style>
-:root{color-scheme:dark;--bg:#05070a;--ink:#f6fbff;--muted:#9aabba;--line:rgba(255,255,255,.11);--mint:#79f2d0;--cyan:#31d8f2;--blue:#4c7dff;--max:1220px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}html{scroll-behavior:smooth;background:var(--bg)}body{margin:0;overflow-x:hidden;color:var(--ink);background:radial-gradient(900px 650px at 78% -5%,rgba(76,125,255,.20),transparent 65%),radial-gradient(800px 580px at 8% 8%,rgba(49,216,242,.09),transparent 64%),var(--bg)}body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.35;background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:64px 64px;mask-image:linear-gradient(#000,transparent 80%)}a{color:inherit}button,input{font:inherit}.wrap{width:min(var(--max),calc(100% - 44px));margin:auto}.nav{height:80px;display:flex;align-items:center;justify-content:space-between;gap:18px}.brand{display:flex;align-items:center;gap:11px;text-decoration:none;font-size:21px;font-weight:730;letter-spacing:-.04em}.mark{width:35px;height:35px;filter:drop-shadow(0 8px 20px rgba(49,216,242,.22))}.navlinks{display:flex;align-items:center;gap:7px}.navlinks a{text-decoration:none;color:#bdc8d4;font-size:13px;padding:10px 13px;border-radius:999px}.navlinks a:hover{background:rgba(255,255,255,.06);color:white}.navcta{border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.055)}.hero{min-height:calc(100svh - 80px);display:grid;align-items:center;padding:46px 0 88px}.heroGrid{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(360px,.88fr);gap:48px;align-items:center}.eyebrow,.kicker{font-size:11px;text-transform:uppercase;letter-spacing:.15em;color:#91a2b5}.eyebrow{display:flex;gap:9px;align-items:center}.eyebrow:before{content:"";width:24px;height:1px;background:linear-gradient(90deg,var(--mint),var(--cyan))}h1{font-size:clamp(60px,8.1vw,118px);line-height:.89;letter-spacing:-.075em;margin:20px 0 27px;max-width:830px}.grad{background:linear-gradient(96deg,#fff 5%,#c8fff0 38%,#6fe4fb 66%,#9aaaff);background-clip:text;-webkit-background-clip:text;color:transparent}.lede{max-width:690px;color:#aebbc9;font-size:clamp(18px,1.8vw,22px);line-height:1.58}.actions{display:flex;gap:11px;flex-wrap:wrap;margin-top:31px}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;padding:13px 18px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.045);transition:.22s ease}.btn:hover{transform:translateY(-2px);background:rgba(255,255,255,.08)}.btn.primary{background:linear-gradient(110deg,#e8fff7,#d7f7ff 56%,#dde7ff);color:#071017;border-color:transparent;box-shadow:0 16px 44px rgba(49,216,242,.15)}.micro{margin-top:17px;color:#718194;font-size:11px}.orbit{position:relative;aspect-ratio:1;display:grid;place-items:center}.orbit:before{content:"";position:absolute;inset:7%;border-radius:50%;background:radial-gradient(circle at 42% 38%,rgba(121,242,208,.23),rgba(49,216,242,.10) 36%,rgba(76,125,255,.12) 60%,transparent 72%);animation:pulse 7s ease-in-out infinite}.orbit:after{content:"";position:absolute;inset:16%;border:1px solid rgba(126,226,255,.16);border-radius:50%;box-shadow:0 0 100px rgba(49,216,242,.09);animation:spin 28s linear infinite}.heroMark{width:54%;z-index:2;filter:drop-shadow(0 30px 70px rgba(35,189,231,.30));animation:float 6s ease-in-out infinite}.section{padding:105px 0}.sectionHead{display:flex;justify-content:space-between;align-items:end;gap:40px;margin-bottom:40px}.section h2{font-size:clamp(40px,5.2vw,72px);line-height:.98;letter-spacing:-.06em;margin:10px 0 0;max-width:780px}.sectionHead p{margin:0;max-width:410px;color:#8999aa;line-height:1.62}.stageFrame{padding:1px;border-radius:33px;background:linear-gradient(135deg,rgba(121,242,208,.42),rgba(76,125,255,.18) 42%,rgba(143,108,255,.25));box-shadow:0 44px 120px rgba(0,0,0,.48);transition:transform .2s ease}.stage{min-height:640px;border-radius:32px;overflow:hidden;background:#080c12;display:grid;grid-template-columns:210px minmax(0,1fr);border:1px solid rgba(255,255,255,.05)}.side{padding:16px 12px;border-right:1px solid rgba(255,255,255,.075);background:linear-gradient(180deg,rgba(255,255,255,.035),transparent);display:flex;flex-direction:column}.traffic{display:flex;gap:7px;padding:4px 7px 18px}.traffic i{width:8px;height:8px;border-radius:50%;background:#485767}.traffic i:first-child{background:#ff6b6b}.traffic i:nth-child(2){background:#ffd35c}.traffic i:nth-child(3){background:#63e19a}.ws{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:#667689;padding:8px}.tab{display:flex;gap:9px;align-items:center;color:#9cabbc;padding:9px;border-radius:11px;font-size:12px}.tab.on{background:rgba(255,255,255,.07);color:white}.fav{width:21px;height:21px;border-radius:7px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(121,242,208,.22),rgba(76,125,255,.25));font-size:9px}.sleep{margin-top:auto;padding:10px 8px;color:#617184;font-size:10px}.chrome{min-width:0;display:flex;flex-direction:column}.bar{height:58px;border-bottom:1px solid rgba(255,255,255,.075);display:flex;align-items:center;gap:10px;padding:0 15px}.navIcon{color:#667789}.omni{flex:1;max-width:720px;height:37px;display:flex;align-items:center;gap:9px;padding:0 12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.045);color:#758698}.omni input{min-width:0;flex:1;border:0;outline:0;background:none;color:white;font-size:12px}.shield{margin-left:auto;color:#79e9d2;font-size:11px}.page{flex:1;position:relative;padding:58px 54px;background:radial-gradient(620px 390px at 15% 8%,rgba(49,216,242,.10),transparent 64%),radial-gradient(480px 390px at 90% 88%,rgba(76,125,255,.13),transparent 70%),#090d13}.pageLabel{display:flex;align-items:center;gap:9px;font-size:13px}.pageLabel .mark{width:32px;height:32px}.pageTitle{font-size:clamp(46px,5vw,74px);line-height:.96;letter-spacing:-.06em;max-width:680px;margin:30px 0 17px}.pageCopy{color:#899aac;line-height:1.62;max-width:620px}.trySearch{display:flex;gap:8px;max-width:680px;margin-top:32px;padding:8px;border:1px solid var(--line);border-radius:17px;background:rgba(255,255,255,.05)}.trySearch input{flex:1;min-width:0;padding:10px;border:0;outline:0;background:none;color:white}.trySearch button{border:0;border-radius:11px;padding:10px 15px;background:linear-gradient(110deg,#b9fae7,#89e1fa);color:#061016;font-weight:650;cursor:pointer}.hint{font-size:10px;color:#617285;margin-top:10px}.featureGrid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:15px}.feature{grid-column:span 6;min-height:285px;padding:28px;border-radius:27px;border:1px solid var(--line);background:linear-gradient(145deg,rgba(255,255,255,.05),rgba(255,255,255,.016));position:relative;overflow:hidden}.feature:nth-child(1){grid-column:span 7;background:linear-gradient(145deg,rgba(121,242,208,.075),rgba(76,125,255,.035))}.feature:nth-child(2){grid-column:span 5}.feature:after{content:"";position:absolute;width:210px;height:210px;border-radius:50%;right:-100px;top:-100px;background:radial-gradient(circle,rgba(49,216,242,.16),transparent 70%)}.feature small{color:#748599;letter-spacing:.13em;text-transform:uppercase}.feature h3{font-size:29px;letter-spacing:-.04em;margin:56px 0 10px}.feature p{margin:0;max-width:520px;color:#8797a9;line-height:1.64}.statement{text-align:center;padding:135px 0}.statement strong{display:block;font-size:clamp(46px,6.8vw,94px);line-height:.95;letter-spacing:-.065em;max-width:1050px;margin:auto}.statement p{max-width:620px;color:#8595a7;line-height:1.65;margin:25px auto 0;font-size:17px}.download{padding:100px 0 120px}.downloadCard{padding:40px;border:1px solid var(--line);border-radius:32px;background:radial-gradient(600px 380px at 90% 0,rgba(76,125,255,.14),transparent 70%),radial-gradient(450px 320px at 5% 100%,rgba(49,216,242,.08),transparent 72%),rgba(255,255,255,.025)}.download h2{font-size:clamp(38px,4.9vw,66px);letter-spacing:-.055em;line-height:1;margin:11px 0}.sub{color:#8999aa;line-height:1.55}.os{display:flex;gap:8px;flex-wrap:wrap;margin:26px 0 17px}.osTab{color:#dbe5ef;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:999px;padding:10px 14px;cursor:pointer}.osTab.active{background:#edf8ff;color:#071016;border-color:#edf8ff}.cost{border-top:1px solid rgba(255,255,255,.08);padding-top:15px;margin-top:18px;max-width:780px}.costRow{display:grid;grid-template-columns:130px minmax(0,1fr);gap:14px;padding:6px 0;color:#bcc8d4;font-size:12px;word-break:break-word}.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:17px 0;max-width:780px}.step{border:1px solid rgba(255,255,255,.07);border-radius:13px;padding:12px;color:#99a7b6;font-size:11px}.footer{display:flex;justify-content:space-between;gap:20px;padding:30px 0 55px;border-top:1px solid rgba(255,255,255,.06);color:#607184;font-size:11px}.reveal{opacity:0;transform:translateY(18px);transition:.7s ease}.reveal.on{opacity:1;transform:none}@keyframes float{50%{transform:translateY(-13px) rotate(1deg)}}@keyframes pulse{50%{transform:scale(1.04);opacity:.8}}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:1100px){.heroGrid{grid-template-columns:1fr}.orbit{width:min(540px,85vw);margin:auto}.stage{grid-template-columns:68px minmax(0,1fr)}.side .ws,.side .tab:not(.on),.side .tab.on{font-size:0}.side .tab{justify-content:center}.side .fav{font-size:9px}.sleep{display:none}.page{padding:48px 34px}.feature,.feature:nth-child(1),.feature:nth-child(2){grid-column:span 12}}@media(max-width:720px){.wrap{width:min(var(--max),calc(100% - 28px))}.navlinks a:not(.navcta){display:none}.hero{padding-top:52px}h1{font-size:clamp(58px,18vw,84px)}.section{padding:78px 0}.sectionHead{display:block}.sectionHead p{margin-top:17px}.stageFrame{margin:0 -4px;border-radius:25px}.stage{grid-template-columns:1fr;min-height:580px;border-radius:24px}.side{display:none}.navIcon{display:none}.shield{display:none}.bar{padding:0 10px}.page{padding:40px 21px}.trySearch{flex-direction:column}.trySearch button{width:100%}.featureGrid{display:block}.feature{margin-bottom:12px;min-height:255px}.downloadCard{padding:26px 19px}.steps{grid-template-columns:1fr}.costRow{grid-template-columns:1fr;gap:2px}.footer{display:block}.footer span{display:block;margin-top:8px}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
+:root {
+  --blue:#2563EB; --cyan:#22D3EE; --teal:#0891B2; --mint:#7EF3D6;
+  --accent:#2563EB; --accent2:#22D3EE; --accent3:#7EF3D6;
+  --bg:#050816; --bg2:#080E1C; --panel:#0B1222; --panel2:#0E172A;
+  --text:#F7FBFF; --muted:#A6B3C5; --dim:#6F8096;
+  --line:rgba(255,255,255,.10); --soft:rgba(255,255,255,.055);
+  --max:1240px;
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+html[data-accent="cyan"]{--accent:#22D3EE;--accent2:#7EF3D6;--accent3:#2563EB}
+html[data-accent="teal"]{--accent:#0891B2;--accent2:#22D3EE;--accent3:#7EF3D6}
+html[data-accent="mint"]{--accent:#7EF3D6;--accent2:#22D3EE;--accent3:#2563EB}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;background:var(--bg)}
+body{
+  margin:0; color:var(--text); overflow-x:hidden;
+  background:
+    radial-gradient(1000px 760px at 84% -12%,color-mix(in srgb,var(--accent) 34%,transparent),transparent 68%),
+    radial-gradient(900px 640px at -8% 25%,color-mix(in srgb,var(--accent2) 19%,transparent),transparent 70%),
+    linear-gradient(180deg,#050816 0%,#07111F 44%,#06101D 72%,#050816 100%);
+}
+a{color:inherit}
+button,input{font:inherit}
+button{color:inherit}
+img{display:block}
+.wrap{width:min(var(--max),calc(100% - 46px));margin:auto}
+.grain{position:fixed;inset:0;pointer-events:none;z-index:-2;opacity:.13;background-image:radial-gradient(rgba(255,255,255,.6) .45px,transparent .45px);background-size:5px 5px;mask-image:linear-gradient(#000,transparent 82%)}
+.wind{position:fixed;inset:-22%;z-index:-3;pointer-events:none;filter:blur(10px);opacity:.9;
+ background:
+ radial-gradient(ellipse 31% 17% at 18% 19%,color-mix(in srgb,var(--mint) 18%,transparent),transparent 73%),
+ radial-gradient(ellipse 34% 19% at 80% 23%,color-mix(in srgb,var(--cyan) 20%,transparent),transparent 74%),
+ radial-gradient(ellipse 34% 20% at 62% 79%,color-mix(in srgb,var(--blue) 19%,transparent),transparent 74%);
+ animation:wind 18s ease-in-out infinite alternate}
+.ribbonfield{position:fixed;inset:0;z-index:-2;overflow:hidden;pointer-events:none;opacity:.75}
+.ribbon{position:absolute;border:1px solid color-mix(in srgb,var(--accent2) 16%,transparent);border-radius:48% 52% 61% 39%/52% 46% 54% 48%;filter:drop-shadow(0 0 22px color-mix(in srgb,var(--accent2) 7%,transparent))}
+.ribbon.r1{width:82vw;height:82vw;left:-43vw;top:5vh;animation:turn 34s linear infinite}
+.ribbon.r2{width:68vw;height:68vw;right:-38vw;top:34vh;animation:turn 42s linear infinite reverse;border-color:color-mix(in srgb,var(--accent) 12%,transparent)}
+@keyframes wind{from{transform:translate3d(-1%,0,0) scale(1)}to{transform:translate3d(2.3%,1.5%,0) scale(1.055)}}
+@keyframes turn{to{transform:rotate(360deg)}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:.82}50%{transform:scale(1.045);opacity:.68}}
+@keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.nav{height:82px;display:flex;align-items:center;justify-content:space-between;gap:20px;position:relative;z-index:10}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-size:21px;font-weight:760;letter-spacing:-.045em}
+.brand img{width:37px;height:37px}
+.navRight{display:flex;align-items:center;gap:9px}
+.navlink{font-size:13px;text-decoration:none;color:#C5D0DE;padding:10px 12px;border-radius:999px}
+.navlink:hover{background:rgba(255,255,255,.06)}
+.betaTop{border:1px solid var(--line);background:rgba(255,255,255,.045)}
+.palette{display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid var(--line);border-radius:999px;background:rgba(8,14,27,.52);backdrop-filter:blur(16px)}
+.swatch{width:13px;height:13px;border:0;border-radius:50%;padding:0;cursor:pointer;box-shadow:0 0 0 2px transparent;transition:.18s ease}
+.swatch[aria-pressed="true"]{box-shadow:0 0 0 2px rgba(255,255,255,.72);transform:scale(.9)}
+.swatch.blue{background:var(--blue)}.swatch.cyan{background:var(--cyan)}.swatch.teal{background:var(--teal)}.swatch.mint{background:var(--mint)}
+.hero{min-height:calc(100svh - 82px);display:grid;align-items:center;padding:52px 0 96px}
+.heroGrid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(390px,.95fr);gap:54px;align-items:center}
+.heroCopy{animation:rise .8s both}
+.eyebrow{display:flex;align-items:center;gap:9px;color:#91A2B8;font-size:11px;letter-spacing:.16em;text-transform:uppercase}
+.eyebrow:before{content:"";width:25px;height:1px;background:linear-gradient(90deg,var(--mint),var(--cyan),var(--blue))}
+h1{margin:20px 0 26px;font-size:clamp(66px,8.25vw,120px);line-height:.87;letter-spacing:-.08em;max-width:860px}
+.gradientText{background:linear-gradient(98deg,#FFFFFF 5%,#D8FFF3 32%,#6BE9FA 60%,#7E9CFF 91%);background-clip:text;-webkit-background-clip:text;color:transparent}
+.lede{max-width:710px;color:#AFBDCD;font-size:clamp(18px,1.8vw,22px);line-height:1.58}
+.heroActions{display:flex;gap:10px;flex-wrap:wrap;margin-top:32px}
+.btn{min-height:47px;display:inline-flex;align-items:center;justify-content:center;gap:9px;padding:12px 18px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.045);text-decoration:none;transition:.22s ease}
+.btn:hover{transform:translateY(-2px);background:rgba(255,255,255,.075)}
+.btn.primary{background:linear-gradient(110deg,#E9FFF8,#DDFBFF 55%,#DFE6FF);color:#07111B;border-color:transparent;box-shadow:0 18px 58px color-mix(in srgb,var(--accent2) 14%,transparent);font-weight:700}
+.heroMeta{margin-top:16px;color:#708198;font-size:11px}
+.heroArt{position:relative;aspect-ratio:1;display:grid;place-items:center;animation:rise .8s .1s both;isolation:isolate}
+.heroArt:before{content:"";position:absolute;inset:3%;border-radius:50%;background:radial-gradient(circle at 42% 38%,rgba(126,243,214,.32),rgba(34,211,238,.18) 38%,rgba(37,99,235,.20) 61%,transparent 73%);animation:pulse 7.5s ease-in-out infinite}
+.heroArt:after{content:"";position:absolute;inset:15%;border-radius:47% 53% 58% 42%/50% 43% 57% 50%;border:1px solid rgba(126,232,255,.16);box-shadow:0 0 110px rgba(34,211,238,.09);animation:turn 30s linear infinite}
+.heroMark{width:57%;height:auto;z-index:2;filter:drop-shadow(0 34px 84px rgba(34,211,238,.34));animation:float 6.2s ease-in-out infinite}
+.breezeTrails{position:absolute;inset:18% -4% 18% -4%;z-index:1;pointer-events:none;overflow:hidden;filter:drop-shadow(0 0 18px rgba(34,211,238,.12))}
+.breezeTrails span{position:absolute;left:-22%;width:70%;height:2px;border-radius:999px;background:linear-gradient(90deg,transparent 0%,rgba(126,243,214,.08) 12%,rgba(126,243,214,.72) 38%,rgba(34,211,238,.9) 63%,rgba(37,99,235,.72) 84%,transparent 100%);transform:skewX(-22deg);animation:breezeSweep 5.8s cubic-bezier(.45,0,.2,1) infinite}
+.breezeTrails span:nth-child(1){top:25%;animation-delay:-1.2s}
+.breezeTrails span:nth-child(2){top:42%;width:83%;height:3px;animation-delay:-3.7s}
+.breezeTrails span:nth-child(3){top:60%;width:60%;animation-delay:-2.4s;opacity:.75}
+.breezeTrails span:nth-child(4){top:74%;width:74%;height:1px;animation-delay:-4.8s;opacity:.6}
+@keyframes breezeSweep{0%{transform:translateX(-30%) skewX(-22deg);opacity:0}16%{opacity:.8}58%{opacity:.95}100%{transform:translateX(190%) skewX(-22deg);opacity:0}}
+.floatingTag{position:absolute;z-index:3;border:1px solid rgba(255,255,255,.12);background:rgba(6,12,24,.58);backdrop-filter:blur(16px);border-radius:999px;padding:8px 11px;color:#BAC8D8;font-size:10px;box-shadow:0 12px 34px rgba(0,0,0,.28)}
+.floatingTag.one{left:3%;top:26%;animation:float 7.8s ease-in-out infinite .3s}
+.floatingTag.two{right:2%;bottom:28%;animation:float 8.4s ease-in-out infinite 1.1s}
+.section{padding:112px 0}
+.sectionHead{display:flex;justify-content:space-between;align-items:end;gap:46px;margin-bottom:42px}
+.kicker{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#8FA1B6}
+.section h2{font-size:clamp(43px,5.3vw,76px);line-height:.97;letter-spacing:-.064em;margin:10px 0 0;max-width:820px}
+.sectionHead p{margin:0;max-width:420px;color:#899AAF;line-height:1.66}
+.productFrame{padding:1px;border-radius:36px;background:linear-gradient(135deg,rgba(126,243,214,.44),rgba(34,211,238,.19) 33%,rgba(37,99,235,.29) 70%,rgba(37,99,235,.10));box-shadow:0 48px 130px rgba(0,0,0,.53)}
+.product{min-height:670px;border-radius:35px;overflow:hidden;background:#070B13;border:1px solid rgba(255,255,255,.045);display:grid;grid-template-columns:218px minmax(0,1fr)}
+.sidebar{padding:16px 12px;border-right:1px solid rgba(255,255,255,.075);background:linear-gradient(180deg,rgba(255,255,255,.038),transparent);display:flex;flex-direction:column}
+.traffic{display:flex;gap:7px;padding:4px 7px 18px}.traffic i{width:8px;height:8px;border-radius:50%;background:#455467}.traffic i:first-child{background:#FF6B6B}.traffic i:nth-child(2){background:#FFD35F}.traffic i:nth-child(3){background:#64E49E}
+.sidebarLabel{padding:8px;color:#65758B;font-size:9px;letter-spacing:.15em;text-transform:uppercase}
+.tab{display:flex;align-items:center;gap:9px;padding:9px;border-radius:11px;color:#8D9BAE;font-size:11px}
+.tab.on{background:rgba(255,255,255,.075);color:#F4F8FF}
+.favicon{width:22px;height:22px;border-radius:8px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(126,243,214,.18),rgba(37,99,235,.26));font-size:9px}
+.sleepNote{margin-top:auto;padding:10px 8px;color:#5F7188;font-size:9px}
+.chrome{min-width:0;display:flex;flex-direction:column}
+.topbar{height:59px;display:flex;align-items:center;gap:10px;padding:0 15px;border-bottom:1px solid rgba(255,255,255,.075)}
+.navGhost{color:#64768B}
+.omni{flex:1;max-width:760px;height:38px;display:flex;align-items:center;gap:9px;padding:0 12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.045);color:#74869C}
+.omni input{flex:1;min-width:0;border:0;background:none;outline:0;color:#fff;font-size:12px}
+.protected{margin-left:auto;color:#80ECD6;font-size:10px}
+.split{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgba(255,255,255,.07)}
+.pane{padding:45px 36px;background:radial-gradient(520px 340px at 10% 5%,rgba(34,211,238,.11),transparent 66%),#09101A}
+.pane.alt{background:radial-gradient(490px 360px at 92% 90%,rgba(37,99,235,.17),transparent 72%),#09101A}
+.paneLabel{display:flex;align-items:center;gap:8px;color:#D9E5F1;font-size:11px}.paneLabel img{width:28px;height:28px}
+.pane h3{font-size:clamp(36px,4vw,59px);line-height:.97;letter-spacing:-.057em;margin:27px 0 14px}
+.pane p{color:#8496AA;line-height:1.62;font-size:13px}
+.searchBox{display:flex;gap:7px;margin-top:28px;padding:8px;border:1px solid var(--line);border-radius:15px;background:rgba(255,255,255,.045)}
+.searchBox input{flex:1;min-width:0;border:0;background:none;outline:0;color:#fff;padding:9px;font-size:11px}
+.searchBox button{border:0;border-radius:10px;padding:9px 12px;background:linear-gradient(110deg,#C9FBEA,#8EE7FA);color:#071118;font-weight:700;cursor:pointer}
+.quick{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:28px}.quick div{padding:13px;border:1px solid rgba(255,255,255,.075);border-radius:13px;background:rgba(255,255,255,.025);color:#899CB2;font-size:10px}
+.mosaic{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:15px}
+.card{grid-column:span 6;min-height:310px;padding:29px;border:1px solid var(--line);border-radius:29px;background:linear-gradient(145deg,rgba(255,255,255,.052),rgba(255,255,255,.016));position:relative;overflow:hidden}
+.card.big{grid-column:span 7;background:linear-gradient(145deg,rgba(126,243,214,.075),rgba(37,99,235,.04))}.card.small{grid-column:span 5}
+.card:after{content:"";position:absolute;width:230px;height:230px;right:-116px;top:-110px;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--accent2) 17%,transparent),transparent 70%)}
+.card small{color:#71839A;font-size:10px;letter-spacing:.14em;text-transform:uppercase}
+.card h3{font-size:31px;letter-spacing:-.045em;margin:65px 0 10px}
+.card p{color:#8597AB;line-height:1.66;max-width:540px;margin:0}
+.card .symbol{position:absolute;right:25px;bottom:21px;font-size:46px;font-weight:730;letter-spacing:-.06em;color:rgba(255,255,255,.10)}
+.manifesto{padding:148px 0;text-align:center}
+.manifesto strong{display:block;max-width:1100px;margin:auto;font-size:clamp(49px,6.9vw,98px);line-height:.94;letter-spacing:-.07em}
+.manifesto p{max-width:650px;margin:27px auto 0;color:#8798AB;font-size:17px;line-height:1.66}
+.download{padding:98px 0 124px}
+.downloadPanel{padding:43px;border:1px solid var(--line);border-radius:35px;background:radial-gradient(700px 430px at 94% -8%,rgba(37,99,235,.18),transparent 72%),radial-gradient(500px 350px at 3% 106%,rgba(34,211,238,.10),transparent 73%),rgba(255,255,255,.025)}
+.downloadPanel h2{font-size:clamp(43px,5vw,72px);letter-spacing:-.062em;line-height:.98;margin:11px 0}
+.downloadIntro{max-width:700px;color:#8FA0B4;line-height:1.6}
+.badge{display:inline-flex;align-items:center;gap:7px;margin-top:6px;padding:7px 10px;border:1px solid rgba(126,243,214,.22);border-radius:999px;background:rgba(126,243,214,.065);color:#AFECD9;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.badge i{width:6px;height:6px;border-radius:50%;background:var(--mint);box-shadow:0 0 14px var(--mint)}
+.downloadGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:30px}
+.downloadTile{display:flex;flex-direction:column;min-height:232px;padding:20px;border:1px solid rgba(255,255,255,.09);border-radius:23px;background:linear-gradient(145deg,rgba(255,255,255,.047),rgba(255,255,255,.018));text-decoration:none;transition:.22s ease}
+.downloadTile:hover{transform:translateY(-3px);border-color:color-mix(in srgb,var(--accent2) 25%,transparent);background:linear-gradient(145deg,rgba(255,255,255,.071),rgba(255,255,255,.026))}
+.downloadLogo{width:54px;height:54px;padding:8px;border-radius:17px;background:linear-gradient(145deg,rgba(126,243,214,.08),rgba(37,99,235,.13));border:1px solid rgba(255,255,255,.10);box-shadow:0 15px 40px rgba(34,211,238,.10)}.downloadLogo img{width:100%;height:100%}
+.osName{margin-top:29px;font-size:20px;font-weight:720;letter-spacing:-.038em}.osMeta{margin-top:6px;color:#74869B;font-size:11px}.get{margin-top:auto;padding-top:20px;color:#DBE7F3;font-size:12px}.get span{color:var(--mint)}
+.fineprint{max-width:870px;margin-top:18px;color:#687A90;font-size:10px;line-height:1.58}
+.footer{display:flex;justify-content:space-between;gap:20px;padding:31px 0 56px;border-top:1px solid rgba(255,255,255,.065);color:#63758A;font-size:11px}
+.mobileTag{display:none}
+
+
+/* v5 brand pass: desktop and mobile now share the same Breeze visual language */
+.heroArt:before,.heroArt:after{display:none}
+.heroArt{min-height:470px;overflow:hidden}
+.heroMark{width:min(34%,190px);filter:drop-shadow(0 24px 50px rgba(34,211,238,.18))}
+.breezeTrails{inset:17% -16%;opacity:.92}
+.releaseNote{display:flex;align-items:center;gap:10px;margin-top:17px;color:#667A91;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.releaseNote span:first-child{color:#B8F5E8}.releaseNote i{width:26px;height:1px;background:linear-gradient(90deg,var(--mint),var(--cyan),var(--blue))}
+.centeredHead{display:block;text-align:center}.centeredHead>div{margin:auto}.centeredHead p{margin:18px auto 0}.centeredHead .kicker{text-align:center}
+.flowSection{padding:116px 0 90px}
+.flowIntro{text-align:center;max-width:930px;margin:0 auto 46px}
+.flowIntro h2{font-size:clamp(48px,6vw,86px);line-height:.96;letter-spacing:-.065em;margin:13px auto 22px}
+.flowIntro p{max-width:760px;margin:0 auto;color:#8799AE;font-size:17px;line-height:1.7}
+.flowPanel{position:relative;overflow:hidden;padding:34px;border:1px solid var(--line);border-radius:32px;background:radial-gradient(620px 290px at 0% 0%,rgba(126,243,214,.11),transparent 72%),radial-gradient(720px 420px at 100% 100%,rgba(37,99,235,.11),transparent 72%),rgba(255,255,255,.022)}
+.flowPanel:after{content:"";position:absolute;left:-10%;right:-10%;top:42%;height:1px;background:linear-gradient(90deg,transparent,rgba(126,243,214,.45),rgba(34,211,238,.55),rgba(37,99,235,.35),transparent);filter:blur(.2px)}
+.flowRail{display:flex;align-items:center;gap:12px;color:#72859B;font-size:10px;letter-spacing:.18em}.flowRail i{flex:1;height:1px;background:rgba(255,255,255,.08)}
+.flowTools{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:34px;position:relative;z-index:1}
+.flowTool{min-height:180px;padding:22px;border:1px solid rgba(255,255,255,.08);border-radius:22px;background:rgba(6,13,24,.52);backdrop-filter:blur(12px)}
+.flowTool b{display:block;font-size:22px;letter-spacing:-.04em;margin-bottom:12px}.flowTool span{color:#7F91A7;font-size:12px;line-height:1.6}
+.flowStatement{position:relative;z-index:1;margin-top:30px;text-align:center;font-size:clamp(28px,4vw,54px);font-weight:760;letter-spacing:-.055em;color:#EEF7FF}
+.supportSection{padding-top:90px}
+
+@media(max-width:1040px){
+ .heroGrid{grid-template-columns:1fr}.heroArt{width:min(570px,88vw);margin:auto}
+ .product{grid-template-columns:70px minmax(0,1fr)}.sidebarLabel,.tab span:last-child{display:none}.tab{justify-content:center}.sleepNote{display:none}
+ .card,.card.big,.card.small{grid-column:span 12}
+ .flowTools{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:720px){
+ .wrap{width:min(var(--max),calc(100% - 28px))}
+ .nav{height:72px}.navlink:not(.betaTop){display:none}.palette{padding:6px 8px;gap:5px}.swatch{width:12px;height:12px}.betaTop{display:none}
+ .hero{min-height:auto;padding:42px 0 76px}
+ .heroGrid{display:flex;flex-direction:column;gap:24px}
+ .heroArt{width:100%;height:270px;margin:0;order:-1;aspect-ratio:auto;overflow:hidden}.heroArt:before,.heroArt:after{display:none}.heroMark{width:31%;max-width:132px}.breezeTrails{inset:18% -18% 15% -18%}.breezeTrails span{left:-35%;width:64%}.breezeTrails span:nth-child(2){width:76%}.breezeTrails span:nth-child(3){width:58%}.breezeTrails span:nth-child(4){width:68%}.floatingTag{font-size:8px;padding:6px 8px;background:rgba(6,12,24,.42)}.floatingTag.one{left:4%;top:28%}.floatingTag.two{right:4%;bottom:27%}
+ .heroCopy{width:100%;text-align:center}.eyebrow{justify-content:center}h1{font-size:clamp(56px,17vw,80px);margin:17px auto 22px;max-width:660px}.lede{font-size:18px;line-height:1.56;margin-left:auto;margin-right:auto}.heroMeta{text-align:center}
+ .heroActions{display:grid;grid-template-columns:1fr}.btn{width:100%;min-height:49px}.heroMeta{line-height:1.55}
+ .section{padding:80px 0}.sectionHead{display:block;text-align:center}.sectionHead>div{margin-left:auto;margin-right:auto}.sectionHead .kicker{text-align:center}.sectionHead p{margin:18px auto 0;max-width:600px}.section h2{font-size:clamp(40px,12vw,59px);margin-left:auto;margin-right:auto;text-align:center}.downloadPanel>.kicker,.downloadPanel>h2,.downloadIntro{text-align:center}.downloadIntro{margin-left:auto;margin-right:auto}.badge{display:flex;width:max-content;margin:10px auto 0}
+ .productFrame{margin:0 -4px;border-radius:28px}.product{display:block;min-height:615px;border-radius:27px}.sidebar{display:none}.topbar{padding:0 10px}.navGhost,.protected{display:none}
+ .split{display:block}.pane{min-height:555px;padding:38px 20px}.pane.alt{display:none}.pane h3{font-size:46px}.quick{grid-template-columns:1fr}.mobileTag{display:block;margin-top:25px;color:#61738A;font-size:10px;line-height:1.5}
+ .flowSection{padding:82px 0 64px}.flowIntro{margin-bottom:28px}.flowIntro h2{font-size:clamp(42px,12vw,60px)}.flowIntro p{font-size:15px}.flowPanel{padding:22px 17px;border-radius:26px}.flowTools{grid-template-columns:1fr;gap:10px;margin-top:24px}.flowTool{min-height:0;padding:19px}.flowTool b{font-size:20px}.flowStatement{margin-top:24px;font-size:34px}.flowRail{font-size:9px}.mosaic{display:block}.card{min-height:258px;margin-bottom:12px;padding:24px}.card h3{margin-top:52px;font-size:28px}.card .symbol{font-size:38px}
+ .manifesto{padding:108px 0}.manifesto strong{font-size:clamp(46px,13vw,70px)}.manifesto p{font-size:15px}
+ .download{padding:78px 0 98px}.downloadPanel{padding:28px 19px;border-radius:28px}.downloadGrid{grid-template-columns:1fr}
+ .downloadTile{min-height:176px;padding:17px;display:grid;grid-template-columns:58px 1fr auto;grid-template-rows:auto auto;column-gap:13px;align-items:center}.downloadLogo{grid-row:1/3;width:56px;height:56px}.osName{margin:0;font-size:18px}.osMeta{margin:3px 0 0}.get{grid-column:3;grid-row:1/3;margin:0;padding:0;font-size:0}.get span{font-size:22px}
+ .footer{display:block}.footer span{display:block;margin-top:8px}
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+@media(max-width:680px){
+  .downloadGrid{gap:10px}
+  .downloadTile{
+    min-height:0;
+    padding:14px 15px;
+    grid-template-columns:46px minmax(0,1fr) 28px;
+    grid-template-rows:auto auto;
+    column-gap:12px;
+    border-radius:18px;
+    align-items:center;
+  }
+  .downloadLogo{
+    width:46px;
+    height:46px;
+    padding:7px;
+    border-radius:14px;
+  }
+  .osName{
+    font-size:16px;
+    line-height:1.15;
+    letter-spacing:-.025em;
+  }
+  .osMeta{
+    margin-top:4px;
+    font-size:10px;
+    line-height:1.2;
+  }
+  .get{
+    width:28px;
+    height:28px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .get span{font-size:20px}
+  .downloadBox{padding:24px 14px 18px}
+  .downloadNote{margin-top:16px;font-size:10px;line-height:1.55}
+}
+
+
+/* v7 showcase pass */
+.flowWorkspace{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:30px;background:linear-gradient(180deg,rgba(12,23,38,.96),rgba(7,14,25,.97));box-shadow:0 26px 90px rgba(0,0,0,.26)}
+.flowTopbar{height:64px;padding:0 22px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.018)}
+.flowIdentity{display:flex;align-items:center;gap:9px}.flowIdentity b{font-size:16px}.flowIdentity small{color:#6F8299;font-size:10px}.flowDot{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,var(--mint),var(--cyan));box-shadow:0 0 20px rgba(34,211,238,.45)}
+.flowStatus{font-size:10px;color:#6F8299;letter-spacing:.04em}
+.flowBody{display:grid;grid-template-columns:150px 1fr;min-height:390px}
+.flowSidebar{padding:18px 12px;border-right:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;gap:7px}.flowSidebar button{appearance:none;border:0;background:transparent;color:#718399;text-align:left;padding:10px 12px;border-radius:11px;font:inherit;font-size:11px}.flowSidebar button.active{background:linear-gradient(90deg,rgba(126,243,214,.12),rgba(34,211,238,.06));color:#DFFCF5;border:1px solid rgba(126,243,214,.13)}
+.flowStage{padding:28px}.flowStageHead{display:flex;justify-content:space-between;align-items:center}.flowStageHead span{font-size:23px;font-weight:760;letter-spacing:-.04em}.flowStageHead small{font-size:10px;color:#73869B}
+.flowDropzone{margin-top:25px;min-height:180px;border:1px dashed rgba(126,243,214,.22);border-radius:23px;display:flex;align-items:center;justify-content:center;gap:26px;background:radial-gradient(350px 160px at 50% 50%,rgba(34,211,238,.08),transparent 70%)}
+.fileGhost{width:88px;height:104px;border-radius:16px;display:grid;place-items:center;font-size:18px;font-weight:800;letter-spacing:-.03em;background:linear-gradient(145deg,rgba(255,255,255,.065),rgba(255,255,255,.018));border:1px solid rgba(255,255,255,.10);box-shadow:0 18px 35px rgba(0,0,0,.17)}.fileGhost.output{background:linear-gradient(145deg,rgba(126,243,214,.14),rgba(37,99,235,.10));border-color:rgba(126,243,214,.18)}.flowArrow{font-size:26px;color:#70E7D8}
+.flowActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.flowActions span{padding:8px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.075);font-size:9px;color:#7890A8;background:rgba(255,255,255,.02)}
+.flowProgress{margin-top:20px;display:flex;align-items:center;gap:10px;color:#6F8299;font-size:10px}.flowProgress i{height:2px;width:92px;background:linear-gradient(90deg,var(--mint),var(--cyan),var(--blue));border-radius:99px;box-shadow:0 0 14px rgba(34,211,238,.3)}
+.flowStatement{padding:24px 20px 28px;margin:0;border-top:1px solid rgba(255,255,255,.055)}
+.breezeMoment{padding:60px 0 108px}.momentCopy{text-align:center;max-width:850px;margin:0 auto}.momentCopy h2{font-size:clamp(42px,5.8vw,78px);line-height:.98;letter-spacing:-.06em;margin:12px 0 18px}.momentCopy p{color:#8092A8;line-height:1.7;max-width:700px;margin:0 auto}
+.momentTrack{position:relative;height:250px;margin-top:46px;border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06);overflow:hidden;background:linear-gradient(90deg,transparent,rgba(34,211,238,.025),transparent)}
+.momentMark{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:88px;height:88px;border-radius:25px;display:grid;place-items:center;font-size:38px;font-weight:850;letter-spacing:-.08em;background:linear-gradient(145deg,rgba(126,243,214,.94),rgba(34,211,238,.92) 48%,rgba(37,99,235,.92));color:#03111D;box-shadow:0 0 70px rgba(34,211,238,.18)}
+.momentChip{position:absolute;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:9px;padding:10px 13px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(8,17,29,.78);backdrop-filter:blur(10px);font-size:10px;color:#7D90A6}.momentChip b{font-size:9px;color:#C7D5E3;letter-spacing:.08em}.momentChip.one{left:5%;margin-top:-34px}.momentChip.two{left:17%;margin-top:38px}.momentChip.three{right:17%;margin-top:-38px}.momentChip.four{right:5%;margin-top:34px}
+.momentWind{position:absolute;left:25%;right:50%;top:50%;height:90px;transform:translateY(-50%)}.momentWind.out{left:50%;right:25%}.momentWind i{position:absolute;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(126,243,214,.75),rgba(34,211,238,.55),transparent);animation:flowPulse 2.8s ease-in-out infinite}.momentWind i:nth-child(1){top:24%;animation-delay:-.3s}.momentWind i:nth-child(2){top:50%;animation-delay:-1s}.momentWind i:nth-child(3){top:76%;animation-delay:-1.7s}.momentWind.out i{background:linear-gradient(90deg,transparent,rgba(34,211,238,.55),rgba(37,99,235,.65),transparent)}
+@keyframes flowPulse{0%,100%{opacity:.2;transform:scaleX(.8)}50%{opacity:.95;transform:scaleX(1)}}
+@media(max-width:680px){
+ .flowWorkspace{border-radius:24px}.flowTopbar{height:56px;padding:0 15px}.flowIdentity small,.flowStatus{display:none}.flowBody{display:block;min-height:0}.flowSidebar{border-right:0;border-bottom:1px solid rgba(255,255,255,.06);flex-direction:row;overflow:auto;padding:10px}.flowSidebar button{white-space:nowrap;padding:8px 10px}.flowStage{padding:20px 14px}.flowStageHead span{font-size:20px}.flowStageHead small{display:none}.flowDropzone{min-height:145px;gap:16px}.fileGhost{width:66px;height:82px;border-radius:13px;font-size:15px}.flowActions{gap:6px}.flowActions span{font-size:8px;padding:7px 9px}.flowStatement{font-size:30px;padding:20px 14px 23px}
+ .breezeMoment{padding:36px 0 78px}.momentCopy h2{font-size:clamp(40px,11vw,54px)}.momentCopy p{font-size:14px}.momentTrack{height:220px;margin-top:34px}.momentMark{width:72px;height:72px;border-radius:21px;font-size:31px}.momentChip{padding:8px 10px;font-size:8px}.momentChip.one{left:1%;margin-top:-42px}.momentChip.two{left:3%;margin-top:46px}.momentChip.three{right:3%;margin-top:-46px}.momentChip.four{right:1%;margin-top:42px}.momentWind{left:18%;right:50%}.momentWind.out{left:50%;right:18%}
+}
+
 </style>
 </head>
 <body>
+<div class="grain"></div><div class="wind"></div><div class="ribbonfield"><div class="ribbon r1"></div><div class="ribbon r2"></div></div>
+
 <div class="wrap">
-<nav class="nav"><a class="brand" href="#"><svg class="mark" viewBox="0 0 240 240" aria-label="Breeze"><defs><linearGradient id="a" x1="30" y1="25" x2="195" y2="205"><stop stop-color="#b8ffe7"/><stop offset=".5" stop-color="#22d3ee"/><stop offset="1" stop-color="#2563eb"/></linearGradient></defs><path fill="url(#a)" d="M29 206C49 172 57 133 54 95C52 60 66 34 93 23C121 12 160 18 181 39C202 61 200 91 182 111C165 130 137 136 111 137C82 139 56 160 29 206Z"/><path fill="url(#a)" opacity=".78" d="M29 206C57 168 78 130 111 113C139 99 174 102 192 123C209 143 203 169 181 182C157 196 125 189 98 185C73 182 50 190 29 206Z"/><path fill="url(#a)" opacity=".62" d="M29 206C62 186 92 163 125 160C157 157 190 169 201 192C209 211 193 224 166 222C132 219 105 204 78 200C59 197 43 201 29 206Z"/></svg><span>Breeze</span></a><div class="navlinks"><a href="#experience">Experience</a><a href="#features">Why Breeze</a><a href="#download">Download</a><a class="navcta" href="#download">Release candidate</a></div></nav>
-<main>
-<section class="hero"><div class="heroGrid"><div><div class="eyebrow">Kapella · Breeze browser</div><h1>Power, without the <span class="grad">noise.</span></h1><p class="lede">Breeze is the browser built for what happens after the click — private Chromium browsing, context that stays useful, local tools that keep files on your machine, and an interface designed to feel calm even when your work is not.</p><div class="actions"><a class="btn primary" href="experience.html">Experience Breeze ↗</a><a class="btn" href="#download">Get the release candidate</a></div><div class="micro">Built by Kapella · No paid AI dependency · Privacy-first by architecture</div></div><div class="orbit"><svg class="heroMark" viewBox="0 0 240 240" aria-hidden="true"><defs><linearGradient id="b" x1="30" y1="25" x2="195" y2="205"><stop stop-color="#b8ffe7"/><stop offset=".5" stop-color="#22d3ee"/><stop offset="1" stop-color="#2563eb"/></linearGradient></defs><path fill="url(#b)" d="M29 206C49 172 57 133 54 95C52 60 66 34 93 23C121 12 160 18 181 39C202 61 200 91 182 111C165 130 137 136 111 137C82 139 56 160 29 206Z"/><path fill="url(#b)" opacity=".78" d="M29 206C57 168 78 130 111 113C139 99 174 102 192 123C209 143 203 169 181 182C157 196 125 189 98 185C73 182 50 190 29 206Z"/><path fill="url(#b)" opacity=".62" d="M29 206C62 186 92 163 125 160C157 157 190 169 201 192C209 211 193 224 166 222C132 219 105 204 78 200C59 197 43 201 29 206Z"/></svg></div></div></section>
-<section class="section" id="experience"><div class="sectionHead reveal"><div><div class="kicker">The browser, alive</div><h2>Simple at first glance. Serious underneath.</h2></div><p>The preview behaves like a product, not a poster. Enter a website or a search below and Breeze resolves it for real.</p></div><div class="stageFrame reveal" id="stage"><div class="stage"><aside class="side"><div class="traffic"><i></i><i></i><i></i></div><div class="ws">Personal</div><div class="tab on"><span class="fav">B</span><span>New tab</span></div><div class="tab"><span class="fav">K</span><span>Kapella</span></div><div class="tab"><span class="fav">PDF</span><span>Design notes</span></div><div class="sleep">2 inactive renderers released</div></aside><div class="chrome"><div class="bar"><span class="navIcon">←</span><span class="navIcon">→</span><span class="navIcon">↻</span><label class="omni"><span>⌕</span><input id="heroOmni" placeholder="Search the web or enter an address" aria-label="Preview address and search"><span>⌘K</span></label><span class="shield">● Protected</span></div><div class="page"><div class="pageLabel"><svg class="mark" viewBox="0 0 240 240" aria-hidden="true"><defs><linearGradient id="c" x1="30" y1="25" x2="195" y2="205"><stop stop-color="#b8ffe7"/><stop offset=".5" stop-color="#22d3ee"/><stop offset="1" stop-color="#2563eb"/></linearGradient></defs><path fill="url(#c)" d="M29 206C49 172 57 133 54 95C52 60 66 34 93 23C121 12 160 18 181 39C202 61 200 91 182 111C165 130 137 136 111 137C82 139 56 160 29 206Z"/><path fill="url(#c)" opacity=".75" d="M29 206C57 168 78 130 111 113C139 99 174 102 192 123C209 143 203 169 181 182C157 196 125 189 98 185C73 182 50 190 29 206Z"/></svg><span>Breeze new tab</span></div><div class="pageTitle">Your browser should help you think.</div><p class="pageCopy">Search, recover, read, convert, organize and move on. Everyday browsing stays quiet while deeper tools remain one gesture away.</p><form class="trySearch" id="previewSearch"><input id="previewQuery" autocomplete="off" placeholder="Try “best local-first note apps” or “example.com”" aria-label="Try Breeze search"><button type="submit">Search with Breeze</button></form><div class="hint" id="previewHint">Preview search opens a real result. The installed app adds local history, bookmarks, queue and tab suggestions.</div></div></div></div></div></section>
-<section class="section" id="features"><div class="sectionHead reveal"><div><div class="kicker">Built around the work</div><h2>More capable where it matters.</h2></div><p>Breeze avoids decorative controls that pretend to work. Visible features should earn their place.</p></div><div class="featureGrid"><article class="feature reveal"><small>01 · Privacy architecture</small><h3>Private means ephemeral.</h3><p>Private sessions stay out of Breeze history, restart recovery, persistent permissions, extension state and download provenance.</p></article><article class="feature reveal"><small>02 · Context</small><h3>Your browser remembers usefully.</h3><p>Workspaces, Reading Queue, notes and snapshots help you return to the thread without turning the browser into another noisy productivity app.</p></article><article class="feature reveal"><small>03 · Breeze Flow</small><h3>Local tools, right where you browse.</h3><p>Convert images, audio and video locally. Generate hashes and UUIDs. Keep personal files off random upload sites.</p></article><article class="feature reveal"><small>04 · PDF workspace</small><h3>Documents deserve a browser that reads.</h3><p>Search, thumbnails, comfort reading, split, merge, rotate and extract inside a sandboxed local workspace.</p></article></div></section>
-<section class="statement reveal"><strong>A calmer browser can still be a <span class="grad">powerhouse.</span></strong><p>Breeze is being built toward that line: elegant enough for anyone, deep enough for people who live in their browser.</p></section>
-<section class="download" id="download"><div class="downloadCard reveal"><div class="kicker">Release candidate · Beta channel</div><h2 id="getHead">Checking release…</h2><p id="getRel" class="sub">Breeze 1.3.0 release candidate is available for testing.</p><div class="os"><button class="osTab active" data-p="macos-arm">Apple silicon</button><button class="osTab" data-p="macos-x64">Intel</button><button class="osTab" data-p="windows-x64">Windows</button><button class="osTab" data-p="linux-x64">Linux</button></div><div id="dlCost" class="cost"></div><p id="dlUnsigned" class="sub"></p><div id="dlSteps" class="steps"></div><div class="actions"><a id="dlGo" class="btn primary" href="#waitlist"><span id="dlGoLabel">Get notified at launch</span></a></div><div id="waitlist" class="micro">Release candidate downloads are for testing. Signed/notarized Windows and macOS production installers will replace these before the stable public launch.</div></div></section>
-</main><footer class="footer"><div>Breeze by Kapella · Built for the web after the click.</div><span>Privacy-first · Local-first tools · Chromium-powered</span></footer></div>
-<script>
-const tabs=[...document.querySelectorAll('.osTab')],head=document.querySelector('#getHead'),rel=document.querySelector('#getRel'),cost=document.querySelector('#dlCost'),why=document.querySelector('#dlUnsigned'),steps=document.querySelector('#dlSteps'),go=document.querySelector('#dlGo'),label=document.querySelector('#dlGoLabel');let data={builds:[]},selected='macos-arm';const names={'macos-arm':'macOS Apple silicon','macos-x64':'macOS Intel','windows-x64':'Windows','linux-x64':'Linux'},fmt=n=>Math.round(n/1048576)+' MB';function draw(){tabs.forEach(x=>x.classList.toggle('active',x.dataset.p===selected));const b=(data.builds||[]).find(x=>x.platform===selected);cost.innerHTML='';why.textContent='';steps.innerHTML='';if(!b){head.textContent=data.version?'No '+names[selected]+' build yet':'Not released yet';rel.textContent=data.version?'Breeze '+data.version+' · '+(data.codename||''):'Breeze is in release-candidate verification.';go.href='#waitlist';label.textContent='Get notified at launch';return}head.textContent='Breeze for '+names[selected];rel.textContent='Breeze '+data.version+' · '+(data.codename||'')+' · Release candidate';const rows=[['Download',fmt(b.size)],['SHA-256',b.sha256]];if(selected==='windows-x64')rows.push(['Windows','SmartScreen may warn before signing is complete']);if(selected==='linux-x64')rows.push(['Linux','Opens straight away']);cost.innerHTML=rows.map(r=>'<div class="costRow"><b>'+r[0]+'</b><span>'+r[1]+'</span></div>').join('');if(selected==='windows-x64')why.textContent='This release candidate is not yet signed with the production Windows code-signing certificate.';if(selected.startsWith('macos-'))why.textContent='This release candidate is not yet notarised by Apple; production release will complete signing and notarization first.';if(selected!=='linux-x64')steps.innerHTML=['Download Breeze RC','Verify the checksum','Open the installer'].map(x=>'<div class="step">'+x+'</div>').join('');go.href='/download?channel=beta&platform='+selected;label.textContent='Download release candidate'}tabs.forEach(x=>x.onclick=()=>{selected=x.dataset.p;draw()});fetch('/api/releases?channel=beta').then(r=>r.json()).then(x=>{data=x||{builds:[]};draw()}).catch(()=>draw());draw();function resolve(raw){const s=String(raw||'').trim();if(!s)return null;if(/^https?:\/\//i.test(s)){try{const u=new URL(s);return ['http:','https:'].includes(u.protocol)?u.href:null}catch{return null}}if(/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(s)&&!s.includes(' '))return'https://'+s;return'https://search.brave.com/search?q='+encodeURIComponent(s)}function run(raw){const u=resolve(raw);if(!u)return;const h=document.querySelector('#previewHint');if(h)h.textContent='Opening '+u.replace(/^https?:\/\//,'').slice(0,72)+'…';window.open(u,'_blank','noopener,noreferrer')}document.querySelector('#previewSearch').addEventListener('submit',e=>{e.preventDefault();run(document.querySelector('#previewQuery').value)});document.querySelector('#heroOmni').addEventListener('keydown',e=>{if(e.key==='Enter')run(e.currentTarget.value)});window.BreezePreview={resolveInput:resolve};const obs=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('on');obs.unobserve(e.target)}}),{threshold:.1});document.querySelectorAll('.reveal').forEach(x=>obs.observe(x));if(matchMedia('(prefers-reduced-motion:reduce)').matches)document.querySelectorAll('.reveal').forEach(x=>x.classList.add('on'));const st=document.querySelector('#stage');if(st&&!matchMedia('(prefers-reduced-motion:reduce)').matches){st.addEventListener('pointermove',e=>{const r=st.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;st.style.transform='perspective(1200px) rotateX('+(-y)+'deg) rotateY('+(x*1.2)+'deg)'});st.addEventListener('pointerleave',()=>st.style.transform='')}
-</script>
-</body></html>
+<nav class="nav">
+  <a class="brand" href="#top"><img src="/breeze-mark.svg" alt="Breeze"><span>Breeze</span></a>
+  <div class="navRight">
+    <div class="palette" aria-label="Breeze accent modes">
+      <button class="swatch blue" data-accent="blue" aria-pressed="true" title="Breeze Blue"></button>
+      <button class="swatch cyan" data-accent="cyan" aria-pressed="false" title="Sky Cyan"></button>
+      <button class="swatch teal" data-accent="teal" aria-pressed="false" title="Ocean Teal"></button>
+      <button class="swatch mint" data-accent="mint" aria-pressed="false" title="Aqua Mint"></button>
+    </div>
+    <a class="navlink" href="#experience">Experience</a>
+    <a class="navlink" href="#flow">Flow</a>
+    <a class="navlink betaTop" href="#download">Download Beta</a>
+  </div>
+</nav>
+</div>
+
+<main id="top">
+<section class="hero">
+ <div class="wrap heroGrid">
+   <div class="heroCopy">
+     <div class="eyebrow">Breeze · McCloskey</div>
+     <h1>Power<br><span class="gradientText">without friction.</span></h1>
+     <p class="lede">Breeze is a new kind of browser: calm enough for everyday use, powerful enough to become your workspace. Search, compare, create, read and move through the web without losing your flow.</p>
+     <div class="heroActions">
+       <a class="btn primary" href="#download">Download Breeze Beta <span>↓</span></a>
+       <a class="btn" href="#experience">Experience Breeze <span>↘</span></a>
+     </div>
+     <div class="heroMeta">By Kapella · Designed to make powerful technology feel effortless.</div>
+     <div class="releaseNote"><span>McCloskey</span><i></i><span>The first public chapter of Breeze</span></div>
+   </div>
+   <div class="heroArt" aria-label="Breeze mark in motion">
+     <span class="floatingTag one">Split View · two real pages</span>
+     <span class="floatingTag two">Private by design</span>
+     <div class="breezeTrails" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+     <img class="heroMark" src="/breeze-mark.svg" alt="Breeze logo">
+   </div>
+ </div>
+</section>
+
+<section class="section" id="experience">
+ <div class="wrap">
+   <div class="sectionHead">
+     <div><div class="kicker">The Breeze experience</div><h2>The browser disappears. Your work stays.</h2></div>
+     <p>Less chrome, less juggling, less interruption. Breeze keeps the tools you need close and the browser itself quiet.</p>
+   </div>
+
+   <div class="productFrame">
+     <div class="product">
+       <aside class="sidebar">
+         <div class="traffic"><i></i><i></i><i></i></div>
+         <div class="sidebarLabel">Workspaces</div>
+         <div class="tab on"><span class="favicon">B</span><span>Build</span></div>
+         <div class="tab"><span class="favicon">R</span><span>Research</span></div>
+         <div class="tab"><span class="favicon">P</span><span>Personal</span></div>
+         <div class="sidebarLabel" style="margin-top:12px">Open tabs</div>
+         <div class="tab"><span class="favicon">N</span><span>Notes</span></div>
+         <div class="tab"><span class="favicon">D</span><span>Docs</span></div>
+         <div class="sleepNote">Inactive tabs sleep automatically.</div>
+       </aside>
+       <div class="chrome">
+         <div class="topbar"><span class="navGhost">←</span><span class="navGhost">→</span>
+           <div class="omni"><span>⌕</span><input id="omni" placeholder="Search or enter an address"></div>
+           <span class="protected">◈ Protected</span>
+         </div>
+         <div class="split">
+           <article class="pane">
+             <div class="paneLabel"><img src="/breeze-mark.svg" alt=""> Breeze Search</div>
+             <h3>Find it.<br>Stay in flow.</h3>
+             <p>Search the web, jump to open tabs, history, bookmarks and your queue from one calm omnibox.</p>
+             <form class="searchBox" id="searchForm"><input placeholder="Try a web search" aria-label="Try Breeze search"><button>Search</button></form>
+             <div class="quick"><div>@tabs · jump to anything open</div><div>@history · find where you were</div></div>
+             <div class="mobileTag">Mobile uses its own Breeze layout—built for thumbs and small screens, not a compressed desktop UI.</div>
+           </article>
+           <article class="pane alt">
+             <div class="paneLabel"><span class="favicon">Ⅱ</span> Split View</div>
+             <h3>Two pages.<br>One thought.</h3>
+             <p>Compare, reference and work across two independent Chromium pages with a real resizable divider.</p>
+             <div class="quick"><div>Compare research without tab-juggling</div><div>Keep a PDF beside the web</div></div>
+           </article>
+         </div>
+       </div>
+     </div>
+   </div>
+ </div>
+</section>
+
+<section class="flowSection" id="flow">
+ <div class="wrap">
+   <div class="flowIntro">
+     <div class="kicker">Breeze Flow</div>
+     <h2>Do the small jobs.<br><span class="gradientText">Stay in the browser.</span></h2>
+     <p>Flow is Breeze's built-in tools space for the work that normally sends you hunting across the web. Convert, compress, resize, merge, extract and transform files without breaking your rhythm.</p>
+   </div>
+   <div class="flowWorkspace">
+      <div class="flowTopbar">
+        <div class="flowIdentity"><span class="flowDot"></span><b>Flow</b><small>Built into Breeze</small></div>
+        <div class="flowStatus">Local tools · no detour</div>
+      </div>
+      <div class="flowBody">
+        <div class="flowSidebar">
+          <button class="active">Convert</button><button>Compress</button><button>PDF</button><button>Image</button><button>Media</button>
+        </div>
+        <div class="flowStage">
+          <div class="flowStageHead"><span>Quick convert</span><small>Drop a file or choose one</small></div>
+          <div class="flowDropzone">
+            <div class="fileGhost">PDF</div>
+            <div class="flowArrow">→</div>
+            <div class="fileGhost output">JPG</div>
+          </div>
+          <div class="flowActions">
+            <span>PDF → JPG</span><span>Compress</span><span>Merge</span><span>Extract pages</span><span>Resize image</span>
+          </div>
+          <div class="flowProgress"><i></i><span>Ready when you are.</span></div>
+        </div>
+      </div>
+      <div class="flowStatement">One browser. Fewer detours.</div>
+   </div>
+ </div>
+</section>
+
+<section class="breezeMoment" aria-label="The Breeze way">
+  <div class="wrap">
+    <div class="momentCopy">
+      <div class="kicker">The Breeze way</div>
+      <h2>Open. Work. Transform. <span class="gradientText">Keep moving.</span></h2>
+      <p>Tabs, files, PDFs and tools should feel like one continuous motion—not a collection of separate apps.</p>
+    </div>
+    <div class="momentTrack" aria-hidden="true">
+      <div class="momentChip one"><b>PDF</b><span>Research.pdf</span></div>
+      <div class="momentChip two"><b>WEB</b><span>Reference</span></div>
+      <div class="momentWind"><i></i><i></i><i></i></div>
+      <div class="momentMark">B</div>
+      <div class="momentWind out"><i></i><i></i><i></i></div>
+      <div class="momentChip three"><b>JPG</b><span>Page 01</span></div>
+      <div class="momentChip four"><b>FLOW</b><span>Done</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="section supportSection">
+ <div class="wrap">
+   <div class="sectionHead centeredHead">
+     <div><div class="kicker">Quiet power</div><h2>Serious tools. Almost no ceremony.</h2></div>
+     <p>Breeze keeps useful capability close without turning the browser into another system you have to manage.</p>
+   </div>
+   <div class="mosaic">
+     <article class="card"><small>PDF Workspace</small><h3>Read like a document.</h3><p>Search, reflow, focus paragraphs, split, merge and rotate locally.</p><div class="symbol">PDF</div></article>
+     <article class="card"><small>Private</small><h3>Private means memory-only.</h3><p>Private browsing stays outside normal history and restart recovery, with explicit permission handling.</p><div class="symbol">◌</div></article>
+     <article class="card"><small>Performance</small><h3>Tabs that know when to sleep.</h3><p>Inactive tabs can release their Chromium renderer and wake with navigation restored when you need them.</p><div class="symbol">Zz</div></article>
+     <article class="card"><small>Workspaces</small><h3>Keep contexts separate.</h3><p>Group tabs and tasks around the way you actually work, without turning organization into overhead.</p><div class="symbol">Ⅱ</div></article>
+   </div>
+ </div>
+</section>
+
+<section class="manifesto">
+ <div class="wrap"><strong>Simple on the surface.<br><span class="gradientText">A powerhouse underneath.</span></strong><p>The web has enough friction already. Breeze is built around one idea: powerful technology should feel lighter, calmer and more natural to use.</p></div>
+</section>
+
+<section class="download" id="download">
+ <div class="wrap">
+   <div class="downloadPanel">
+     <div class="kicker">Get Breeze</div>
+     <h2>Download Breeze.</h2>
+     <p class="downloadIntro">McCloskey is ready to explore. Choose your platform.</p>
+     <div class="badge"><i></i> Beta release</div>
+
+     <div class="downloadGrid">
+       <a class="downloadTile" href="https://kapella-breeze.netlify.app/download?channel=beta&platform=macos-arm">
+         <div class="downloadLogo"><img src="/breeze-mark.svg" alt=""></div><div class="osName">Breeze for macOS</div><div class="osMeta">Apple silicon · Beta</div><div class="get">Download <span>↘</span></div>
+       </a>
+       <a class="downloadTile" href="https://kapella-breeze.netlify.app/download?channel=beta&platform=windows-x64">
+         <div class="downloadLogo"><img src="/breeze-mark.svg" alt=""></div><div class="osName">Breeze for Windows</div><div class="osMeta">64-bit · Beta</div><div class="get">Download <span>↘</span></div>
+       </a>
+       <a class="downloadTile" href="https://kapella-breeze.netlify.app/download?channel=beta&platform=linux-x64">
+         <div class="downloadLogo"><img src="/breeze-mark.svg" alt=""></div><div class="osName">Breeze for Linux</div><div class="osMeta">x86-64 · Beta</div><div class="get">Download <span>↘</span></div>
+       </a>
+     </div>
+     <p class="fineprint">Beta builds are currently unsigned on Windows and macOS, so those systems may show a security prompt during installation. This does not change Breeze functionality.</p>
+   </div>
+ </div>
+</section>
+</main>
+
+<div class="wrap"><footer class="footer"><span>© 2026 Kapella Holdings · Breeze</span><span>McCloskey · Power without friction.</span></footer></div>
+
+<script src="/site.js" defer></script>
+</body>
+</html>
