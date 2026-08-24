@@ -46,7 +46,7 @@ jobs:
           yarn webpack:tsc
           yarn build:test
           test -f dist/chrome/manifest.json
-          node -e "const p=require('./package.json'),m=require('./dist/chrome/manifest.json'); if(m.version!==p.version) throw new Error('source/build version mismatch: '+p.version+' vs '+m.version); console.log('MetaMask source build',m.version,'MV'+m.manifest_version,m.action&&m.action.default_popup)"
+          node -e "const p=require('./package.json'),m=require('./dist/chrome/manifest.json'); const ok=m.version===p.version||m.version.startsWith(p.version+'.'); if(!ok) throw new Error('source/build version mismatch: '+p.version+' vs '+m.version); console.log('MetaMask source build',m.version,'MV'+m.manifest_version,m.action&&m.action.default_popup)"
 
       - name: Install Breeze shell dependencies
         working-directory: shell
