@@ -8,6 +8,7 @@ on:
       - 'shell/extensions-runtime.js'
       - 'shell/extension-compat.js'
       - 'shell/extension-page-preload.js'
+      - 'shell/extension-sw-preload.js'
       - '.github/workflows/real-phantom-cert.yml'
 
 permissions:
