@@ -42,13 +42,19 @@ async function clickSelector(win,selector){
   return true;
 }
 async function routeClickSelector(win,selector){
-  await waitFor(async()=>{
-    const state=await selectorState(win,selector);
-    return state?.found&&!state.disabled?state:null;
+  const hit=await waitFor(async()=>{
+    if(!win||win.isDestroyed())return null;
+    return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)return null;const r=e.getBoundingClientRect();return r.width>0&&r.height>0?{x:r.left+r.width/2,y:r.top+r.height/2}:null})()`).catch(()=>null);
   },{timeout:30000,label:`enabled route control ${selector}`});
-  // Resolve the automation evaluation before React destroys the old route.
-  // The scheduled click still exercises MetaMask's real onClick/navigation path.
-  return win.webContents.executeJavaScript(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw new Error('route control unavailable');setTimeout(()=>e.click(),0);return true})()`);
+  const x=Math.round(hit.x), y=Math.round(hit.y);
+  try{if(!win.isVisible())win.show();win.focus();}catch{}
+  // Do not evaluate renderer JavaScript after the click. React is allowed to
+  // tear down the old route immediately without invalidating an awaited IPC.
+  win.webContents.sendInputEvent({type:'mouseMove',x,y});
+  win.webContents.sendInputEvent({type:'mouseDown',x,y,button:'left',clickCount:1});
+  win.webContents.sendInputEvent({type:'mouseUp',x,y,button:'left',clickCount:1});
+  await sleep(250);
+  return true;
 }
 async function fillSelector(win,selector,value){
   await waitSelector(win,selector);
@@ -157,10 +163,13 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     ok('official MetaMask UI renders in Breeze',surfaceState.ready==='complete'&&!!surfaceState.body,JSON.stringify(surfaceState));
     ok('fresh-install MetaMask lifecycle is handled',finalHref.includes('/home.html')||finalHref.includes('/popup.html'),finalHref);
 
+    console.log('MetaMask onboarding: choose existing wallet');
     await routeClickSelector(surface,'[data-testid="onboarding-import-wallet"]');
     await waitSelector(surface,'[data-testid="onboarding-import-with-srp-button"]',30000);
+    console.log('MetaMask onboarding: choose SRP import');
     await routeClickSelector(surface,'[data-testid="onboarding-import-with-srp-button"]');
     await waitSelector(surface,'[data-testid="srp-input-import__srp-note"]',30000);
+    console.log('MetaMask onboarding: enter test SRP');
     await pasteSelector(surface,'[data-testid="srp-input-import__srp-note"]',TEST_SRP);
     await waitFor(async()=>{
       const s=await selectorState(surface,'[data-testid="import-srp-confirm"]');
@@ -169,6 +178,7 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
     await routeClickSelector(surface,'[data-testid="import-srp-confirm"]');
     await waitHash(surface,'#/onboarding/create-password',30000);
     await waitSelector(surface,'[data-testid="create-password-new-input"]',30000);
+    console.log('MetaMask onboarding: create test password');
     await fillSelector(surface,'[data-testid="create-password-new-input"]',TEST_PASSWORD);
     await fillSelector(surface,'[data-testid="create-password-confirm-input"]',TEST_PASSWORD);
     await clickSelector(surface,'[data-testid="create-password-terms"]');
