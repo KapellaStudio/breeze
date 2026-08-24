@@ -49,8 +49,6 @@ mac:
   notarize: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  extendInfo:
-    NSLocationWhenInUseUsageDescription: Breeze uses your approximate location only when you enable local weather on the New Tab page. Coordinates are not stored.
   target:
     - target: dmg
       arch: [arm64, x64]
