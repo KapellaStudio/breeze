@@ -146,10 +146,11 @@ whose source representation is SHA-256 digest only.
 
 ## Packaging and publication
 
-The Electron package version is **1.3.0**. `.github/workflows/package.yml` builds
+The Electron package version is **1.0.0** and the public product identity is
+**Breeze 1.0**. `.github/workflows/package.yml` builds
 Linux, Windows and macOS installers from the canonical `main` branch, retains the
 CI artifacts and checksums, and publishes the canonical merge as
-`v1.3.0-rc.1` GitHub prerelease.
+`v1.0.0-beta.1` GitHub prerelease.
 
 Windows/macOS are still unsigned/unnotarised until platform signing credentials
 are configured, so they must remain clearly labelled prerelease builds. No

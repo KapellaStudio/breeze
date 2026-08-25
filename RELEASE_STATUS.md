@@ -1,4 +1,4 @@
-# Breeze 19 — Canonical Source / Release Candidate Status
+# Breeze 1.0 — Canonical Source / Beta Release Status
 
 **Updated:** 24 August 2026
 
@@ -10,8 +10,8 @@ services, backend, packaging, production smoke verification, and release workflo
 are tracked as normal repository files.
 
 The feature-complete daily-driver source is now on `main`. Real two-pane Split
-View was merged in PR #6, and PR #7 promoted the RC3 publication lane without
-redeploying Netlify.
+View and the certified Phantom extension path are included in the Breeze 1.0
+beta publication lane.
 
 The Breeze mark is sourced from the tracked Kapella Breeze vector master. Kapella
 wordmarks are integrity-checked by CI. Generated root/preview UI remains a build
@@ -42,38 +42,21 @@ product; edit `src/` and run `python3 build.py`.
 The final Split View candidate passed all 41 browser-chrome security vectors and
 42/42 packaged Electron integration checks before merge.
 
-## Published release candidate
+## Breeze 1.0 release candidate
 
-Breeze `1.3.0` RC 3 is published as GitHub prerelease `v1.3.0-rc.3` from canonical
-`main` source commit `a18cc3dc38be4b6b4a26b43ed2959d8be12ba26b`.
-
-Package/publish run `32712496727` completed successfully for Windows, macOS and
-Linux, then generated `SHA256SUMS.txt` and `release-manifest.json` and published
-the prerelease.
-
-Canonical platform artifacts from the RC3 manifest:
-
-- macOS Apple silicon DMG — 164,469,053 bytes — SHA-256
-  `e359bd0e58c3b8666b52ab1fd399c0877cd88e34bb3c35721c6062945817aab1`
-- macOS Intel DMG — 166,456,313 bytes — SHA-256
-  `858eee38bc29676dde9264b74de0cde64e86e7796b31c536cf274b56e13f9d58`
-- Windows x64 installer — 144,342,985 bytes — SHA-256
-  `584d70d9b95be13be47b28375dec20541c5c1fb61179a327d433b8418d7c01ea`
-- Linux x64 AppImage — 197,713,535 bytes — SHA-256
-  `ae800631d215354b91151f72408f31c1de95761fcf389c30644f87b2d12a4420`
-
-Alternate macOS ZIP and Linux DEB packages are also included in the RC3 release.
-Windows and macOS RC3 bytes remain intentionally unsigned/unnotarized test builds.
-They are not a stable public release.
+Breeze is being repackaged as **Breeze 1.0**. The new public beta artifacts will
+be published as GitHub prerelease `v1.0.0-beta.1` only after the cross-platform
+package matrix and final verification pass. Historical pre-1.0 release-candidate
+metadata is not a current download target. Windows and macOS beta packages remain
+intentionally unsigned/unnotarized test builds and are not a stable public release.
 
 ## Distribution metadata
 
-The four published Supabase `beta` rows now point to the exact RC3 canonical
-artifacts, byte sizes and SHA-256 values above. Existing stable data is left
-untouched.
+The four Supabase `beta` rows will be moved to the exact Breeze 1.0 artifacts,
+byte sizes and SHA-256 values only after the new publication manifest is verified.
+Existing stable data is left untouched.
 
-The currently published Netlify production deploy remains the earlier verified
-site/functions deploy; RC3 work did not redeploy the site. Its `/api/releases`
+The Netlify production site's `/api/releases`
 function performs live least-privilege reads from the `releases` table with a
 60-second cache, while `/download` performs a live newest-build lookup and returns
 the stored artifact URL and SHA with `no-store`. Updating beta rows therefore does
@@ -87,7 +70,7 @@ new site-design deployment milestone.
 ### Stable desktop signing
 
 Windows and macOS code signing/notarization remain external credential/account
-work. RC downloads may trigger SmartScreen/Gatekeeper warnings and must not be
+work. Beta downloads may trigger SmartScreen/Gatekeeper warnings and must not be
 reclassified as stable until production trust verification passes.
 
 The production lane is already implemented in `.github/workflows/stable-release.yml`

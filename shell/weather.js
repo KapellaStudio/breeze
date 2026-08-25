@@ -5,7 +5,7 @@
 
 const GEO_ENDPOINT='https://ipwho.is/';
 const WEATHER_ENDPOINT='https://api.met.no/weatherapi/locationforecast/2.0/compact';
-const WEATHER_UA='Breeze/1.3.0 https://kapellaholdings.com/breeze';
+const WEATHER_UA='Breeze/1.0 https://kapellaholdings.com/breeze';
 const LOCATION_CACHE_MS=6*60*60*1000;
 const WEATHER_CACHE_MS=20*60*1000;
 let locationCache=null;

@@ -36,7 +36,7 @@ const weather=require('./weather');
   assert.match(requests[0].target,/^https:\/\/ipwho\.is\//);
   assert.match(requests[1].target,/lat=37\.77/);
   assert.match(requests[1].target,/lon=-122\.42/);
-  assert.match(String(requests[1].opts?.headers?.['user-agent']||''),/^Breeze\/1\.3\.0/);
+  assert.match(String(requests[1].opts?.headers?.['user-agent']||''),/^Breeze\/1\.0/);
   assert.equal(first.temperature,61);
   assert.equal(first.condition,'Partly cloudy');
   assert.equal(first.high,64);

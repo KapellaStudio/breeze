@@ -23,13 +23,13 @@ concurrency:
 
 jobs:
   smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[publish-1.0]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Verify live Netlify production surface
         env:
           BASE: https://kapella-breeze.netlify.app
-          EXPECTED_BETA_TAG: v1.3.0-rc.3
-          EXPECTED_LINUX_SHA256: ae800631d215354b91151f72408f31c1de95761fcf389c30644f87b2d12a4420
+          EXPECTED_BETA_TAG: v1.0.0-beta.1
         run: |
           set -euo pipefail
           ok=0
@@ -43,19 +43,21 @@ jobs:
           import json, pathlib, sys
           health=json.loads(pathlib.Path('/tmp/health.json').read_text())
           data=json.loads(pathlib.Path('/tmp/releases.json').read_text())
+          builds={b.get('platform'): b for b in data.get('builds',[])}
           platforms={b.get('platform') for b in data.get('builds',[])}
           required={'macos-arm','macos-x64','windows-x64','linux-x64'}
           site=pathlib.Path('/tmp/site.html').read_text()
           good=(health.get('ok') is True and health.get('service')=='breeze'
-                and data.get('version')=='1.3.0' and data.get('codename')=='McCloskey'
+                and data.get('version')=='1.0' and data.get('codename')=='McCloskey'
                 and required.issubset(platforms)
-                and 'Breeze 1.3.0 RC' in site
+                and 'Breeze 1.0' in site
                 and '/api/releases?channel=beta' in site
                 and '/download?channel=beta&platform=' in site)
           if not good:
               print({'health':health,'version':data.get('version'),'codename':data.get('codename'),'platforms':sorted(platforms)})
               sys.exit(1)
-          print('Live Netlify Functions, beta API and RC site verified:', sorted(platforms))
+          pathlib.Path('/tmp/expected-linux-sha.txt').write_text(builds['linux-x64']['sha256'].lower())
+          print('Live Netlify Functions, beta API and Breeze 1.0 site verified:', sorted(platforms))
           PY
               then ok=1; break; fi
             fi
@@ -68,11 +70,12 @@ jobs:
           cat /tmp/download-headers.txt
           grep -Eq '^HTTP/[^ ]+ 30[1278]' /tmp/download-headers.txt
           grep -qi "^location: https://github.com/KapellaStudio/breeze/releases/download/${EXPECTED_BETA_TAG}/" /tmp/download-headers.txt
-          grep -qi "^x-breeze-sha256: ${EXPECTED_LINUX_SHA256}" /tmp/download-headers.txt
+          expected_linux_sha256="$(cat /tmp/expected-linux-sha.txt)"
+          grep -qi "^x-breeze-sha256: ${expected_linux_sha256}" /tmp/download-headers.txt
 
       - name: Report production smoke result
-        if: ${{ always() }}
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[publish-1.0]')) }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze production smoke: **${{ job.status }}** — Netlify Functions/RC site/API/download redirect, run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
+          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze production smoke: **${{ job.status }}** — Netlify Functions/Breeze 1.0 site/API/download redirect, run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."

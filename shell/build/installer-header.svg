@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="150" height="57" viewBox="0 0 150 57">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="150" y2="57"><stop stop-color="#0D2638"/><stop offset="1" stop-color="#06101C"/></linearGradient>
+    <linearGradient id="m" x1="9" y1="8" x2="52" y2="48"><stop stop-color="#B8FFE7"/><stop offset=".45" stop-color="#34E8D1"/><stop offset="1" stop-color="#188DE5"/></linearGradient>
+  </defs>
+  <rect width="150" height="57" fill="url(#bg)"/>
+  <path d="M-5 17C39 2 95 7 157 24M-3 28C45 14 104 18 157 34" fill="none" stroke="#51EAD6" stroke-opacity=".10"/>
+  <path d="M9 48C16 35 19 21 18 12C18 5 24 2 31 4C40 6 45 13 43 20C41 27 34 31 27 33C20 35 14 41 9 48Z" fill="url(#m)"/>
+  <path d="M9 48C20 37 29 31 39 32C48 33 55 39 54 45C52 50 45 51 37 49C25 45 16 47 9 48Z" fill="#247FE7" opacity=".82"/>
+  <text x="61" y="28" fill="#F4FBFF" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">Breeze</text>
+  <text x="62" y="42" fill="#76EED8" font-family="Arial, Helvetica, sans-serif" font-size="7" font-weight="700" letter-spacing="1.4">VERSION 1.0</text>
+</svg>

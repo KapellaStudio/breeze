@@ -255,6 +255,58 @@ h1{margin:20px 0 26px;font-size:clamp(66px,8.25vw,120px);line-height:.87;letter-
  .breezeMoment{padding:36px 0 78px}.momentCopy h2{font-size:clamp(40px,11vw,54px)}.momentCopy p{font-size:14px}.momentTrack{height:220px;margin-top:34px}.momentMark{width:72px;height:72px;border-radius:21px;font-size:31px}.momentChip{padding:8px 10px;font-size:8px}.momentChip.one{left:1%;margin-top:-42px}.momentChip.two{left:3%;margin-top:46px}.momentChip.three{right:3%;margin-top:-46px}.momentChip.four{right:1%;margin-top:42px}.momentWind{left:18%;right:50%}.momentWind.out{left:50%;right:18%}
 }
 
+/* Breeze 1.0 release refinement — lighter structure, exact alignment */
+.supportSection{padding-top:112px}
+.supportSection .centeredHead{max-width:1040px;margin:0 auto 62px}
+.supportSection .centeredHead>div{width:100%}
+.supportSection .centeredHead h2{max-width:980px;margin:12px auto 0;text-align:center;text-wrap:balance}
+.supportSection .centeredHead p{max-width:610px;margin:22px auto 0;text-align:center}
+.supportSection .mosaic{grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border-top:1px solid rgba(255,255,255,.11);border-bottom:1px solid rgba(255,255,255,.07)}
+.supportSection .card,.supportSection .card.big,.supportSection .card.small{grid-column:auto;min-height:248px;padding:29px 25px 32px;border:0;border-left:1px solid rgba(255,255,255,.075);border-radius:0;background:transparent;overflow:visible}
+.supportSection .card:first-child{border-left:0}
+.supportSection .card:before{content:"";display:block;width:28px;height:1px;margin-bottom:31px;background:linear-gradient(90deg,var(--mint),var(--cyan),var(--blue));opacity:.76}
+.supportSection .card:after{display:none}
+.supportSection .card small{color:#6F859A;font-size:9px;letter-spacing:.18em}
+.supportSection .card h3{max-width:260px;margin:20px 0 12px;font-size:clamp(24px,2.2vw,31px);line-height:1.06}
+.supportSection .card p{font-size:13px;line-height:1.68;color:#8294A7}
+.supportSection .card .symbol{right:21px;bottom:18px;font-size:29px;color:rgba(126,243,214,.085)}
+.flowWorkspace{border-radius:20px;border-color:rgba(126,243,214,.12);box-shadow:0 22px 70px rgba(0,0,0,.2)}
+.flowDropzone{border-radius:16px}
+.downloadPanel{padding:52px 0 35px;border:0;border-top:1px solid rgba(126,243,214,.16);border-bottom:1px solid rgba(255,255,255,.07);border-radius:0;background:linear-gradient(90deg,transparent,rgba(34,211,238,.025),transparent);text-align:center}
+.downloadIntro{margin-left:auto;margin-right:auto}
+.downloadPanel .badge{margin-left:auto;margin-right:auto}
+.downloadGrid{gap:0;margin-top:41px;border-top:1px solid rgba(255,255,255,.075)}
+.downloadTile{min-height:190px;padding:27px 30px;border:0;border-left:1px solid rgba(255,255,255,.075);border-radius:0;background:transparent;text-align:left}
+.downloadTile:first-child{border-left:0}
+.downloadTile:hover{transform:none;background:linear-gradient(180deg,rgba(126,243,214,.045),transparent);border-color:rgba(255,255,255,.075)}
+.downloadLogo{width:44px;height:44px;padding:6px;border-radius:13px}
+.osName{margin-top:23px}
+.fineprint{margin:21px auto 0;text-align:center}
+
+@media(max-width:960px){
+ .supportSection .mosaic{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .supportSection .card{border-bottom:1px solid rgba(255,255,255,.07)}
+ .supportSection .card:nth-child(odd){border-left:0}
+ .supportSection .card:nth-child(n+3){border-bottom:0}
+}
+@media(max-width:680px){
+ .supportSection{padding-top:78px}
+ .supportSection .centeredHead{margin-bottom:38px}
+ .supportSection .centeredHead h2{font-size:clamp(40px,11.7vw,56px);line-height:.98}
+ .supportSection .mosaic{display:grid;grid-template-columns:1fr}
+ .supportSection .card,.supportSection .card.big,.supportSection .card.small{min-height:0;margin:0;padding:27px 5px 29px;border-left:0;border-bottom:1px solid rgba(255,255,255,.075)}
+ .supportSection .card:last-child{border-bottom:0}
+ .supportSection .card:before{margin-bottom:22px}
+ .supportSection .card h3{max-width:none;margin-top:16px;font-size:27px}
+ .supportSection .card p{padding-right:38px}
+ .flowWorkspace{border-radius:16px}
+ .flowDropzone{border-radius:13px}
+ .downloadPanel{padding:41px 0 25px}
+ .downloadGrid{display:block;margin-top:31px}
+ .downloadTile{min-height:0;padding:17px 7px;display:grid;border-left:0;border-bottom:1px solid rgba(255,255,255,.075);grid-template-columns:46px minmax(0,1fr) 28px}
+ .downloadTile:last-child{border-bottom:0}
+}
+
 </style>
 </head>
 <body>
@@ -281,7 +333,7 @@ h1{margin:20px 0 26px;font-size:clamp(66px,8.25vw,120px);line-height:.87;letter-
 <section class="hero">
  <div class="wrap heroGrid">
    <div class="heroCopy">
-     <div class="eyebrow">Breeze · McCloskey</div>
+     <div class="eyebrow">Breeze 1.0 · McCloskey</div>
      <h1>Power<br><span class="gradientText">without friction.</span></h1>
      <p class="lede">Breeze is a new kind of browser: calm enough for everyday use, powerful enough to become your workspace. Search, compare, create, read and move through the web without losing your flow.</p>
      <div class="heroActions">
@@ -289,7 +341,7 @@ h1{margin:20px 0 26px;font-size:clamp(66px,8.25vw,120px);line-height:.87;letter-
        <a class="btn" href="#experience">Experience Breeze <span>↘</span></a>
      </div>
      <div class="heroMeta">By Kapella · Designed to make powerful technology feel effortless.</div>
-     <div class="releaseNote"><span>McCloskey</span><i></i><span>The first public chapter of Breeze</span></div>
+     <div class="releaseNote"><span>Breeze 1.0</span><i></i><span>McCloskey · The first public chapter of Breeze</span></div>
    </div>
    <div class="heroArt" aria-label="Breeze mark in motion">
      <span class="floatingTag one">Split View · two real pages</span>
@@ -424,7 +476,7 @@ h1{margin:20px 0 26px;font-size:clamp(66px,8.25vw,120px);line-height:.87;letter-
    <div class="downloadPanel">
      <div class="kicker">Get Breeze</div>
      <h2>Download Breeze.</h2>
-     <p class="downloadIntro">McCloskey is ready to explore. Choose your platform.</p>
+     <p class="downloadIntro">Breeze 1.0 · McCloskey is ready to explore. Choose your platform.</p>
      <div class="badge"><i></i> Beta release</div>
 
      <div class="downloadGrid">

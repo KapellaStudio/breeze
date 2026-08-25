@@ -13,6 +13,14 @@ const weather = require('./weather');
 const search = require('./search');
 const omnibox = require('./omnibox');
 
+// Present the public release identity users see. The package remains valid
+// semver (1.0.0), while ordinary websites receive the intentionally concise
+// Breeze/1.0 product version.
+const defaultUA = String(app.userAgentFallback || '');
+app.userAgentFallback = /Breeze\/[\d.]+/.test(defaultUA)
+  ? defaultUA.replace(/Breeze\/[\d.]+/g, 'Breeze/1.0')
+  : `${defaultUA} Breeze/1.0`.trim();
+
 let initialized = false;
 function ensureInit(){
   if (!initialized){
