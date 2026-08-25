@@ -74,15 +74,17 @@ function patchMainWorld(){
           : new Map();
         globalThis.__breezeExtensionEventRegistry = registry;
         globalThis.__breezeExtensionWindowTypes = extensionWindowTypes;
-        globalThis.__breezeDispatchExtensionEvent = (name,...args) => {
-          const key=String(name||'');
-          if(key==='windows.onRemoved'&&args[0]!=null) extensionWindowTypes.delete(Number(args[0]));
-          const entry=registry.get(key);
-          if(!entry)return;
-          for(const fn of [...entry.listeners]){
-            try{fn(...args);}catch(err){queueMicrotask(()=>{throw err;});}
-          }
-        };
+        if(typeof globalThis.__breezeDispatchExtensionEvent!=='function'){
+          globalThis.__breezeDispatchExtensionEvent = (name,...args) => {
+            const key=String(name||'');
+            if(key==='windows.onRemoved'&&args[0]!=null) extensionWindowTypes.delete(Number(args[0]));
+            const entry=registry.get(key);
+            if(!entry)return;
+            for(const fn of [...entry.listeners]){
+              try{fn(...args);}catch(err){queueMicrotask(()=>{throw err;});}
+            }
+          };
+        }
         const event = name => {
           const key=String(name||'');
           const existing=registry.get(key);

@@ -25,21 +25,23 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
     content_scripts:[{matches:['http://127.0.0.1/*'],js:['content.js'],run_at:'document_idle'}]
   };
   const identityChunk=`const chromeRedirect=chrome.identity.getRedirectURL('module-early');\nconst browserPresent=!!globalThis.browser;\nconst browserRedirect=browserPresent?globalThis.browser?.identity?.getRedirectURL?.('browser-early')||'':'';\nif(!chromeRedirect)throw new Error('early chrome identity redirect missing');\nif(browserPresent&&!browserRedirect)throw new Error('early browser identity redirect missing');\nglobalThis.__breezeEarlyIdentity={chromeRedirect,browserPresent,browserRedirect};`;
-  const originalWorker=`import './identity-chunk.js';\nchrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{\n  if(msg?.kind!=='exercise')return;\n  Promise.all([\n    chrome.tabs.create({url:'https://example.com/from-compat'}),\n    chrome.windows.create({url:'https://example.org/wallet'}),\n    chrome.cookies.getAll({domain:'example.com'})\n  ]).then(([tab,win,cookies])=>sendResponse({ok:true,tab,win,cookies,earlyIdentity:globalThis.__breezeEarlyIdentity||{}})).catch(err=>sendResponse({ok:false,error:String(err&&err.message||err)}));\n  return true;\n});`;
+  const originalWorker=`import './identity-chunk.js';\nconst removed={chrome:[],browser:[]};\nchrome.windows.onRemoved.addListener(id=>removed.chrome.push(id));\nconst browserWindows=globalThis.browser?.windows;\nif(browserWindows?.onRemoved)browserWindows.onRemoved.addListener(id=>removed.browser.push(id));\nchrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{\n  if(msg?.kind==='events'){sendResponse({removed,browserPresent:!!browserWindows,diag:{marker:globalThis.__breezePreloadMarker||'',dispatch:typeof globalThis.__breezeDispatchExtensionEvent,registry:globalThis.__breezeExtensionEventRegistry?.size||0,chromeShared:chrome.windows.onRemoved===globalThis.__breezeExtensionEventRegistry?.get('windows.onRemoved')?.api,browserShared:browserWindows?.onRemoved===chrome.windows.onRemoved}});return false;}\n  if(msg?.kind!=='exercise')return;\n  Promise.all([\n    chrome.tabs.create({url:'https://example.com/from-compat'}),\n    chrome.windows.create({url:'https://example.org/wallet'}),\n    chrome.cookies.getAll({domain:'example.com'})\n  ]).then(([tab,win,cookies])=>sendResponse({ok:true,tab,win,cookies,earlyIdentity:globalThis.__breezeEarlyIdentity||{}})).catch(err=>sendResponse({ok:false,error:String(err&&err.message||err)}));\n  return true;\n});`;
   write(source,'manifest.json',JSON.stringify(manifest,null,2));
   write(source,'identity-chunk.js',identityChunk);
   write(source,'worker.js',originalWorker);
-  write(source,'content.js',`setTimeout(()=>chrome.runtime.sendMessage({kind:'exercise'},response=>{document.documentElement.dataset.breezeCompat=JSON.stringify(response||{});}),200);`);
+  write(source,'content.js',`setTimeout(()=>chrome.runtime.sendMessage({kind:'exercise'},response=>{document.documentElement.dataset.breezeCompat=JSON.stringify(response||{});}),200);\ndocument.addEventListener('breeze:read-window-events',()=>chrome.runtime.sendMessage({kind:'events'},response=>{document.documentElement.dataset.breezeWindowEvents=JSON.stringify(response||{});}));`);
   fs.cpSync(source,managed,{recursive:true});
 
   const calls=[];
+  let windowVisible=true;
   compat.init({rootDir:root,handlers:{
     'tabs.create':async(ctx,params)=>{calls.push({method:'tabs.create',ctx,params});return{id:301,url:params.url,active:true};},
     'windows.create':async(ctx,params)=>{calls.push({method:'windows.create',ctx,params});return{id:401,focused:true,tabs:[{id:302,url:params.url}]};},
+    'windows.getAll':async(ctx,params)=>{calls.push({method:'windows.getAll',ctx,params});return windowVisible?[{id:401,focused:true}]:[];},
     'cookies.getAll':async(ctx,params)=>{calls.push({method:'cookies.getAll',ctx,params});return[{name:'probe',value:'ok',domain:params.domain,path:'/'}];}
   }});
 
-  let srv,win,loaded;
+  let srv,win,loaded,ses=null;
   try{
     const sourceWorkerBefore=fs.readFileSync(path.join(source,'worker.js'),'utf8');
     const sourceManifestBefore=fs.readFileSync(path.join(source,'manifest.json'),'utf8');
@@ -68,7 +70,7 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
 
     await app.whenReady();
     srv=await serve(); const port=srv.address().port;
-    const ses=session.fromPartition('persist:breeze-managed-compat-'+Date.now());
+    ses=session.fromPartition('persist:breeze-managed-compat-'+Date.now());
     loaded=await ses.extensions.loadExtension(managed,{allowFileAccess:false});
     ok('patched managed MV3 module extension loads in Electron',!!loaded,loaded?.id||'');
     const registered=compat.registerRuntime(localId,loaded.id,{ses,workspaceId:'default',sealed:false,private:false});
@@ -85,7 +87,19 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
     ok('tabs.create resolves through narrow host handler',result.tab?.id===301&&calls.some(x=>x.method==='tabs.create'),JSON.stringify(result.tab));
     ok('windows.create resolves through narrow host handler',result.win?.id===401&&calls.some(x=>x.method==='windows.create'),JSON.stringify(result.win));
     ok('cookies.getAll resolves against registered session context',result.cookies?.[0]?.name==='probe'&&calls.some(x=>x.method==='cookies.getAll'&&x.ctx.ses===ses),JSON.stringify(result.cookies));
-    ok('only expected compatibility calls crossed bridge',calls.length===3,JSON.stringify(calls.map(x=>x.method)));
+    const expectedCalls=new Set(['tabs.create','windows.create','windows.getAll','cookies.getAll']);
+    ok('only expected compatibility calls crossed bridge',calls.every(x=>expectedCalls.has(x.method)),JSON.stringify(calls.map(x=>x.method)));
+
+    windowVisible=false;
+    let eventResult={};
+    for(let i=0;i<30;i++){
+      await win.webContents.executeJavaScript(`delete document.documentElement.dataset.breezeWindowEvents;document.dispatchEvent(new Event('breeze:read-window-events'))`);
+      await new Promise(r=>setTimeout(r,100));
+      const eventRaw=await win.webContents.executeJavaScript('document.documentElement.dataset.breezeWindowEvents||""');
+      try{eventResult=JSON.parse(eventRaw||'{}');}catch{}
+      if(eventResult.removed?.chrome?.includes(401)&&(eventResult.browserPresent!==true||eventResult.removed?.browser?.includes(401)))break;
+    }
+    ok('host windows.onRemoved reaches chrome and browser listeners registered by the managed worker',eventResult.removed?.chrome?.includes(401)&&(eventResult.browserPresent!==true||eventResult.removed?.browser?.includes(401)),JSON.stringify(eventResult));
     const publicStatus=compat.status(localId);
     ok('public compatibility status contains no bearer token or endpoint',publicStatus.prepared===true&&!('token' in publicStatus)&&!('endpoint' in publicStatus),JSON.stringify(publicStatus));
 
