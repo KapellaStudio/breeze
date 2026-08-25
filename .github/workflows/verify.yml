@@ -78,7 +78,7 @@ jobs:
             src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js \
             src/breeze-product.js src/breeze-context.js src/breeze-vault.js \
             src/breeze-home.js src/breeze-runtime.js src/breeze-search-ui.js \
-            src/breeze-omni.js src/breeze-split-ui.js; do node --check "$f"; done
+            src/breeze-omni.js src/breeze-split-ui.js src/breeze-browser-interactions.js; do node --check "$f"; done
 
       - name: Regression — desktop 1440/1180/1024
         run: python3 src/regress.py
@@ -115,6 +115,7 @@ jobs:
           xvfb-run -a npx electron . --smoke-test --no-sandbox
           xvfb-run -a npx electron shellbreach.js --no-sandbox
           xvfb-run -a npx electron integration.js --no-sandbox
+          xvfb-run -a npx electron browserinteractiontest.js --no-sandbox
           xvfb-run -a npx electron searchtest.js --no-sandbox
           xvfb-run -a npx electron extensiontest.js --no-sandbox
           npm run mediatest
