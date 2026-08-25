@@ -7,9 +7,10 @@ compatibility.
 
 ## Why this milestone exists
 
-Modern wallet extensions such as MetaMask target Manifest V3 and use extension
-service workers. Phantom targets Chromium-family browsers as well. The current
-Electron compatibility tier cannot honestly promise either wallet will work.
+Modern wallet extensions target Manifest V3 and use extension service workers.
+Phantom targets Chromium-family browsers and is certified separately for the
+current Breeze beta. Arbitrary extension parity still requires a broader engine
+milestone.
 
 ## Product contract
 
@@ -23,8 +24,8 @@ behaviour while adding:
 - Per-workspace enable/disable semantics without silently changing cookie
   identity.
 - Extension permission inspection before install.
-- A pinned compatibility suite including MetaMask and Phantom, plus creator and
-  developer extensions selected from actual Breeze usage research.
+- A pinned compatibility suite covering the beta's certified targets, plus
+  creator and developer extensions selected from actual Breeze usage research.
 
 ## What does not change
 

@@ -3,11 +3,20 @@ name: extension-compat
 on:
   push:
     branches:
-      - feature/extension-compat-mv3
+      - 'feature/extension-*'
   pull_request:
     paths:
       - 'shell/extensions.js'
+      - 'shell/extensions-runtime.js'
+      - 'shell/extension-compat.js'
+      - 'shell/extension-page-preload.js'
+      - 'shell/extension-self-close.js'
       - 'shell/extensiontest.js'
+      - 'shell/walletcompat.js'
+      - 'shell/extensioncompattest.js'
+      - 'shell/extensionruntimetest.js'
+      - 'shell/extensionclosetest.js'
+      - 'shell/bootstrap.js'
       - 'shell/package.json'
       - '.github/workflows/extension-compat.yml'
 
@@ -29,5 +38,13 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Probe Electron MV3 service-worker runtime
         run: xvfb-run -a npx electron extensiontest.js --no-sandbox
+      - name: Probe wallet-class extension surface
+        run: xvfb-run -a npx electron walletcompat.js --no-sandbox
+      - name: Probe managed extension compatibility layer
+        run: xvfb-run -a npx electron extensioncompattest.js --no-sandbox
+      - name: Probe production extension runtime adapter
+        run: xvfb-run -a npx electron extensionruntimetest.js --no-sandbox
+      - name: Probe privileged extension popup self-close
+        run: xvfb-run -a npx electron extensionclosetest.js --no-sandbox
       - name: Keep existing browser-core contracts green
         run: npm run browsercoretest

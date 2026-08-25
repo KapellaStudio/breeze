@@ -1,6 +1,6 @@
 # Breeze Extension Compatibility
 
-Status: active development on `feature/extension-compat-mv3`.
+Status: release candidate on `feature/extension-certification`.
 
 Breeze uses Electron 43 / Chromium as its desktop engine. The goal is not to claim generic Chrome Web Store parity; the goal is to certify the extension behaviors people actually expect from a modern browser and fail clearly when an API is not yet supported.
 
@@ -21,24 +21,9 @@ MV3 service-worker extensions are therefore admitted as **partial** rather than 
 
 ## Compatibility targets
 
-### Wallet benchmark — MetaMask
-
-Required before Breeze calls MetaMask supported:
-
-- MV3 background service worker
-- content-script injection into a dApp
-- provider injection visible to the page
-- runtime port/message traffic
-- storage persistence across browser restarts
-- action/popup UI
-- permission/connect request UI
-- signing request flow without leaking wallet state to Breeze chrome
-- correct behavior across normal and sealed workspaces
-- no extension loading in Breeze Private unless explicitly designed and certified later
-
 ### Wallet benchmark — Phantom
 
-Required before Breeze calls Phantom supported:
+The pinned official Phantom certification verifies:
 
 - extension loads and initializes
 - provider injection into supported dApps
@@ -59,17 +44,17 @@ Breeze will certify the behavior rather than a specific vendor implementation:
 - extension cannot access Breeze's privileged chrome renderer
 - per-site permissions can be reset
 
-## Next APIs to certify
+## Later compatibility work
 
 1. Extension action / popup surfaces.
 2. Runtime ports and long-lived messaging.
 3. `chrome.tabs` behavior mapped to real Breeze tabs.
 4. `chrome.storage.local` persistence and quota behavior.
 5. `chrome.scripting` / content-script host permission behavior.
-6. `chrome.cookies` and `chrome.webNavigation` where wallet compatibility requires them.
+6. `chrome.cookies` and `chrome.webNavigation` where extension compatibility requires them.
 7. Permission and site-access controls in Breeze Settings.
 8. Extension update/install UX after unpacked compatibility is stable.
 
 ## Safety rule
 
-Extension compatibility work stays off `main` until the full Breeze browser regression, private-mode, security, Flow, document, search, tab, and shell integration suites remain green. No Netlify production deployment is required for this work.
+Extension compatibility work stays off `main` until the full Breeze browser regression, private-mode, security, Flow, document, search, tab, and shell integration suites remain green. Phantom is the certified wallet target for this beta; other extensions remain best-effort within the documented partial tier. No Netlify production deployment is required for this work.

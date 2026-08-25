@@ -106,7 +106,7 @@ GitHub issue #2 tracks this final stable-launch gate.
 
 ## Engine milestone after Breeze 19
 
-Full modern Chrome Web Store / arbitrary Manifest V3 compatibility, including
-standard MetaMask and Phantom experiences, remains a future Breeze Chromium Core
-milestone. Electron's compatible unpacked-extension tier must not be marketed as
-full Chrome-extension parity.
+Full modern Chrome Web Store / arbitrary Manifest V3 compatibility remains a
+future Breeze Chromium Core milestone. Phantom is the wallet certified for the
+current beta; Electron's compatible unpacked-extension tier must not be marketed
+as full Chrome-extension parity.

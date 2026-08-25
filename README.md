@@ -77,7 +77,8 @@ cross-platform Chromium-engine contract.
 
 Full Chrome Web Store / modern Manifest V3 parity remains a separate Breeze
 Chromium Core milestone. The Electron unpacked-extension tier must not be
-marketed as full MetaMask/Phantom/Chrome-extension compatibility. See
+marketed as generic Chrome-extension compatibility; Phantom support is
+certified separately for this beta. See
 [`CHROMIUM_CORE.md`](CHROMIUM_CORE.md).
 
 ## Breeze Flow

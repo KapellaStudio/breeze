@@ -112,5 +112,46 @@ handle('vault:importCsv', async () => {
 
 handle('weather:current', unit => weather.current(unit));
 
+/* main.js intentionally keeps browser tabs private to its own module. Capture
+   only the narrow, already-trusted tab IPC entry points so the extension host
+   bridge can request a normal Breeze tab without exposing those internals to
+   web content. */
+const capturedMainIpc = new Map();
+const originalIpcHandle = ipcMain.handle.bind(ipcMain);
+const captureChannels = new Set(['tab:create','tab:list','tab:navigate','tab:select','tab:close']);
+ipcMain.handle = function(channel, listener){
+  if (captureChannels.has(channel) && typeof listener === 'function') capturedMainIpc.set(channel,listener);
+  return originalIpcHandle(channel,listener);
+};
+
+/* Load the production extension adapter into the module cache before main.js
+   resolves ./extensions. The adapter wraps the stable registry; it does not
+   fork the browser shell or change the public preload API. */
+const extensionRuntime = require('./extensions-runtime');
+require.cache[require.resolve('./extensions')].exports = extensionRuntime;
+
+/* Chromium lets a privileged extension popup/notification close its own
+   browser-created top-level window. Electron applies the normal web close
+   restriction, so restore only that self-close behavior through a narrow,
+   origin-checked IPC handler. */
+require('./extension-self-close').install(ipcMain,BrowserWindow);
+
 app.whenReady().then(() => ensureInit());
 require('./main');
+ipcMain.handle = originalIpcHandle;
+
+extensionRuntime.setInternalInvoker(async (channel,...args) => {
+  const listener=capturedMainIpc.get(String(channel||''));
+  if(!listener) throw new Error(`Breeze internal browser operation is unavailable: ${channel}`);
+  const owner=BrowserWindow.getAllWindows().find(w=>{
+    try{
+      if(!w||w.isDestroyed()) return false;
+      const url=w.webContents.getURL();
+      if(!url.startsWith('file://')) return false;
+      const pathname=decodeURIComponent(new URL(url).pathname).replace(/\\/g,'/');
+      return pathname.endsWith('/ui/breeze-desktop.html')||pathname.endsWith('/ui/breeze-mobile.html');
+    }catch{return false;}
+  });
+  if(!owner) throw new Error('Breeze browser chrome is not ready for an extension request');
+  return listener({sender:owner.webContents},...args);
+});
