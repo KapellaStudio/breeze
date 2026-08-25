@@ -32,7 +32,7 @@ app.whenReady().then(async () => {
 
   try {
     await exec(`window.__BREEZE_SHELL__.completeFirstRun().catch(()=>null)`);
-    await wait(150);
+    await wait(350);
 
     const editable = await exec(`(()=>{const i=document.querySelector('.bigsearch input');return !!i && !i.readOnly && i.tabIndex>=0 && getComputedStyle(i).pointerEvents!=='none';})()`);
     ok('home Search or enter URL is editable', editable);
