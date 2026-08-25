@@ -39,11 +39,28 @@
   }
 
   async function migrateLegacySearchProvider() {
+    const firstRun = await S.firstRunStatus().catch(() => null);
+    if (!firstRun?.complete) return false;
+
     const prefs = await S.getPreferences().catch(() => null);
-    if (!prefs || prefs.searchProviderMigrated) return;
+    if (!prefs) return false;
+    if (prefs.searchProviderMigrated) return true;
+
     const cfg = await S.searchConfig().catch(() => null);
     if (cfg?.provider === 'Brave Search') await S.setSearchProvider('Google').catch(() => null);
     await S.setPreference('searchProviderMigrated', true).catch(() => null);
+    return true;
+  }
+
+  function scheduleSearchMigration() {
+    let attempts = 0;
+    const run = async () => {
+      attempts += 1;
+      const done = await migrateLegacySearchProvider();
+      if (done || attempts >= 300) return;
+      setTimeout(run, 100);
+    };
+    run();
   }
 
   function bindHomeSearch() {
@@ -71,6 +88,7 @@
       e.stopImmediatePropagation();
       closeChromeOverlays();
 
+      await migrateLegacySearchProvider();
       const tabs = await S.listTabs().catch(() => []);
       const active = (tabs || []).find(t => t.active);
       if (active?.id != null) await S.navigate(active.id, value);
@@ -140,5 +158,5 @@
   }, true);
 
   bindHomeSearch();
-  migrateLegacySearchProvider();
+  scheduleSearchMigration();
 })();
