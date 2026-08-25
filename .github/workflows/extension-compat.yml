@@ -12,7 +12,7 @@ on:
       - 'shell/extension-page-preload.js'
       - 'shell/extension-self-close.js'
       - 'shell/extensiontest.js'
-      - 'shell/metamaskcompat.js'
+      - 'shell/walletcompat.js'
       - 'shell/extensioncompattest.js'
       - 'shell/extensionruntimetest.js'
       - 'shell/extensionclosetest.js'
@@ -38,8 +38,8 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Probe Electron MV3 service-worker runtime
         run: xvfb-run -a npx electron extensiontest.js --no-sandbox
-      - name: Probe MetaMask-class extension surface
-        run: xvfb-run -a npx electron metamaskcompat.js --no-sandbox
+      - name: Probe wallet-class extension surface
+        run: xvfb-run -a npx electron walletcompat.js --no-sandbox
       - name: Probe managed extension compatibility layer
         run: xvfb-run -a npx electron extensioncompattest.js --no-sandbox
       - name: Probe production extension runtime adapter

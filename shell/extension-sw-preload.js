@@ -172,8 +172,8 @@ function patchMainWorld(){
 
         // Install the shared removal event even when Electron exposes a native
         // event object. MV3 static imports run before the worker entry body's
-        // Breeze bootstrap, and MetaMask registers this listener from an
-        // imported module during that phase.
+        // Breeze bootstrap, and modern wallet bundles may register this
+        // listener from an imported module during that phase.
         const windows = ensureOn(chrome,'windows');
         if(windows){
           bridgeEvent(windows,'onRemoved','windows.onRemoved');

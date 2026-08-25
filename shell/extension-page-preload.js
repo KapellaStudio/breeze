@@ -114,8 +114,8 @@ if (typeof contextBridge.executeInMainWorld === 'function') {
 
       // Electron 43 can expose a native `browser` namespace that is only a
       // partial WebExtension surface. webextension-polyfill deliberately uses
-      // that object as-is when browser.runtime.id exists, so extension UIs such
-      // as MetaMask would otherwise bypass the Breeze host-backed methods above.
+      // that object as-is when browser.runtime.id exists, so wallet extension
+      // UIs could otherwise bypass the Breeze host-backed methods above.
       // In Breeze-owned extension windows, make the supported browser methods
       // resolve through the same narrow page bridge as their chrome aliases.
       const browserApi = globalThis.browser;

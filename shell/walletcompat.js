@@ -26,16 +26,16 @@ function serve(){
 }
 
 (async()=>{
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(),'breeze-metamask-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(),'breeze-wallet-surface-'));
   const extDir = path.join(tmp,'extension');
   fs.mkdirSync(extDir,{recursive:true});
 
-  // Mirrors the important Chrome surface declared by MetaMask's current MV3
-  // manifest. The fixture is synthetic: it probes browser capability without
-  // bundling or redistributing MetaMask itself.
+  // Mirrors the important Chrome surface used by modern MV3 wallet extensions.
+  // The synthetic fixture probes browser capability without bundling or
+  // redistributing a third-party wallet.
   const manifest = {
     manifest_version:3,
-    name:'Breeze MetaMask Surface Probe',
+    name:'Breeze Wallet Surface Probe',
     version:'1.0.0',
     permissions:[
       'activeTab','alarms','clipboardWrite','notifications','scripting','storage',
@@ -55,7 +55,7 @@ function serve(){
   write(extDir,'manifest.json',JSON.stringify(manifest,null,2));
   write(extDir,'worker.js',`const native={\n  runtime:!!chrome.runtime,runtimeConnect:typeof chrome.runtime?.connect==='function',\n  storage:!!chrome.storage,storageSession:!!chrome.storage?.session,\n  tabs:!!chrome.tabs,tabsCreate:typeof chrome.tabs?.create==='function',tabsQuery:typeof chrome.tabs?.query==='function',\n  windows:!!chrome.windows,windowsCreate:typeof chrome.windows?.create==='function',windowsGetAll:typeof chrome.windows?.getAll==='function',\n  alarms:!!chrome.alarms,alarmsCreate:typeof chrome.alarms?.create==='function',\n  notifications:!!chrome.notifications,scripting:!!chrome.scripting,scriptingExecute:typeof chrome.scripting?.executeScript==='function',\n  webRequest:!!chrome.webRequest,offscreen:!!chrome.offscreen,offscreenCreate:typeof chrome.offscreen?.createDocument==='function',\n  identity:!!chrome.identity,identityWebAuth:typeof chrome.identity?.launchWebAuthFlow==='function',\n  sidePanel:!!chrome.sidePanel,cookies:!!chrome.cookies,commands:!!chrome.commands,\n  browserGlobal:!!globalThis.browser,browserRuntime:!!globalThis.browser?.runtime,browserWindows:!!globalThis.browser?.windows,browserTabs:!!globalThis.browser?.tabs\n};\nfunction ensureRoot(name){try{if(!chrome[name])chrome[name]={};return !!chrome[name];}catch{return false;}}\nfunction ensureFn(root,name){try{if(!root)return false;if(typeof root[name]!=='function')root[name]=()=>Promise.resolve(null);return typeof root[name]==='function';}catch{return false;}}\nconst shim={rootExtensible:Object.isExtensible(chrome)};\nshim.tabsCreate=ensureFn(chrome.tabs,'create');\nshim.windowsRoot=ensureRoot('windows');shim.windowsCreate=ensureFn(chrome.windows,'create');shim.windowsGetAll=ensureFn(chrome.windows,'getAll');\nshim.notificationsRoot=ensureRoot('notifications');shim.notificationsCreate=ensureFn(chrome.notifications,'create');\nshim.identityRoot=ensureRoot('identity');shim.identityWebAuth=ensureFn(chrome.identity,'launchWebAuthFlow');shim.identityRedirect=ensureFn(chrome.identity,'getRedirectURL');\nshim.sidePanelRoot=ensureRoot('sidePanel');shim.sidePanelOpen=ensureFn(chrome.sidePanel,'open');\nshim.cookiesRoot=ensureRoot('cookies');shim.cookiesGetAll=ensureFn(chrome.cookies,'getAll');\nshim.commandsRoot=ensureRoot('commands');shim.commandsGetAll=ensureFn(chrome.commands,'getAll');\nchrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{if(msg&&msg.kind==='surface'){sendResponse({native,shim});return false;}});`);
   write(extDir,'isolated.js',`chrome.runtime.sendMessage({kind:'surface'},response=>{\n  document.documentElement.dataset.breezeWalletWorker='ok';\n  document.documentElement.dataset.breezeWalletApis=JSON.stringify(response||{});\n});`);
-  write(extDir,'inpage.js',`window.ethereum={isBreezeMetaMaskProbe:true,request:async()=>({ok:true})};\ndocument.documentElement.dataset.breezeWalletMainWorld='ok';`);
+  write(extDir,'inpage.js',`window.ethereum={isBreezeWalletProbe:true,request:async()=>({ok:true})};\ndocument.documentElement.dataset.breezeWalletMainWorld='ok';`);
   write(extDir,'popup.html','<!doctype html><html><body><div id="status">loading</div><pre id="apis"></pre><script src="popup.js"></script></body></html>');
   write(extDir,'popup.js',`chrome.runtime.sendMessage({kind:'surface'},response=>{\n  document.getElementById('apis').textContent=JSON.stringify(response||{});\n  document.getElementById('status').textContent='ready';\n});`);
   write(extDir,'sandbox.html','<!doctype html><html><body>sandbox</body></html>');
@@ -65,22 +65,22 @@ function serve(){
     await app.whenReady();
     srv = await serve();
     const port = srv.address().port;
-    const ses = session.fromPartition('persist:breeze-metamask-probe-' + Date.now());
+    const ses = session.fromPartition('persist:breeze-wallet-surface-' + Date.now());
     let loaded = null, loadError = null;
     try { loaded = await ses.extensions.loadExtension(extDir,{allowFileAccess:false}); }
     catch (err) { loadError = String(err && (err.stack || err.message) || err); }
-    ok('MetaMask-class MV3 manifest loads in Electron', !!loaded, loadError || loaded?.id || '');
+    ok('wallet-class MV3 manifest loads in Electron', !!loaded, loadError || loaded?.id || '');
     if (!loaded) throw new Error(loadError || 'extension did not load');
 
     win = new BrowserWindow({show:false,webPreferences:{session:ses,contextIsolation:true,nodeIntegration:false,sandbox:true}});
     await win.loadURL(`http://127.0.0.1:${port}/`);
     let page = null;
     for(let i=0;i<60;i++){
-      page = await win.webContents.executeJavaScript(`({worker:document.documentElement.dataset.breezeWalletWorker||'',mainWorld:document.documentElement.dataset.breezeWalletMainWorld||'',provider:!!(window.ethereum&&window.ethereum.isBreezeMetaMaskProbe),apis:document.documentElement.dataset.breezeWalletApis||''})`);
+      page = await win.webContents.executeJavaScript(`({worker:document.documentElement.dataset.breezeWalletWorker||'',mainWorld:document.documentElement.dataset.breezeWalletMainWorld||'',provider:!!(window.ethereum&&window.ethereum.isBreezeWalletProbe),apis:document.documentElement.dataset.breezeWalletApis||''})`);
       if(page.worker && page.mainWorld) break;
       await new Promise(r=>setTimeout(r,100));
     }
-    ok('MetaMask-style isolated content script reaches the service worker', page?.worker==='ok', JSON.stringify(page));
+    ok('wallet-style isolated content script reaches the service worker', page?.worker==='ok', JSON.stringify(page));
     ok('MV3 content_scripts world MAIN executes in the page world', page?.mainWorld==='ok' && page?.provider===true, JSON.stringify(page));
 
     let report = {native:{},shim:{}};
@@ -103,10 +103,10 @@ function serve(){
       if(popupState?.ready==='ready') break;
       await new Promise(r=>setTimeout(r,100));
     }
-    ok('MetaMask-style action popup runs in the extension origin', popupState?.ready==='ready', JSON.stringify(popupState));
+    ok('wallet-style action popup runs in the extension origin', popupState?.ready==='ready', JSON.stringify(popupState));
 
     try { ses.extensions.removeExtension(loaded.id); } catch {}
-    ok('MetaMask-class probe unloads cleanly', !ses.extensions.getExtension(loaded.id));
+    ok('wallet-class probe unloads cleanly', !ses.extensions.getExtension(loaded.id));
   } catch (err) {
     console.error(err);
     if (!fail) fail++;
@@ -116,6 +116,6 @@ function serve(){
     try { if(srv) srv.close(); } catch {}
     try { fs.rmSync(tmp,{recursive:true,force:true}); } catch {}
   }
-  console.log(`\nMetaMask-class compatibility probe: ${pass}/${pass+fail}`);
+  console.log(`\nWallet-class compatibility probe: ${pass}/${pass+fail}`);
   app.exit(fail ? 1 : 0);
 })();
