@@ -150,6 +150,56 @@ async function readBody(req){
   catch { throw Object.assign(new Error('invalid JSON'),{status:400}); }
 }
 
+function closeRuntimeEvents(context){
+  if(!context)return;
+  for(const waiter of [...(context.eventWaiters||[])]){
+    try{waiter.finish([]);}catch{}
+  }
+  if(Array.isArray(context.events))context.events.length=0;
+}
+function waitRuntimeEvent(context,res,origin){
+  if(!Array.isArray(context.events))context.events=[];
+  if(!(context.eventWaiters instanceof Set))context.eventWaiters=new Set();
+  if(context.events.length){
+    const events=context.events.splice(0,Math.min(16,context.events.length));
+    jsonResponse(res,200,{events},origin);
+    return;
+  }
+  const waiter={closed:false,timer:null,finish:null};
+  waiter.finish=(events=[])=>{
+    if(waiter.closed)return;
+    waiter.closed=true;
+    if(waiter.timer)clearTimeout(waiter.timer);
+    context.eventWaiters.delete(waiter);
+    try{jsonResponse(res,200,{events:Array.isArray(events)?events:[]},origin);}catch{}
+  };
+  waiter.timer=setTimeout(()=>waiter.finish([]),25000);
+  context.eventWaiters.add(waiter);
+  res.once('close',()=>{
+    if(waiter.closed)return;
+    waiter.closed=true;
+    if(waiter.timer)clearTimeout(waiter.timer);
+    context.eventWaiters.delete(waiter);
+  });
+}
+async function handleEvents(req,res){
+  const origin=corsOrigin(req);
+  if(req.method!=='POST'||req.url!=='/events'){jsonResponse(res,404,{error:'not found'},origin);return;}
+  const entry=tokenEntry(authToken(req));
+  if(!entry){jsonResponse(res,401,{error:'unauthorized'},origin);return;}
+  let body;
+  try{body=await readBody(req);}
+  catch(err){jsonResponse(res,Number(err.status||400),{error:String(err.message||err)},origin);return;}
+  const originRuntime=runtimeIdFromOrigin(origin);
+  const requestedRuntime=String(body?.runtimeId||'');
+  if(originRuntime&&requestedRuntime&&originRuntime!==requestedRuntime){jsonResponse(res,403,{error:'extension origin mismatch'},origin);return;}
+  const picked=selectRuntime(entry,originRuntime||requestedRuntime);
+  if(picked.ambiguous){jsonResponse(res,409,{error:'extension runtime is active in multiple Breeze sessions'},origin);return;}
+  if(!picked.context){jsonResponse(res,503,{error:'extension runtime is not registered yet'},origin);return;}
+  if(picked.context.private){jsonResponse(res,403,{error:'extensions are unavailable in Private Browsing'},origin);return;}
+  waitRuntimeEvent(picked.context,res,origin);
+}
+
 async function handleRpc(req,res){
   const origin = corsOrigin(req);
   if (req.method === 'OPTIONS') {
@@ -213,7 +263,10 @@ async function ensureServer(){
   if (server && endpoint) return endpoint;
   if (startPromise) return startPromise;
   startPromise = new Promise((resolve,reject)=>{
-    const srv = http.createServer((req,res)=>{ handleRpc(req,res).catch(()=>{ try{jsonResponse(res,500,{error:'bridge failure'});}catch{} }); });
+    const srv = http.createServer((req,res)=>{
+      const task=req.url==='/events'&&req.method==='POST'?handleEvents(req,res):handleRpc(req,res);
+      task.catch(()=>{try{jsonResponse(res,500,{error:'bridge failure'});}catch{}});
+    });
     srv.on('error',reject);
     srv.listen(0,'127.0.0.1',()=>{
       server = srv;
@@ -295,6 +348,7 @@ function bootstrapSource(endpointUrl, token, allowed){
     ';(()=>{',
     "  'use strict';",
     `  const endpoint=${JSON.stringify(endpointUrl)};`,
+    "  const eventEndpoint=endpoint.replace(/\\/rpc$/,'/events');",
     `  const token=${JSON.stringify(token)};`,
     `  const allowed=new Set(${JSON.stringify(methods)});`,
     "  const invoke=async(method,params={})=>{",
@@ -308,13 +362,12 @@ function bootstrapSource(endpointUrl, token, allowed){
     "  const registry=globalThis.__breezeExtensionEventRegistry instanceof Map?globalThis.__breezeExtensionEventRegistry:new Map();",
     "  globalThis.__breezeExtensionEventRegistry=registry;",
     "  const event=(name)=>{const key=String(name||'');const existing=registry.get(key);if(existing?.api)return existing.api;const listeners=new Set();const api={addListener(fn){if(typeof fn==='function')listeners.add(fn);},removeListener(fn){listeners.delete(fn);},hasListener(fn){return listeners.has(fn);},hasListeners(){return listeners.size>0;}};registry.set(key,{api,listeners});return api;};",
-    "  const trackedWindows=new Set();let windowPoll=null;",
-    "  const dispatchEvent=(name,...args)=>{const key=String(name||'');if(key==='windows.onRemoved'&&args[0]!=null)trackedWindows.delete(Number(args[0]));const entry=registry.get(key);if(!entry)return;for(const fn of [...entry.listeners]){try{fn(...args);}catch(err){queueMicrotask(()=>{throw err;});}}};",
+    "  const trackedWindows=new Set();const removedWindows=new Set();let eventPoll=null;",
+    "  const dispatchEvent=(name,...args)=>{const key=String(name||'');if(key==='windows.onRemoved'&&args[0]!=null){const id=Number(args[0]);if(removedWindows.has(id))return;removedWindows.add(id);if(removedWindows.size>64)removedWindows.delete(removedWindows.values().next().value);trackedWindows.delete(id);}const entry=registry.get(key);if(!entry)return;for(const fn of [...entry.listeners]){try{fn(...args);}catch(err){queueMicrotask(()=>{throw err;});}}};",
     "  globalThis.__breezeDispatchExtensionEvent=dispatchEvent;",
     "  const assign=(target,name,value)=>{if(!target)return false;try{target[name]=value;if(target[name]===value)return true;}catch{}try{Object.defineProperty(target,name,{value,writable:true,configurable:true,enumerable:true});return target[name]===value;}catch{return false;}};",
-    "  const stopWindowPoll=()=>{if(windowPoll!=null){clearInterval(windowPoll);windowPoll=null;}};",
-    "  const pollWindows=async()=>{if(!trackedWindows.size){stopWindowPoll();return;}const rows=await invoke('windows.getAll',{});const live=new Set((Array.isArray(rows)?rows:[]).map(row=>Number(row&&row.id)).filter(Number.isInteger));for(const id of [...trackedWindows]){if(live.has(id))continue;trackedWindows.delete(id);dispatchEvent('windows.onRemoved',id);}if(!trackedWindows.size)stopWindowPoll();};",
-    "  const rememberWindow=(row)=>{const id=Number(row&&row.id);if(!Number.isInteger(id))return row;trackedWindows.add(id);if(windowPoll==null)windowPoll=setInterval(()=>{pollWindows().catch(()=>{});},100);return row;};",
+    "  const pollWindowEvents=()=>{if(eventPoll||!trackedWindows.size)return;eventPoll=fetch(eventEndpoint,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+token},body:JSON.stringify({runtimeId:chrome.runtime&&chrome.runtime.id||''})}).then(async response=>{const payload=await response.json().catch(()=>({events:[]}));if(!response.ok)throw new Error(payload&&payload.error||('Breeze event bridge '+response.status));for(const row of Array.isArray(payload.events)?payload.events:[]){dispatchEvent(row&&row.name,...(Array.isArray(row&&row.args)?row.args:[]));}}).catch(()=>{trackedWindows.clear();}).finally(()=>{eventPoll=null;if(trackedWindows.size)pollWindowEvents();});};",
+    "  const rememberWindow=(row)=>{const id=Number(row&&row.id);if(!Number.isInteger(id))return row;trackedWindows.add(id);pollWindowEvents();return row;};",
     "  const extUrl=(value)=>{if(typeof value!=='string')return value;const raw=value.trim();if(!raw)return raw;if(/^[a-z][a-z0-9+.-]*:/i.test(raw))return raw;return chrome.runtime.getURL(raw.replace(/^\\/+/,''));};",
     "  const extDetails=(details)=>{const out=details&&typeof details==='object'?{...details}:{};if(typeof out.url==='string')out.url=extUrl(out.url);else if(Array.isArray(out.url))out.url=out.url.map(extUrl);return out;};",
     '  try{',
@@ -402,8 +455,29 @@ function registerRuntime(localId, runtimeId, context={}){
   const workspaceId = String(context.workspaceId || 'default').replace(/[^a-z0-9_-]/gi,'-').slice(0,80) || 'default';
   const storage = String(context.ses?.storagePath || 'memory').replace(/\\/g,'/');
   const key = workspaceId + ':' + crypto.createHash('sha256').update(storage).digest('hex').slice(0,16);
-  entry.runtimes.set(key,{runtimeId:rid,workspaceId,sealed:!!context.sealed,private:false,ses:context.ses||null});
+  closeRuntimeEvents(entry.runtimes.get(key));
+  entry.runtimes.set(key,{runtimeId:rid,workspaceId,sealed:!!context.sealed,private:false,ses:context.ses||null,events:[],eventWaiters:new Set()});
   return {registered:true,runtimeId:rid,workspaceId};
+}
+function emitEvent(localId,runtimeId,ses,name,args=[]){
+  const entry=entriesByLocalId.get(String(localId||''));
+  if(!entry)return 0;
+  const rid=String(runtimeId||'');
+  const event={name:String(name||''),args:Array.isArray(args)?clone(args):[]};
+  let delivered=0;
+  for(const context of entry.runtimes.values()){
+    if(context.runtimeId!==rid||(ses&&context.ses!==ses))continue;
+    if(!(context.eventWaiters instanceof Set))context.eventWaiters=new Set();
+    const waiter=context.eventWaiters.values().next().value;
+    if(waiter)waiter.finish([event]);
+    else{
+      if(!Array.isArray(context.events))context.events=[];
+      context.events.push(event);
+      if(context.events.length>32)context.events.splice(0,context.events.length-32);
+    }
+    delivered++;
+  }
+  return delivered;
 }
 function unregisterRuntime(localId, context={}){
   const entry = entriesByLocalId.get(String(localId||''));
@@ -411,6 +485,7 @@ function unregisterRuntime(localId, context={}){
   const workspaceId = String(context.workspaceId || 'default').replace(/[^a-z0-9_-]/gi,'-').slice(0,80) || 'default';
   const storage = String(context.ses?.storagePath || 'memory').replace(/\\/g,'/');
   const key = workspaceId + ':' + crypto.createHash('sha256').update(storage).digest('hex').slice(0,16);
+  closeRuntimeEvents(entry.runtimes.get(key));
   return entry.runtimes.delete(key);
 }
 function status(localId){
@@ -428,7 +503,10 @@ function status(localId){
 function remove(localId){
   const id = String(localId||'');
   const entry = entriesByLocalId.get(id);
-  if (entry) { entriesByToken.delete(entry.token); entriesByLocalId.delete(id); }
+  if (entry) {
+    for(const context of entry.runtimes.values())closeRuntimeEvents(context);
+    entriesByToken.delete(entry.token); entriesByLocalId.delete(id);
+  }
   if (originalsDir) {
     try { fs.rmSync(path.join(originalsDir,safeLocalId(id)),{recursive:true,force:true}); } catch {}
   }
@@ -436,13 +514,14 @@ function remove(localId){
 async function close(){
   const srv = server;
   server = null; endpoint = '';
+  for(const entry of entriesByLocalId.values())for(const context of entry.runtimes.values())closeRuntimeEvents(context);
   entriesByToken.clear(); entriesByLocalId.clear();
   if (!srv) return;
   await new Promise(resolve=>srv.close(()=>resolve()));
 }
 
 module.exports = {
-  init,setHandlers,prepareManagedCopy,registerRuntime,unregisterRuntime,status,remove,close,
+  init,setHandlers,prepareManagedCopy,registerRuntime,unregisterRuntime,emitEvent,status,remove,close,
   allowedMethodsForManifest,
   LOOPBACK_PERMISSION,PATCH_MARKER,EARLY_IDENTITY_MARKER
 };

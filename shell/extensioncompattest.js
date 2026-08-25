@@ -33,11 +33,9 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
   fs.cpSync(source,managed,{recursive:true});
 
   const calls=[];
-  let windowVisible=true;
   compat.init({rootDir:root,handlers:{
     'tabs.create':async(ctx,params)=>{calls.push({method:'tabs.create',ctx,params});return{id:301,url:params.url,active:true};},
     'windows.create':async(ctx,params)=>{calls.push({method:'windows.create',ctx,params});return{id:401,focused:true,tabs:[{id:302,url:params.url}]};},
-    'windows.getAll':async(ctx,params)=>{calls.push({method:'windows.getAll',ctx,params});return windowVisible?[{id:401,focused:true}]:[];},
     'cookies.getAll':async(ctx,params)=>{calls.push({method:'cookies.getAll',ctx,params});return[{name:'probe',value:'ok',domain:params.domain,path:'/'}];}
   }});
 
@@ -87,10 +85,11 @@ function serve(){ return new Promise(resolve=>{ const srv=http.createServer((_re
     ok('tabs.create resolves through narrow host handler',result.tab?.id===301&&calls.some(x=>x.method==='tabs.create'),JSON.stringify(result.tab));
     ok('windows.create resolves through narrow host handler',result.win?.id===401&&calls.some(x=>x.method==='windows.create'),JSON.stringify(result.win));
     ok('cookies.getAll resolves against registered session context',result.cookies?.[0]?.name==='probe'&&calls.some(x=>x.method==='cookies.getAll'&&x.ctx.ses===ses),JSON.stringify(result.cookies));
-    const expectedCalls=new Set(['tabs.create','windows.create','windows.getAll','cookies.getAll']);
+    const expectedCalls=new Set(['tabs.create','windows.create','cookies.getAll']);
     ok('only expected compatibility calls crossed bridge',calls.every(x=>expectedCalls.has(x.method)),JSON.stringify(calls.map(x=>x.method)));
 
-    windowVisible=false;
+    const delivered=compat.emitEvent(localId,loaded.id,ses,'windows.onRemoved',[401]);
+    ok('host queues window removal for the registered extension runtime',delivered===1,String(delivered));
     let eventResult={};
     for(let i=0;i<30;i++){
       await win.webContents.executeJavaScript(`delete document.documentElement.dataset.breezeWindowEvents;document.dispatchEvent(new Event('breeze:read-window-events'))`);

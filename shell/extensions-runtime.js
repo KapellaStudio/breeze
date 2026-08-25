@@ -98,6 +98,7 @@ function createExtensionWindow(ctx,details={}){
   w.once('ready-to-show',()=>{ if(!w.isDestroyed()&&details.focused!==false) w.show(); });
   w.on('closed',()=>{
     extensionWindows.delete(w);
+    compat.emitEvent(ctx.localId,ctx.runtimeId,ctx.ses,'windows.onRemoved',[w.id]);
     emitWorkerEvent(ctx,'windows.onRemoved',[w.id]);
   });
   w.loadURL(url).catch(()=>{});
