@@ -58,9 +58,9 @@
     wrap.removeAttribute('data-open');
     wrap.dataset.realBrowserSearch = '1';
 
-    wrap.addEventListener('click', e => {
-      if (!e.target.closest('input')) input.focus();
-    }, true);
+    // The prototype assigned an onclick before this shell module loads.
+    // Replace it outright so the removed data-open route cannot still fire.
+    wrap.onclick = () => input.focus();
 
     input.addEventListener('keydown', async e => {
       if (e.key !== 'Enter') return;
@@ -84,23 +84,27 @@
     const title = card.querySelector('h3')?.textContent?.trim() || '';
     const detail = card.querySelector('p')?.textContent || '';
     const hintedHost = detail.split('·')[0].trim();
+    const tabs = await S.listTabs().catch(() => []);
+    const active = (tabs || []).find(t => t.active);
+    const workspace = String(active?.workspace || 'default');
+    const sealed = !!active?.sealed;
     const history = await S.historyList('').catch(() => []);
-    const recent = (history || []).find(r => {
-      const rowTitle = String(r.title || hostOf(r.url)).trim();
-      return rowTitle === title && (!hintedHost || hostOf(r.url) === hintedHost);
+    const candidates = (history || []).filter(r => {
+      const sameWorkspace = !r.workspace || String(r.workspace) === workspace;
+      return sameWorkspace && (!hintedHost || hostOf(r.url) === hintedHost);
     });
+    const recent = candidates.find(r => String(r.title || hostOf(r.url)).trim() === title) || candidates[0];
     if (!recent?.url) return false;
 
-    const tabs = await S.listTabs().catch(() => []);
     const target = canonicalUrl(recent.url);
-    const open = (tabs || []).find(t => !t.private && canonicalUrl(t.url) === target);
+    const open = (tabs || []).find(t => !t.private && String(t.workspace || 'default') === workspace && !!t.sealed === sealed && canonicalUrl(t.url) === target);
     if (open?.id != null) {
       await S.selectTab(open.id);
       showBrowse();
       return true;
     }
 
-    await S.newTab({ url: recent.url });
+    await S.newTab({ url: recent.url, workspaceId: workspace, sealed });
     showBrowse();
     return true;
   }
