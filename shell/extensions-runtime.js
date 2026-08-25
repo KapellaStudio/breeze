@@ -28,6 +28,7 @@ const runtimeContexts = new Map();
 const serviceWorkerSessions = new WeakMap();
 const pagePreload = path.join(__dirname,'extension-page-preload.js');
 const serviceWorkerPreload = path.join(__dirname,'extension-sw-preload.js');
+const extensionWindowTypes = new WeakMap();
 
 function safeWorkspace(value){ return String(value||'default').replace(/[^a-z0-9_-]/gi,'-').slice(0,80)||'default'; }
 function sealedSession(ses,workspaceId='default'){
@@ -68,10 +69,11 @@ function extWindowById(id){
   if(!BrowserWindow) return null;
   return [...extensionWindows].find(w=>!w.isDestroyed()&&w.id===Number(id))||null;
 }
-function windowRow(w,type='normal'){
+function windowRow(w,type=null){
   if(!w||w.isDestroyed()) return null;
   const b=w.getBounds();
-  return {id:w.id,focused:w.isFocused(),top:b.y,left:b.x,width:b.width,height:b.height,incognito:false,type,state:w.isMaximized()?'maximized':w.isMinimized()?'minimized':w.isFullScreen()?'fullscreen':'normal',alwaysOnTop:w.isAlwaysOnTop()};
+  const resolvedType=type||extensionWindowTypes.get(w)||'normal';
+  return {id:w.id,focused:w.isFocused(),top:b.y,left:b.x,width:b.width,height:b.height,incognito:false,type:resolvedType,state:w.isMaximized()?'maximized':w.isMinimized()?'minimized':w.isFullScreen()?'fullscreen':'normal',alwaysOnTop:w.isAlwaysOnTop()};
 }
 function createExtensionWindow(ctx,details={}){
   if(!BrowserWindow){ const err=new Error('extension windows require Breeze desktop'); err.status=501; throw err; }
@@ -87,6 +89,7 @@ function createExtensionWindow(ctx,details={}){
   if(Number.isFinite(Number(details.left))) opts.x=Number(details.left);
   if(Number.isFinite(Number(details.top))) opts.y=Number(details.top);
   const w=new BrowserWindow(opts); extensionWindows.add(w);
+  extensionWindowTypes.set(w,details.type==='popup'?'popup':'normal');
   w.webContents.setWindowOpenHandler(({url:target})=>{
     try{
       const clean=allowedUrl(ctx,target);

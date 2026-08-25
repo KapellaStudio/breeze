@@ -17,7 +17,7 @@ function write(dir,file,body){const full=path.join(dir,file);fs.mkdirSync(path.d
   const userData=path.join(tmp,'user-data');
   fs.mkdirSync(source,{recursive:true});
   write(source,'manifest.json',JSON.stringify({manifest_version:3,name:'Breeze Self Close Probe',version:'1.0.0',background:{service_worker:'worker.js'},action:{default_popup:'popup.html'}},null,2));
-  write(source,'worker.js',`const removed=[];\nchrome.windows.onRemoved.addListener(id=>removed.push(id));\nchrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{\n  if(msg?.kind==='open'){chrome.windows.create({url:'popup.html',type:'popup'}).then(win=>sendResponse({id:win.id}),err=>sendResponse({error:String(err&&err.message||err)}));return true;}\n  if(msg?.kind==='events'){sendResponse({removed:[...removed]});return false;}\n});`);
+  write(source,'worker.js',`const removed=[];\nchrome.windows.onRemoved.addListener(id=>removed.push(id));\nchrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{\n  if(msg?.kind==='open'){chrome.windows.create({url:'popup.html',type:'popup'}).then(async win=>{const rows=await chrome.windows.getAll();sendResponse({id:win.id,type:rows.find(row=>row.id===win.id)?.type||''});},err=>sendResponse({error:String(err&&err.message||err)}));return true;}\n  if(msg?.kind==='events'){sendResponse({removed:[...removed]});return false;}\n});`);
   write(source,'probe.html','<!doctype html><html><body>probe</body></html>');
   write(source,'popup.html','<!doctype html><html><body><div id="ready">ready</div><script src="popup.js"></script></body></html>');
   write(source,'popup.js',`setTimeout(()=>window.close(),250);`);
@@ -50,6 +50,7 @@ function write(dir,file,body){const full=path.join(dir,file);fs.mkdirSync(path.d
 
     const workerPopup=await probeWin.webContents.executeJavaScript(`new Promise(resolve=>chrome.runtime.sendMessage({kind:'open'},resolve))`);
     ok('service worker chrome.windows.create opens a Breeze-owned popup',Number.isInteger(workerPopup?.id),JSON.stringify(workerPopup||{}));
+    ok('service worker windows.getAll preserves the popup window type',workerPopup?.type==='popup',JSON.stringify(workerPopup||{}));
     let workerClosed=false,eventState={};
     for(let i=0;i<80;i++){
       workerClosed=!BrowserWindow.fromId(workerPopup?.id);

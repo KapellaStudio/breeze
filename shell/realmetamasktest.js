@@ -89,6 +89,17 @@ async function findExtensionWindow(extOrigin,selector,exclude=new Set(),timeout=
     return null;
   },{timeout,label:`extension window ${selector}`});
 }
+async function extensionWindowSnapshot(extOrigin){
+  const rows=[];
+  for(const w of BrowserWindow.getAllWindows()){
+    if(!w||w.isDestroyed())continue;
+    const href=String(w.webContents.getURL()||'');
+    if(!href.startsWith(extOrigin))continue;
+    const state=await w.webContents.executeJavaScript(`({href:location.href,ready:document.readyState,body:(document.body?.innerText||'').trim().slice(0,300),hasSignConfirm:!!document.querySelector('[data-testid="confirm-footer-button"]')})`).catch(()=>({href}));
+    rows.push({id:w.id,...state});
+  }
+  return rows;
+}
 function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,res)=>{res.writeHead(200,{'content-type':'text/html','cache-control':'no-store'});res.end('<!doctype html><html><head><title>Breeze MetaMask dapp</title></head><body><h1>Breeze MetaMask dapp</h1><button id="connect">Connect</button></body></html>');});srv.listen(0,'127.0.0.1',()=>resolve(srv));});}
 
 (async()=>{
@@ -219,7 +230,17 @@ function serve(){return new Promise(resolve=>{const srv=http.createServer((_req,
 
     if(accounts[0]){
       await win.webContents.executeJavaScript(`(()=>{window.__breezeSignResult=null;window.ethereum.request({method:'personal_sign',params:[${JSON.stringify(TEST_MESSAGE_HEX)},${JSON.stringify(accounts[0])}]}).then(v=>window.__breezeSignResult={ok:true,value:v},e=>window.__breezeSignResult={ok:false,error:String(e&&e.message||e)});return 'started'})()`);
-      const signWindow=await findExtensionWindow(extOrigin,'[data-testid="confirm-footer-button"]',new Set([surface?.id]),30000);
+      let signWindow;
+      try{
+        // A real confirmation may be routed into an already-open MetaMask
+        // surface. Certification cares about the official approval UI and a
+        // valid signature, not whether MetaMask chooses a fresh window ID.
+        signWindow=await findExtensionWindow(extOrigin,'[data-testid="confirm-footer-button"]',new Set(),30000);
+      }catch(err){
+        console.log('MetaMask personal-sign window snapshot:',JSON.stringify(await extensionWindowSnapshot(extOrigin)));
+        console.log('MetaMask personal-sign provider result:',JSON.stringify(await win.webContents.executeJavaScript('window.__breezeSignResult').catch(()=>null)));
+        throw err;
+      }
       const signState=await signWindow.webContents.executeJavaScript(`({href:location.href,body:(document.body?.innerText||'').slice(0,500)})`);
       ok('MetaMask opens a real personal-sign confirmation in Breeze',!!signWindow,JSON.stringify(signState));
       await routeClickSelector(signWindow,'[data-testid="confirm-footer-button"]');
