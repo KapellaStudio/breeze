@@ -19,6 +19,7 @@ const DEFAULTS = Object.freeze({
   // queries to the selected engine. Private browsing suppresses remote calls.
   searchSuggestions: true,
   searchLibrary: true,
+  searchProviderMigrated: false,
   sleep: true,
   tint: true,
   group: true,
@@ -38,7 +39,7 @@ const ENUMS = {
   comfort: new Set(['bright','comfort','dim']),
   sidebar: new Set(['on','auto','off'])
 };
-const BOOLS = new Set(['compact','weatherEnabled','searchSuggestions','searchLibrary','sleep','tint','group','askwhere','provenance','versionDetection']);
+const BOOLS = new Set(['compact','weatherEnabled','searchSuggestions','searchLibrary','searchProviderMigrated','sleep','tint','group','askwhere','provenance','versionDetection']);
 
 function atomicWrite(value){
   if(!file) return;
