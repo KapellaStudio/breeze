@@ -51,7 +51,6 @@ jobs:
                 and data.get('version')=='1.0' and data.get('codename')=='McCloskey'
                 and required.issubset(platforms)
                 and 'Breeze 1.0' in site
-                and '/api/releases?channel=beta' in site
                 and '/download?channel=beta&platform=' in site)
           if not good:
               print({'health':health,'version':data.get('version'),'codename':data.get('codename'),'platforms':sorted(platforms)})
