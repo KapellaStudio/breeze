@@ -98,7 +98,7 @@ async function main(){
 
   search.setProvider('Brave Search');
   let r = await search.search('offline first');
-  ok('default provider redirects, no key needed', r.mode === 'redirect' &&
+  ok('legacy Brave provider remains readable for migration', r.mode === 'redirect' &&
      r.url.includes('search.brave.com') && r.url.includes('offline%20first'), r.mode);
 
   search.setProvider('DuckDuckGo');
@@ -138,8 +138,8 @@ async function main(){
   r = await search.search('fresh query', { endpointOverride: base + '/serper' });
   ok('rejected key produces a readable error, not a crash',
      r.mode === 'error' && /rejected the key/i.test(r.message), r.message);
-  ok('error still hands back a working fallback url',
-     r.mode === 'error' && r.fallback.includes('search.brave.com'));
+  ok('error still hands back a working Google fallback url',
+     r.mode === 'error' && r.fallback.includes('www.google.com/search'));
 
   r = await search.search('rl', { endpointOverride: base + '/ratelimited' });
   ok('rate limit is named as a quota problem', /rate limiting/i.test(r.message || ''), r.message);
