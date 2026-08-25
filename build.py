@@ -36,6 +36,7 @@ omniui   = _read(SRC / 'breeze-omni.js')
 splitui  = _read(SRC / 'breeze-split-ui.js')
 extactions = _read(SRC / 'breeze-extension-actions.js')
 interactions = _read(SRC / 'breeze-browser-interactions.js')
+weathermigration = _read(SRC / 'breeze-toolbar-weather-migration.js')
 
 def _b64_text(*paths):
     for path in paths:
@@ -71,7 +72,7 @@ for name in SHELLS:
         if '</body>' not in html:
             print(f'  !! {name}: missing </body> for desktop module injection'); fail = True
         else:
-            modules = ''.join('<script>\n' + module + '\n</script>\n' for module in (launch, product, context, vaultui, homeui, runtime, searchui, omniui, splitui, extactions, interactions))
+            modules = ''.join('<script>\n' + module + '\n</script>\n' for module in (launch, product, context, vaultui, homeui, runtime, searchui, omniui, splitui, extactions, interactions, weathermigration))
             html = html.replace('</body>', modules + '</body>', 1)
     html = html.replace('data:image/png;base64,__LOGO__', 'data:image/svg+xml;base64,' + logo_svg_b64)
     html = html.replace('__LOGO__', logo_svg_b64)

@@ -15,6 +15,7 @@ const DEFAULTS = Object.freeze({
   sidebar: 'on',
   compact: false,
   weatherEnabled: false,
+  weatherToolbarRestored: false,
   // Search suggestions are useful browser behavior, but they may send partial
   // queries to the selected engine. Private browsing suppresses remote calls.
   searchSuggestions: true,
@@ -39,7 +40,7 @@ const ENUMS = {
   comfort: new Set(['bright','comfort','dim']),
   sidebar: new Set(['on','auto','off'])
 };
-const BOOLS = new Set(['compact','weatherEnabled','searchSuggestions','searchLibrary','searchProviderMigrated','sleep','tint','group','askwhere','provenance','versionDetection']);
+const BOOLS = new Set(['compact','weatherEnabled','weatherToolbarRestored','searchSuggestions','searchLibrary','searchProviderMigrated','sleep','tint','group','askwhere','provenance','versionDetection']);
 
 function atomicWrite(value){
   if(!file) return;
