@@ -88,7 +88,10 @@ function patchMainWorld(){
         const event = name => {
           const key=String(name||'');
           const existing=registry.get(key);
-          if(existing?.api)return existing.api;
+          if(existing?.api){
+            if(!(existing.bridged instanceof WeakSet))existing.bridged=new WeakSet();
+            return existing.api;
+          }
           const listeners=new Set();
           const api={
             addListener(fn){if(typeof fn==='function')listeners.add(fn);},
@@ -96,7 +99,7 @@ function patchMainWorld(){
             hasListener(fn){return listeners.has(fn);},
             hasListeners(){return listeners.size>0;}
           };
-          registry.set(key,{api,listeners});
+          registry.set(key,{api,listeners,bridged:new WeakSet()});
           return api;
         };
         const ensureOn = (root,name) => {
@@ -115,6 +118,22 @@ function patchMainWorld(){
           if(!target)return false;
           try{target[name]=value;if(target[name]===value)return true;}catch{}
           try{Object.defineProperty(target,name,{value,writable:true,configurable:true,enumerable:true});return target[name]===value;}catch{return false;}
+        };
+        const bridgeEvent = (target,name,eventName) => {
+          const managed=event(eventName);
+          if(!target)return managed;
+          let current=null;
+          try{current=target[name];}catch{}
+          if(!current||current===managed){assign(target,name,managed);return managed;}
+          const entry=registry.get(String(eventName||''));
+          if(entry?.bridged?.has(current))return current;
+          const installed=assign(current,'addListener',fn=>managed.addListener(fn))
+            &&assign(current,'removeListener',fn=>managed.removeListener(fn))
+            &&assign(current,'hasListener',fn=>managed.hasListener(fn))
+            &&assign(current,'hasListeners',()=>managed.hasListeners());
+          if(installed){entry.bridged.add(current);return current;}
+          assign(target,name,managed);
+          return target[name]||managed;
         };
         const wrap = method => function(details, callback){
           let params = details;
@@ -151,9 +170,13 @@ function patchMainWorld(){
           for(const [name,fn] of Object.entries(tabMethods)) if(typeof tabs[name]!=='function')assign(tabs,name,fn);
         }
 
+        // Install the shared removal event even when Electron exposes a native
+        // event object. MV3 static imports run before the worker entry body's
+        // Breeze bootstrap, and MetaMask registers this listener from an
+        // imported module during that phase.
         const windows = ensureOn(chrome,'windows');
         if(windows){
-          if(!windows.onRemoved)assign(windows,'onRemoved',event('windows.onRemoved'));
+          bridgeEvent(windows,'onRemoved','windows.onRemoved');
           if(!windows.onFocusChanged)assign(windows,'onFocusChanged',event('windows.onFocusChanged'));
           if(windows.WINDOW_ID_NONE==null)assign(windows,'WINDOW_ID_NONE',-1);
           if(typeof windows.create!=='function')assign(windows,'create',function(details,cb){
@@ -232,6 +255,8 @@ function patchMainWorld(){
         };
         mirror('tabs',['create','query','get','getCurrent','update','remove','onRemoved','onUpdated','onActivated']);
         mirror('windows',['create','getAll','getCurrent','getLastFocused','update','remove','onRemoved','onFocusChanged','WINDOW_ID_NONE']);
+        const browserWindows = browserApi ? ensureOn(browserApi,'windows') : null;
+        if(browserWindows)bridgeEvent(browserWindows,'onRemoved','windows.onRemoved');
         if(permissions.has('cookies'))mirror('cookies',['get','getAll','set','remove']);
         if(permissions.has('notifications'))mirror('notifications',['create','clear','onClicked']);
         if(permissions.has('identity'))mirror('identity',['getRedirectURL','launchWebAuthFlow']);

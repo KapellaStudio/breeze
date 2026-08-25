@@ -24,6 +24,7 @@ const LOOPBACK_PERMISSION = 'http://127.0.0.1/*';
 const MAX_BODY = 64 * 1024;
 const PATCH_MARKER = '/* BREEZE_EXTENSION_COMPAT_V2 */';
 const EARLY_IDENTITY_MARKER = '/* BREEZE_EARLY_IDENTITY_V1 */';
+const EARLY_WINDOW_EVENT_MARKER = '/* BREEZE_EARLY_WINDOW_EVENT_V1 */';
 const BASE_METHODS = new Set([
   'tabs.create','tabs.query','tabs.get','tabs.getCurrent','tabs.update','tabs.remove',
   'windows.create','windows.getAll','windows.getCurrent','windows.getLastFocused',
@@ -162,6 +163,7 @@ function waitRuntimeEvent(context,res,origin){
   if(!(context.eventWaiters instanceof Set))context.eventWaiters=new Set();
   if(context.events.length){
     const events=context.events.splice(0,Math.min(16,context.events.length));
+    context.eventDelivered=(context.eventDelivered||0)+events.length;
     jsonResponse(res,200,{events},origin);
     return;
   }
@@ -197,6 +199,7 @@ async function handleEvents(req,res){
   if(picked.ambiguous){jsonResponse(res,409,{error:'extension runtime is active in multiple Breeze sessions'},origin);return;}
   if(!picked.context){jsonResponse(res,503,{error:'extension runtime is not registered yet'},origin);return;}
   if(picked.context.private){jsonResponse(res,403,{error:'extensions are unavailable in Private Browsing'},origin);return;}
+  picked.context.eventRequests=(picked.context.eventRequests||0)+1;
   waitRuntimeEvent(picked.context,res,origin);
 }
 
@@ -341,6 +344,48 @@ function patchEarlyIdentityModules(managedDir, manifest, workerRel){
   return patched;
 }
 
+function earlyWindowEventSource(){
+  return [
+    EARLY_WINDOW_EVENT_MARKER,
+    ';(()=>{try{',
+    "  const registry=globalThis.__breezeExtensionEventRegistry instanceof Map?globalThis.__breezeExtensionEventRegistry:new Map();",
+    "  globalThis.__breezeExtensionEventRegistry=registry;",
+    "  const event=(name)=>{const key=String(name||'');const existing=registry.get(key);if(existing?.api){if(!(existing.bridged instanceof WeakSet))existing.bridged=new WeakSet();return existing.api;}const listeners=new Set();const api={addListener(fn){if(typeof fn==='function')listeners.add(fn);},removeListener(fn){listeners.delete(fn);},hasListener(fn){return listeners.has(fn);},hasListeners(){return listeners.size>0;}};registry.set(key,{api,listeners,bridged:new WeakSet()});return api;};",
+    "  const assign=(target,name,value)=>{if(!target)return false;try{target[name]=value;if(target[name]===value)return true;}catch{}try{Object.defineProperty(target,name,{value,writable:true,configurable:true,enumerable:true});return target[name]===value;}catch{return false;}};",
+    "  const ensureWindows=(root)=>{if(!root)return null;let target=null;try{target=root.windows;}catch{}if(!target){try{root.windows={};target=root.windows;}catch{}}if(!target){try{Object.defineProperty(root,'windows',{value:{},writable:true,configurable:true,enumerable:true});target=root.windows;}catch{}}return target||null;};",
+    "  const bridgeEvent=(target,name,eventName)=>{const managed=event(eventName);if(!target)return managed;let current=null;try{current=target[name];}catch{}if(!current||current===managed){assign(target,name,managed);return managed;}const entry=registry.get(String(eventName||''));if(entry?.bridged?.has(current))return current;const installed=assign(current,'addListener',fn=>managed.addListener(fn))&&assign(current,'removeListener',fn=>managed.removeListener(fn))&&assign(current,'hasListener',fn=>managed.hasListener(fn))&&assign(current,'hasListeners',()=>managed.hasListeners());if(installed){entry.bridged.add(current);return current;}assign(target,name,managed);return target[name]||managed;};",
+    "  for(const root of [globalThis.chrome,globalThis.browser]){const target=ensureWindows(root);if(target)bridgeEvent(target,'onRemoved','windows.onRemoved');}",
+    "  if(typeof globalThis.__breezeDispatchExtensionEvent!=='function')globalThis.__breezeDispatchExtensionEvent=(name,...args)=>{const entry=registry.get(String(name||''));if(!entry)return;for(const fn of [...entry.listeners]){try{fn(...args);}catch(err){queueMicrotask(()=>{throw err;});}}};",
+    '}catch{}})();',
+    ''
+  ].join('\n');
+}
+
+function patchEarlyWindowEventModules(managedDir, manifest, workerRel){
+  if(!moduleBackground(manifest))return [];
+  const patched=[];
+  const stack=[managedDir];
+  const workerFull=safeRelativeFile(managedDir,workerRel,'background worker').full;
+  while(stack.length){
+    const dir=stack.pop();
+    for(const ent of fs.readdirSync(dir,{withFileTypes:true})){
+      const full=path.join(dir,ent.name);
+      if(ent.isDirectory()){stack.push(full);continue;}
+      if(!ent.isFile()||full===workerFull||!/[.](?:m?js)$/i.test(ent.name))continue;
+      let source='';
+      try{
+        const st=fs.statSync(full);
+        if(st.size>32*1024*1024)continue;
+        source=fs.readFileSync(full,'utf8');
+      }catch{continue;}
+      if(source.includes(EARLY_WINDOW_EVENT_MARKER)||!source.includes('windows')||!source.includes('onRemoved'))continue;
+      fs.writeFileSync(full,earlyWindowEventSource()+source,'utf8');
+      patched.push(path.relative(managedDir,full).replace(/\\/g,'/'));
+    }
+  }
+  return patched;
+}
+
 function bootstrapSource(endpointUrl, token, allowed){
   const methods=[...allowed];
   const lines = [
@@ -361,11 +406,12 @@ function bootstrapSource(endpointUrl, token, allowed){
     "  const callback=(promise,cb)=>{if(typeof cb==='function'){promise.then(v=>cb(v)).catch(()=>cb(undefined));}return promise;};",
     "  const registry=globalThis.__breezeExtensionEventRegistry instanceof Map?globalThis.__breezeExtensionEventRegistry:new Map();",
     "  globalThis.__breezeExtensionEventRegistry=registry;",
-    "  const event=(name)=>{const key=String(name||'');const existing=registry.get(key);if(existing?.api)return existing.api;const listeners=new Set();const api={addListener(fn){if(typeof fn==='function')listeners.add(fn);},removeListener(fn){listeners.delete(fn);},hasListener(fn){return listeners.has(fn);},hasListeners(){return listeners.size>0;}};registry.set(key,{api,listeners});return api;};",
+    "  const event=(name)=>{const key=String(name||'');const existing=registry.get(key);if(existing?.api){if(!(existing.bridged instanceof WeakSet))existing.bridged=new WeakSet();return existing.api;}const listeners=new Set();const api={addListener(fn){if(typeof fn==='function')listeners.add(fn);},removeListener(fn){listeners.delete(fn);},hasListener(fn){return listeners.has(fn);},hasListeners(){return listeners.size>0;}};registry.set(key,{api,listeners,bridged:new WeakSet()});return api;};",
     "  const trackedWindows=new Set();const removedWindows=new Set();let eventPoll=null;",
     "  const dispatchEvent=(name,...args)=>{const key=String(name||'');if(key==='windows.onRemoved'&&args[0]!=null){const id=Number(args[0]);if(removedWindows.has(id))return;removedWindows.add(id);if(removedWindows.size>64)removedWindows.delete(removedWindows.values().next().value);trackedWindows.delete(id);}const entry=registry.get(key);if(!entry)return;for(const fn of [...entry.listeners]){try{fn(...args);}catch(err){queueMicrotask(()=>{throw err;});}}};",
     "  globalThis.__breezeDispatchExtensionEvent=dispatchEvent;",
     "  const assign=(target,name,value)=>{if(!target)return false;try{target[name]=value;if(target[name]===value)return true;}catch{}try{Object.defineProperty(target,name,{value,writable:true,configurable:true,enumerable:true});return target[name]===value;}catch{return false;}};",
+    "  const bridgeEvent=(target,name,eventName)=>{const managed=event(eventName);if(!target)return managed;let current=null;try{current=target[name];}catch{}if(!current||current===managed){assign(target,name,managed);return managed;}const entry=registry.get(String(eventName||''));if(entry?.bridged?.has(current))return current;const installed=assign(current,'addListener',fn=>managed.addListener(fn))&&assign(current,'removeListener',fn=>managed.removeListener(fn))&&assign(current,'hasListener',fn=>managed.hasListener(fn))&&assign(current,'hasListeners',()=>managed.hasListeners());if(installed){entry.bridged.add(current);return current;}assign(target,name,managed);return target[name]||managed;};",
     "  const pollWindowEvents=()=>{if(eventPoll||!trackedWindows.size)return;eventPoll=fetch(eventEndpoint,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+token},body:JSON.stringify({runtimeId:chrome.runtime&&chrome.runtime.id||''})}).then(async response=>{const payload=await response.json().catch(()=>({events:[]}));if(!response.ok)throw new Error(payload&&payload.error||('Breeze event bridge '+response.status));for(const row of Array.isArray(payload.events)?payload.events:[]){dispatchEvent(row&&row.name,...(Array.isArray(row&&row.args)?row.args:[]));}}).catch(()=>{trackedWindows.clear();}).finally(()=>{eventPoll=null;if(trackedWindows.size)pollWindowEvents();});};",
     "  const rememberWindow=(row)=>{const id=Number(row&&row.id);if(!Number.isInteger(id))return row;trackedWindows.add(id);pollWindowEvents();return row;};",
     "  const extUrl=(value)=>{if(typeof value!=='string')return value;const raw=value.trim();if(!raw)return raw;if(/^[a-z][a-z0-9+.-]*:/i.test(raw))return raw;return chrome.runtime.getURL(raw.replace(/^\\/+/,''));};",
@@ -382,7 +428,7 @@ function bootstrapSource(endpointUrl, token, allowed){
     "    if(allowed.has('tabs.update'))chrome.tabs.update=(id,details,cb)=>{if(id&&typeof id==='object'){cb=details;details=id;id=null;}return callback(invoke('tabs.update',{tabId:id,props:extDetails(details)}),cb);};",
     "    if(allowed.has('tabs.remove'))chrome.tabs.remove=(ids,cb)=>callback(invoke('tabs.remove',{tabIds:ids}),cb);",
     '    if(!chrome.windows)chrome.windows={};',
-    "    const removedEvent=event('windows.onRemoved');assign(chrome.windows,'onRemoved',removedEvent);",
+    "    const removedEvent=bridgeEvent(chrome.windows,'onRemoved','windows.onRemoved');",
     "    if(!chrome.windows.onFocusChanged)chrome.windows.onFocusChanged=event('windows.onFocusChanged');",
     '    if(chrome.windows.WINDOW_ID_NONE==null)chrome.windows.WINDOW_ID_NONE=-1;',
     "    if(allowed.has('windows.create'))chrome.windows.create=(details,cb)=>callback(invoke('windows.create',extDetails(details)).then(rememberWindow),cb);",
@@ -395,7 +441,7 @@ function bootstrapSource(endpointUrl, token, allowed){
     "    if(typeof chrome.commands.getAll!=='function')chrome.commands.getAll=(cb)=>{const commands=chrome.runtime.getManifest().commands||{};const rows=Object.entries(commands).map(([name,v])=>({name,description:v&&v.description||'',shortcut:v&&v.suggested_key&&(v.suggested_key.default||v.suggested_key.windows||v.suggested_key.mac)||''}));if(typeof cb==='function')queueMicrotask(()=>cb(rows));return Promise.resolve(rows);};",
     "    if(allowed.has('identity.launchWebAuthFlow')){if(!chrome.identity)chrome.identity={};if(typeof chrome.identity.getRedirectURL!=='function')chrome.identity.getRedirectURL=(suffix='')=>'https://'+chrome.runtime.id+'.chromiumapp.org/'+String(suffix||'').replace(/^\\/+/, '');if(typeof chrome.identity.launchWebAuthFlow!=='function')chrome.identity.launchWebAuthFlow=(details,cb)=>callback(invoke('identity.launchWebAuthFlow',details&&typeof details==='object'?details:{}),cb);}",
     "    const browserApi=globalThis.browser;",
-    "    if(browserApi&&browserApi.runtime&&browserApi.runtime.id){const mirror=(name,props)=>{try{const source=chrome[name];if(!source)return;if(!browserApi[name])browserApi[name]={};const target=browserApi[name];if(!target)return;for(const prop of props){if(source[prop]==null)continue;const value=source[prop];if(typeof value==='function'||target[prop]==null)assign(target,prop,value);}}catch{}};mirror('tabs',['create','query','get','getCurrent','update','remove','onRemoved','onUpdated','onActivated']);mirror('windows',['create','getAll','getCurrent','getLastFocused','update','remove','onRemoved','onFocusChanged','WINDOW_ID_NONE']);const browserWindows=browserApi.windows;const sharedRemoved=chrome.windows&&chrome.windows.onRemoved;if(browserWindows&&sharedRemoved)assign(browserWindows,'onRemoved',sharedRemoved);mirror('cookies',['get','getAll','set','remove']);mirror('notifications',['create','clear','onClicked']);mirror('commands',['getAll']);mirror('identity',['getRedirectURL','launchWebAuthFlow']);}",
+    "    if(browserApi&&browserApi.runtime&&browserApi.runtime.id){const mirror=(name,props)=>{try{const source=chrome[name];if(!source)return;if(!browserApi[name])browserApi[name]={};const target=browserApi[name];if(!target)return;for(const prop of props){if(source[prop]==null)continue;const value=source[prop];if(typeof value==='function'||target[prop]==null)assign(target,prop,value);}}catch{}};mirror('tabs',['create','query','get','getCurrent','update','remove','onRemoved','onUpdated','onActivated']);mirror('windows',['create','getAll','getCurrent','getLastFocused','update','remove','onRemoved','onFocusChanged','WINDOW_ID_NONE']);const browserWindows=browserApi.windows;if(browserWindows)bridgeEvent(browserWindows,'onRemoved','windows.onRemoved');mirror('cookies',['get','getAll','set','remove']);mirror('notifications',['create','clear','onClicked']);mirror('commands',['getAll']);mirror('identity',['getRedirectURL','launchWebAuthFlow']);}",
     '  }catch{}',
     '})();',
     ''
@@ -435,11 +481,12 @@ async function prepareManagedCopy(options={}){
   // This is what current Phantom requires; the user's original extension files
   // remain untouched and the patch is idempotent on persisted managed copies.
   const earlyIdentityModules=patchEarlyIdentityModules(managedDir,pristineManifest,workerRel);
+  const earlyWindowEventModules=patchEarlyWindowEventModules(managedDir,pristineManifest,workerRel);
 
   const token = crypto.randomBytes(32).toString('hex');
   writeJson(manifestFile,permissionManifest);
   fs.writeFileSync(worker.full,bootstrapSource(bridgeEndpoint,token,allowed) + pristineWorker,'utf8');
-  const entry = { localId, managedDir, workerRel, token, allowed, earlyIdentityModules, runtimes:new Map() };
+  const entry = { localId, managedDir, workerRel, token, allowed, earlyIdentityModules, earlyWindowEventModules, runtimes:new Map() };
   entriesByLocalId.set(localId,entry);
   entriesByToken.set(token,entry);
   return status(localId);
@@ -456,7 +503,7 @@ function registerRuntime(localId, runtimeId, context={}){
   const storage = String(context.ses?.storagePath || 'memory').replace(/\\/g,'/');
   const key = workspaceId + ':' + crypto.createHash('sha256').update(storage).digest('hex').slice(0,16);
   closeRuntimeEvents(entry.runtimes.get(key));
-  entry.runtimes.set(key,{runtimeId:rid,workspaceId,sealed:!!context.sealed,private:false,ses:context.ses||null,events:[],eventWaiters:new Set()});
+  entry.runtimes.set(key,{runtimeId:rid,workspaceId,sealed:!!context.sealed,private:false,ses:context.ses||null,events:[],eventWaiters:new Set(),eventRequests:0,hostEvents:0,eventDelivered:0,eventQueued:0,lastEvent:''});
   return {registered:true,runtimeId:rid,workspaceId};
 }
 function emitEvent(localId,runtimeId,ses,name,args=[]){
@@ -469,8 +516,11 @@ function emitEvent(localId,runtimeId,ses,name,args=[]){
     if(context.runtimeId!==rid||(ses&&context.ses!==ses))continue;
     if(!(context.eventWaiters instanceof Set))context.eventWaiters=new Set();
     const waiter=context.eventWaiters.values().next().value;
-    if(waiter)waiter.finish([event]);
+    context.hostEvents=(context.hostEvents||0)+1;
+    context.lastEvent=event.name;
+    if(waiter){context.eventDelivered=(context.eventDelivered||0)+1;waiter.finish([event]);}
     else{
+      context.eventQueued=(context.eventQueued||0)+1;
       if(!Array.isArray(context.events))context.events=[];
       context.events.push(event);
       if(context.events.length>32)context.events.splice(0,context.events.length-32);
@@ -491,12 +541,23 @@ function unregisterRuntime(localId, context={}){
 function status(localId){
   const entry = entriesByLocalId.get(String(localId||''));
   if (!entry) return {prepared:false};
+  const runtimeRows=[...entry.runtimes.values()];
   return {
     prepared:true,
     localId:entry.localId,
     methods:[...entry.allowed].sort(),
     earlyIdentityModules:Array.isArray(entry.earlyIdentityModules)?entry.earlyIdentityModules.length:0,
+    earlyWindowEventModules:Array.isArray(entry.earlyWindowEventModules)?entry.earlyWindowEventModules.length:0,
     runtimeCount:entry.runtimes.size,
+    eventBridge:{
+      requests:runtimeRows.reduce((n,x)=>n+Number(x.eventRequests||0),0),
+      hostEvents:runtimeRows.reduce((n,x)=>n+Number(x.hostEvents||0),0),
+      delivered:runtimeRows.reduce((n,x)=>n+Number(x.eventDelivered||0),0),
+      queuedTotal:runtimeRows.reduce((n,x)=>n+Number(x.eventQueued||0),0),
+      queued:runtimeRows.reduce((n,x)=>n+Number(x.events?.length||0),0),
+      waiters:runtimeRows.reduce((n,x)=>n+Number(x.eventWaiters?.size||0),0),
+      lastEvent:runtimeRows.map(x=>String(x.lastEvent||'')).filter(Boolean).at(-1)||''
+    },
     bridge:'loopback-v2'
   };
 }
@@ -523,5 +584,5 @@ async function close(){
 module.exports = {
   init,setHandlers,prepareManagedCopy,registerRuntime,unregisterRuntime,emitEvent,status,remove,close,
   allowedMethodsForManifest,
-  LOOPBACK_PERMISSION,PATCH_MARKER,EARLY_IDENTITY_MARKER
+  LOOPBACK_PERMISSION,PATCH_MARKER,EARLY_IDENTITY_MARKER,EARLY_WINDOW_EVENT_MARKER
 };
