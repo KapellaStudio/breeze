@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="164" height="314" viewBox="0 0 164 314">
+  <defs>
+    <linearGradient id="bg" x1="22" y1="8" x2="150" y2="314" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#122D41"/><stop offset=".48" stop-color="#071522"/><stop offset="1" stop-color="#030914"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="40" y1="36" x2="128" y2="132" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B8FFE7"/><stop offset=".45" stop-color="#34E8D1"/><stop offset="1" stop-color="#168EE8"/>
+    </linearGradient>
+  </defs>
+  <rect width="164" height="314" fill="url(#bg)"/>
+  <path d="M-12 58C28 28 82 25 174 49M-14 74C38 42 96 43 178 68M-12 94C42 62 111 69 179 92" fill="none" stroke="#5EEAD4" stroke-opacity=".12"/>
+  <circle cx="83" cy="88" r="53" fill="#35EAD2" opacity=".06"/>
+  <path d="M42 132C55 109 60 84 58 63C57 45 65 32 80 26C96 20 117 23 128 35C140 47 139 64 129 75C120 85 105 88 91 89C75 90 60 101 42 132Z" fill="url(#mark)"/>
+  <path d="M42 132C62 105 77 84 96 75C112 68 130 71 138 82C146 94 142 108 129 115C115 123 98 119 83 117C69 115 55 122 42 132Z" fill="#2DBBE7" opacity=".8"/>
+  <path d="M42 132C63 119 81 106 99 105C118 103 137 111 142 124C146 135 136 142 121 140C103 139 87 130 72 128C60 126 50 129 42 132Z" fill="#2876E8" opacity=".74"/>
+  <text x="20" y="178" fill="#F2FAFF" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="700" letter-spacing="-1">Breeze</text>
+  <text x="21" y="198" fill="#83F3DD" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" letter-spacing="2">VERSION 1.0</text>
+  <path d="M21 222H143" stroke="#A4FFF0" stroke-opacity=".16"/>
+  <text x="21" y="250" fill="#C7D6E3" font-family="Arial, Helvetica, sans-serif" font-size="10">Power without</text>
+  <text x="21" y="266" fill="#C7D6E3" font-family="Arial, Helvetica, sans-serif" font-size="10">friction.</text>
+  <path d="M21 292C52 277 91 278 145 293" fill="none" stroke="#22D3EE" stroke-opacity=".22"/>
+</svg>

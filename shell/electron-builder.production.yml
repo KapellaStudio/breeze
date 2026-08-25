@@ -10,6 +10,8 @@ directories:
   output: dist
   buildResources: build
 
+icon: build/icon.png
+
 files:
   - bootstrap.js
   - launch.js
@@ -46,6 +48,7 @@ asarUnpack:
 
 mac:
   category: public.app-category.productivity
+  artifactName: Breeze-1.0-${arch}.${ext}
   forceCodeSigning: true
   hardenedRuntime: true
   notarize: true
@@ -57,7 +60,16 @@ mac:
     - target: zip
       arch: [arm64, x64]
 dmg:
-  artifactName: Breeze-${version}-${arch}.${ext}
+  artifactName: Breeze-1.0-${arch}.${ext}
+  background: build/dmg-background.png
+  iconSize: 118
+  contents:
+    - x: 170
+      y: 226
+    - x: 490
+      y: 226
+      type: link
+      path: /Applications
 
 win:
   forceCodeSigning: true
@@ -68,7 +80,18 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  artifactName: Breeze-Setup-${version}.${ext}
+  artifactName: Breeze-Setup-1.0.${ext}
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  installerSidebar: build/installer-sidebar.bmp
+  uninstallerSidebar: build/installer-sidebar.bmp
+  installerHeader: build/installer-header.bmp
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Breeze
+  runAfterFinish: true
+  displayLanguageSelector: false
 
 linux:
   category: Network
@@ -81,6 +104,6 @@ linux:
     - target: deb
       arch: [x64]
 appImage:
-  artifactName: Breeze-${version}-${arch}.${ext}
+  artifactName: Breeze-1.0-${arch}.${ext}
 deb:
-  artifactName: breeze_${version}_${arch}.${ext}
+  artifactName: breeze_1.0_${arch}.${ext}

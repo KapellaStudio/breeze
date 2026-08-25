@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="420" viewBox="0 0 660 420">
+  <defs>
+    <radialGradient id="bg" cx="24%" cy="5%" r="110%"><stop stop-color="#173448"/><stop offset=".5" stop-color="#081623"/><stop offset="1" stop-color="#030914"/></radialGradient>
+    <linearGradient id="line" x1="44" y1="44" x2="616" y2="236"><stop stop-color="#83F3DD"/><stop offset="1" stop-color="#248BEA"/></linearGradient>
+  </defs>
+  <rect width="660" height="420" fill="url(#bg)"/>
+  <circle cx="116" cy="92" r="122" fill="#40EAD0" opacity=".045"/>
+  <circle cx="590" cy="350" r="170" fill="#218AE8" opacity=".045"/>
+  <path d="M-34 87C116 23 326 35 700 130M-29 113C128 55 337 73 694 156M-15 141C139 89 359 108 689 183" fill="none" stroke="url(#line)" stroke-opacity=".09"/>
+  <text x="330" y="74" text-anchor="middle" fill="#F4FBFF" font-family="Arial, Helvetica, sans-serif" font-size="36" font-weight="700" letter-spacing="-1">Breeze 1.0</text>
+  <text x="330" y="101" text-anchor="middle" fill="#93A8BA" font-family="Arial, Helvetica, sans-serif" font-size="13">Power without friction.</text>
+  <path d="M256 123H404" stroke="#87F3DE" stroke-opacity=".22"/>
+  <circle cx="170" cy="226" r="78" fill="none" stroke="#9CFFEA" stroke-opacity=".10"/>
+  <circle cx="490" cy="226" r="78" fill="none" stroke="#7DDEF6" stroke-opacity=".10"/>
+  <path d="M270 226H390" stroke="#8AEEE1" stroke-width="2" stroke-opacity=".48"/>
+  <path d="M375 216L390 226L375 236" fill="none" stroke="#8AEEE1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="330" y="330" text-anchor="middle" fill="#E7F2F8" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700">Drag Breeze to Applications</text>
+  <text x="330" y="354" text-anchor="middle" fill="#8298AA" font-family="Arial, Helvetica, sans-serif" font-size="11">Then open Breeze from your Applications folder.</text>
+  <text x="330" y="394" text-anchor="middle" fill="#61D9D1" font-family="Arial, Helvetica, sans-serif" font-size="8" font-weight="700" letter-spacing="2.4">KAPELLA</text>
+</svg>

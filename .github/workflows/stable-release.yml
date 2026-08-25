@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish v1.3.0 after all signing checks pass'
+        description: 'Publish v1.0.0 after all signing checks pass'
         required: true
         default: false
         type: boolean
@@ -234,8 +234,8 @@ jobs:
                       h.update(chunk)
               files.append({'name': p.name, 'size': p.stat().st_size, 'sha256': h.hexdigest()})
           manifest = {
-              'version': '1.3.0',
-              'tag': 'v1.3.0',
+              'version': '1.0',
+              'tag': 'v1.0.0',
               'channel': 'stable',
               'source_sha': '${{ github.sha }}',
               'signed_windows': True,
@@ -269,20 +269,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.3.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo '::error::Stable release v1.3.0 already exists; refusing to overwrite signed release bytes.'
+          if gh release view v1.0.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo '::error::Stable release v1.0.0 already exists; refusing to overwrite signed release bytes.'
             exit 1
           fi
 
-      - name: Publish Breeze 1.3.0 stable
+      - name: Publish Breeze 1.0 stable
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.3.0 release-assets/* \
+          gh release create v1.0.0 release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title 'Breeze 1.3.0' \
-            --notes 'Breeze 1.3.0 stable desktop release. Windows artifacts are Authenticode-signed. macOS artifacts are Developer ID signed, hardened-runtime enabled, notarized and validated. SHA256SUMS.txt and release-manifest.json describe the exact published bytes.'
+            --title 'Breeze 1.0' \
+            --notes 'Breeze 1.0 stable desktop release. Windows artifacts are Authenticode-signed. macOS artifacts are Developer ID signed, hardened-runtime enabled, notarized and validated. SHA256SUMS.txt and release-manifest.json describe the exact published bytes.'
 
   report:
     name: report
