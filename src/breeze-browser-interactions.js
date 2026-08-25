@@ -40,7 +40,7 @@
 
   async function migrateLegacySearchProvider() {
     const firstRun = await S.firstRunStatus().catch(() => null);
-    if (!firstRun?.complete) return false;
+    if (!firstRun?.firstRunComplete) return false;
 
     const prefs = await S.getPreferences().catch(() => null);
     if (!prefs) return false;
