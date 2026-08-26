@@ -26,6 +26,7 @@ tokens   = _read(SRC / 'breeze-tokens.css')
 core     = _read(SRC / 'breeze-core.js')
 adapter  = _read(SRC / 'breeze-shell-adapter.js')
 launch   = _read(SRC / 'breeze-launch.js')
+onboardingguard = _read(SRC / 'breeze-onboarding-input-guard.js')
 product  = _read(SRC / 'breeze-product.js')
 context  = _read(SRC / 'breeze-context.js')
 vaultui  = _read(SRC / 'breeze-vault.js')
@@ -72,7 +73,7 @@ for name in SHELLS:
         if '</body>' not in html:
             print(f'  !! {name}: missing </body> for desktop module injection'); fail = True
         else:
-            modules = ''.join('<script>\n' + module + '\n</script>\n' for module in (launch, product, context, vaultui, homeui, runtime, searchui, omniui, splitui, extactions, interactions, weathermigration))
+            modules = ''.join('<script>\n' + module + '\n</script>\n' for module in (launch, onboardingguard, product, context, vaultui, homeui, runtime, searchui, omniui, splitui, extactions, interactions, weathermigration))
             html = html.replace('</body>', modules + '</body>', 1)
     html = html.replace('data:image/png;base64,__LOGO__', 'data:image/svg+xml;base64,' + logo_svg_b64)
     html = html.replace('__LOGO__', logo_svg_b64)
