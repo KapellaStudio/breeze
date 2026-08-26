@@ -51,6 +51,7 @@ jobs:
           test "$(tr -d '\n\r' < site/kapella-word-dark.png.b64 | sha256sum | awk '{print $1}')" = "c61c419cf5c0c1bdb067e91893f2b41739fc48db4c24bfa8540f7d670b3f4b04"
           test "$(tr -d '\n\r' < site/kapella-word-light.png.b64 | sha256sum | awk '{print $1}')" = "be357931787cf008ab5f19ca3a95b93088bc5749888d7fa54bae9c3d684be774"
           grep -q '<title id="title">Breeze Browser mark</title>' src/breeze-mark.svg
+          grep -q 'M29 206C62 186 92 163 125 160' shell/build/installer-header.svg
           if grep -q '_FALLBACK_PNG' build.py; then echo 'Release build still contains fallback branding' >&2; exit 1; fi
 
       - name: Install Playwright
@@ -76,7 +77,7 @@ jobs:
         run: |
           for f in shell/*.js netlify/functions/*.js \
             src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js \
-            src/breeze-product.js src/breeze-context.js src/breeze-vault.js \
+            src/breeze-onboarding-input-guard.js src/breeze-product.js src/breeze-context.js src/breeze-vault.js \
             src/breeze-home.js src/breeze-runtime.js src/breeze-search-ui.js \
             src/breeze-omni.js src/breeze-split-ui.js src/breeze-browser-interactions.js; do node --check "$f"; done
 
@@ -108,6 +109,10 @@ jobs:
       - name: Install shell dependencies
         working-directory: shell
         run: npm install --no-audit --no-fund
+
+      - name: Packaging source contract
+        working-directory: shell
+        run: npm run packagecontracttest
 
       - name: Shell — smoke, breach, integration, stress, search, extensions and product state
         working-directory: shell
