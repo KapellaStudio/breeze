@@ -118,6 +118,7 @@ jobs:
         working-directory: shell
         run: |
           xvfb-run -a npx electron . --smoke-test --no-sandbox
+          xvfb-run -a npx electron onboardingthemetest.js --no-sandbox
           xvfb-run -a npx electron shellbreach.js --no-sandbox
           xvfb-run -a npx electron integration.js --no-sandbox
           xvfb-run -a npx electron browserinteractiontest.js --no-sandbox
