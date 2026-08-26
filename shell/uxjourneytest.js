@@ -3,15 +3,22 @@
    mouse/keyboard events and checks what a person would perceive: immediate
    navigation feedback, stable tab behavior and a quiet familiar chrome. */
 'use strict';
-process.argv.push('--smoke-test');
 const { app, BrowserWindow } = require('electron');
 const http=require('node:http');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+
+// Isolate this human-journey run from any runner/browser profile without
+// enabling --smoke-test, because smoke mode intentionally auto-exits Breeze.
+const profile=fs.mkdtempSync(path.join(os.tmpdir(),'breeze-ux-journey-'));
+app.setPath('userData',profile);
 
 const results=[];
 const ok=(name,cond,extra='')=>results.push([cond?'PASS':'FAIL',name,extra]);
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 let server,port=0;
-function url(path){return `http://127.0.0.1:${port}${path}`;}
+function url(p){return `http://127.0.0.1:${port}${p}`;}
 function startServer(){
   server=http.createServer((req,res)=>{
     if(req.url==='/slow')return setTimeout(()=>{res.writeHead(200,{'content-type':'text/html'});res.end('<title>Slow Target</title><h1>Loaded</h1>');},1800);
@@ -34,6 +41,7 @@ async function clickElement(view,selector){
 }
 async function finish(){
   try{server?.close();}catch{}
+  try{fs.rmSync(profile,{recursive:true,force:true});}catch{}
   const failed=results.filter(r=>r[0]==='FAIL');
   console.log('\n── BREEZE NATIVE DAILY-DRIVER JOURNEY ──');
   results.forEach(([s,n,x])=>console.log(`  ${s}  ${n}${x?'  ['+x+']':''}`));
@@ -45,8 +53,13 @@ require('./entry');
 app.whenReady().then(async()=>{
   try{
     await startServer();
-    await wait(1800);
+    await wait(1500);
     const win=chromeWin();ok('browser window exists',!!win);if(!win)return finish();
+
+    // Close first-run only for this journey; onboarding itself has its own
+    // native input-layer certification suite.
+    await chrome(`document.querySelector('[data-launch-later]')?.click()`);
+    await wait(180);
 
     ok('New Tab keeps the normal browser toolbar visible',await chrome(`getComputedStyle(document.querySelector('.chrome')).display==='flex'`));
     ok('prototype fake signed-in identity is gone',await chrome(`!document.querySelector('.sideId')`));
@@ -55,7 +68,8 @@ app.whenReady().then(async()=>{
     ok('default toolbar is quiet rather than feature-wall chrome',visibleTools<=6,'visible='+visibleTools);
     ok('advanced Breeze features remain behind one Tools control',await chrome(`!!document.querySelector('#breezeToolsBtn')`));
 
-    const id=await chrome(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(url('/start'))}})`);await chrome(`setView('browse');window.__BREEZE_SHELL__.setInternalView(false)`);await wait(700);
+    const id=await chrome(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(url('/start'))}})`);
+    await chrome(`setView('browse');window.__BREEZE_SHELL__.setInternalView(false)`);await wait(700);
     let view=pageFor('/start');ok('real test page is visible in Chromium',!!view);if(!view)return finish();
 
     let navAt=0;view.webContents.once('will-navigate',()=>{navAt=Date.now();});
@@ -75,6 +89,7 @@ app.whenReady().then(async()=>{
     await chrome(`window.__BREEZE_SHELL__.selectTab(${id});setView('browse');window.__BREEZE_SHELL__.setInternalView(false)`);await wait(200);view=pageFor('/start');
     if(view){
       const mod=process.platform==='darwin'?'meta':'control';
+      view.webContents.focus();
       view.webContents.sendInputEvent({type:'keyDown',keyCode:'L',modifiers:[mod]});view.webContents.sendInputEvent({type:'keyUp',keyCode:'L',modifiers:[mod]});await wait(220);
       ok('Cmd/Ctrl+L still works while focus is inside the webpage',await chrome(`document.documentElement.dataset.omni==='1'&&document.activeElement?.id==='omniInput'`));
       await chrome(`if(typeof closeAll==='function')closeAll()`);
