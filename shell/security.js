@@ -8,6 +8,7 @@
 'use strict';
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { BrowserWindow } = require('electron');
 
 const BLOCK_HOSTS = [
   'doubleclick.net','googletagmanager.com','google-analytics.com','googlesyndication.com',
@@ -48,21 +49,25 @@ function hardenSession(ses, onBlocked, permissionBroker, permissionOptions){
   }
 }
 
-/* Applies to EVERY webContents, however it was created. Chromium reports both
-   BrowserWindow renderers and WebContentsView page renderers as type "window",
-   so getType() cannot distinguish Breeze chrome from a real webpage. Classify
-   by the renderer's CURRENT trusted URL instead. This is critical: treating a
-   WebContentsView as chrome blocks user-clicked links while programmatic
-   loadURL still works, which produces a browser that appears to ignore clicks. */
+/* Applies to EVERY webContents, however it was created. Electron reports a
+   WebContentsView page as type "window" too, so getType() is not a safe way
+   to identify the privileged Breeze chrome. BrowserWindow.fromWebContents()
+   is the ownership boundary we actually need: it resolves the BrowserWindow's
+   own renderer, while ordinary page WebContentsViews remain page content. */
 function installGuards(app, shell, uiDir){
   const chromePrefix = pathToFileURL(path.join(uiDir, path.sep)).toString();
-  const isTrustedChrome = wc => {
-    try{return wc.getURL().startsWith(chromePrefix);}catch{return false;}
+  const isChromeRenderer = wc => {
+    try{
+      const owner=BrowserWindow.fromWebContents(wc);
+      if(!owner || owner.isDestroyed()) return false;
+      const current=wc.getURL();
+      return !current || current==='about:blank' || current.startsWith(chromePrefix);
+    }catch{return false;}
   };
 
   app.on('web-contents-created', (_e, wc) => {
     wc.on('will-navigate', (ev, url) => {
-      if (isTrustedChrome(wc)){
+      if (isChromeRenderer(wc)){
         if (!url.startsWith(chromePrefix)) ev.preventDefault();
         return;
       }
@@ -71,7 +76,7 @@ function installGuards(app, shell, uiDir){
     });
 
     wc.setWindowOpenHandler(({ url }) => {
-      if (isTrustedChrome(wc) && /^https?:/i.test(url)) shell.openExternal(url);
+      if (isChromeRenderer(wc) && /^https?:/i.test(url)) shell.openExternal(url);
       return { action: 'deny' };
     });
 
