@@ -1,5 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════
 # BREEZE — UNSIGNED PACKAGE TEST + BETA PUBLICATION
+# Release promotion: 2026-08-26 full-product UX and native navigation repair.
 #
 # Main-branch source changes exercise the unsigned package matrix. Publishing
 # beta bytes is explicit: workflow_dispatch(publish_rc=true), a beta tag push,
