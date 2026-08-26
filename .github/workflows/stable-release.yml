@@ -64,12 +64,35 @@ jobs:
         working-directory: shell
         run: npm install --no-audit --no-fund
 
+      - name: Verify package source contract
+        working-directory: shell
+        run: npm run packagecontracttest
+
+      - name: Render canonical installer header
+        shell: pwsh
+        run: |
+          if (-not (Get-Command magick -ErrorAction SilentlyContinue)) { choco install imagemagick -y --no-progress }
+          $magick = (Get-Command magick -ErrorAction Stop).Source
+          & $magick -background none shell/build/installer-header.svg -resize '150x57!' 'BMP3:shell/build/installer-header.bmp'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not render installer-header.bmp' }
+
       - name: Package signed Windows build
         working-directory: shell
         env:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: npx electron-builder --win --config electron-builder.production.yml --publish never
+
+      - name: Verify packaged archive contents
+        working-directory: shell
+        run: npm run packagetest
+
+      - name: Smoke-test packaged Windows executable
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'shell/dist/win-unpacked/breeze.exe'
+          $proc = Start-Process -FilePath $exe -ArgumentList @('--smoke-test') -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "Packaged Breeze smoke failed with exit code $($proc.ExitCode)" }
 
       - name: Verify Authenticode signatures
         shell: pwsh
@@ -88,6 +111,18 @@ jobs:
               throw "Signer subject does not contain expected publisher '$env:EXPECTED_PUBLISHER'"
             }
           }
+
+      - name: Install and smoke-test exact signed Windows installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem shell/dist/Breeze-Setup-*.exe | Select-Object -First 1
+          $installDir = Join-Path $env:RUNNER_TEMP 'BreezeStableInstall'
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDir") -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw "Installer failed with exit code $($install.ExitCode)" }
+          $exe = Join-Path $installDir 'breeze.exe'
+          if (-not (Test-Path $exe)) { throw "Installed Breeze missing: $exe" }
+          $smoke = Start-Process -FilePath $exe -ArgumentList @('--smoke-test') -PassThru -Wait
+          if ($smoke.ExitCode -ne 0) { throw "Installed Breeze smoke failed with exit code $($smoke.ExitCode)" }
 
       - name: Upload signed Windows artifacts
         uses: actions/upload-artifact@v4
@@ -144,6 +179,10 @@ jobs:
         working-directory: shell
         run: npm install --no-audit --no-fund
 
+      - name: Verify package source contract
+        working-directory: shell
+        run: npm run packagecontracttest
+
       - name: Package signed and notarized macOS builds
         working-directory: shell
         env:
@@ -153,7 +192,11 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: npx electron-builder --mac --config electron-builder.production.yml --publish never
 
-      - name: Verify code signing, Gatekeeper and notarization staple
+      - name: Verify packaged archive contents
+        working-directory: shell
+        run: npm run packagetest
+
+      - name: Verify code signing, packaged smoke, Gatekeeper and notarization staple
         run: |
           find shell/dist -type d -name 'Breeze.app' -prune -print > "$RUNNER_TEMP/breeze-apps.txt"
           count="$(wc -l < "$RUNNER_TEMP/breeze-apps.txt" | tr -d ' ')"
@@ -161,6 +204,7 @@ jobs:
           while IFS= read -r app; do
             echo "Verifying $app"
             codesign --verify --deep --strict --verbose=2 "$app"
+            "$app/Contents/MacOS/breeze" --smoke-test
             spctl --assess --type execute --verbose=4 "$app"
             xcrun stapler validate "$app"
           done < "$RUNNER_TEMP/breeze-apps.txt"
@@ -193,9 +237,27 @@ jobs:
         working-directory: shell
         run: npm install --no-audit --no-fund
 
+      - name: Verify package source contract
+        working-directory: shell
+        run: npm run packagecontracttest
+
       - name: Package Linux production build
         working-directory: shell
         run: npx electron-builder --linux --config electron-builder.production.yml --publish never
+
+      - name: Verify packaged archive contents
+        working-directory: shell
+        run: npm run packagetest
+
+      - name: Install and smoke-test Linux package
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ./shell/dist/breeze_1.0_amd64.deb
+          xvfb-run -a breeze --smoke-test --no-sandbox
+          appimage="$(find shell/dist -maxdepth 1 -name 'Breeze-1.0-*.AppImage' | head -1)"
+          test -n "$appimage"
+          chmod +x "$appimage"
+          xvfb-run -a env APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --smoke-test --no-sandbox
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
