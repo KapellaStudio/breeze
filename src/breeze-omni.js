@@ -19,9 +19,14 @@
   async function active(){const tabs=await S.listTabs().catch(()=>[]);return (tabs||[]).find(t=>t.active)||null;}
   async function finishBrowse(){await S.setInternalView(false).catch(()=>{});try{if(typeof closeAll==='function')closeAll();if(typeof setView==='function')setView('browse');document.documentElement.dataset.kind='page';}catch{}}
   async function go(value){
-    const a=await active();const resolved=await S.resolveOmnibox(value).catch(()=>null);const target=resolved&&['engine','direct'].includes(resolved.kind)?resolved.url:value;
-    if(a?.id!=null)await S.navigate(a.id,target);else await S.newTab({url:target});
+    const a=await active();
+    const resolved=await S.resolveOmnibox(value).catch(()=>null);
+    const target=resolved&&['engine','direct'].includes(resolved.kind)?resolved.url:value;
     await finishBrowse();
+    document.documentElement.dataset.navbusy='1';
+    const done=()=>{document.documentElement.dataset.navbusy='0';};
+    if(a?.id!=null) S.navigate(a.id,target).catch(done);
+    else S.newTab({url:target}).catch(done);
   }
   async function selectOpenTab(id){await S.selectTab(id);await finishBrowse();}
 
@@ -102,16 +107,13 @@
 
   function schedule(){
     const currentSeq=++seq,q=input.value.trim();selected=0;
-    if(q.startsWith('/'))return; // preserve Breeze command mode from the base chrome
+    if(q.startsWith('/'))return;
     clearTimeout(schedule.timer);schedule.timer=setTimeout(()=>{
       if(currentSeq!==seq)return;
       if(!q){list.replaceChildren();links.dataset.on='1';renderQuick(currentSeq);}else{links.dataset.on='0';renderQuery(q,currentSeq);}
     },q?120:0);
   }
 
-  /* Window-capture runs before the older input-level prototype handler. That
-     lets real suggestions own arrows/Enter without replacing the input node or
-     breaking /command mode. */
   window.addEventListener('keydown',e=>{
     if(e.target!==input||input.value.trim().startsWith('/'))return;
     const rows=actionable();
@@ -124,7 +126,6 @@
   input.addEventListener('input',schedule);input.addEventListener('focus',schedule);
   S.on('tab:update',st=>{if(st?.active&&document.documentElement.dataset.omni==='1')schedule();});
 
-  /* Make the existing Search settings truthful and persistent. */
   async function wireSearchSettings(){
     const pane=document.querySelector('[data-pane="search"]');if(!pane)return;const prefs=await S.getPreferences().catch(()=>({}));const cfg=await S.searchConfig().catch(()=>({signals:false}));
     const rows=[...pane.querySelectorAll('.setRow')];
