@@ -75,8 +75,10 @@ app.whenReady().then(async()=>{
 
     const id=await chrome(`window.__BREEZE_SHELL__.newTab({url:${JSON.stringify(url('/start'))}})`);
     await chrome(`setView('browse');window.__BREEZE_SHELL__.setInternalView(false)`);
-    const viewReady=await waitFor(()=>pageFor('/start'),3000);
-    let view=viewReady;ok('real test page is visible in Chromium',!!view);if(!view)return finish();
+    let view=await waitFor(()=>pageFor('/start'),3000);
+    ok('real test page is visible in Chromium',!!view);if(!view)return finish();
+    const pageUa=await view.webContents.executeJavaScript('navigator.userAgent');
+    ok('websites receive a standard Chromium UA without Electron token',!/Electron\//i.test(pageUa),pageUa.slice(0,110));
 
     let navAt=0;view.webContents.once('will-navigate',()=>{navAt=Date.now();});
     const clickAt=Date.now();ok('native mouse can hit an ordinary result link',await clickElement(view,'#same'));
@@ -112,7 +114,11 @@ app.whenReady().then(async()=>{
     ok('Home search reveals the browser before the network finishes',!!browsed,`${Date.now()-transitionAt}ms`);
     const homeBusy=await waitFor(()=>chrome(`document.documentElement.dataset.navbusy==='1'`),600,30);
     ok('Home search gives immediate loading feedback',!!homeBusy);
-    const homeLanded=await waitFor(async()=>{const tabs=await chrome(`window.__BREEZE_SHELL__.listTabs()`);const t=(tabs||[]).find(x=>x.id===${homeId});return /\/slow$/.test(t?.url||'')?t.url:null;},6500,80);
+    const homeLanded=await waitFor(async()=>{
+      const tabs=await chrome(`window.__BREEZE_SHELL__.listTabs()`);
+      const t=(tabs||[]).find(x=>x.id===homeId);
+      return /\/slow$/.test(t?.url||'')?t.url:null;
+    },6500,80);
     ok('Home search lands on the requested page',!!homeLanded,homeLanded||'not committed');
   }catch(err){results.push(['FAIL','journey threw',String(err?.stack||err).slice(0,300)]);}
   finish();
