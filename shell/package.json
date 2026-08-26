@@ -18,6 +18,7 @@
     "dist:linux": "npm run prebuild && electron-builder --linux",
     "dist:win": "npm run prebuild && electron-builder --win",
     "dist:mac": "npm run prebuild && electron-builder --mac",
+    "packagecontracttest": "node packagecontracttest.js",
     "packagetest": "node packagetest.js dist",
     "mediatest": "node mediatest.js",
     "browsercoretest": "node browsercoretest.js",
