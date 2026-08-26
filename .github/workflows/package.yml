@@ -79,13 +79,21 @@ jobs:
         working-directory: shell
         run: npm install --no-audit --no-fund
 
+      - name: Verify package source contract
+        working-directory: shell
+        run: npm run packagecontracttest
+
       - name: Package unsigned test build
         working-directory: shell
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder ${{ matrix.args }} --publish never
 
-      - name: Install and launch Windows package
+      - name: Verify packaged app.asar contents
+        working-directory: shell
+        run: npm run packagetest
+
+      - name: Install, smoke-test and launch Windows package
         if: ${{ matrix.name == 'windows' }}
         shell: pwsh
         run: |
@@ -96,17 +104,20 @@ jobs:
           if ($install.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($install.ExitCode)" }
           $exe = Join-Path $installDir 'breeze.exe'
           if (-not (Test-Path $exe)) { throw "Installed Breeze executable missing: $exe" }
+          $smoke = Start-Process -FilePath $exe -ArgumentList @('--smoke-test') -PassThru -Wait
+          if ($smoke.ExitCode -ne 0) { throw "Installed Breeze packaged smoke failed with exit code $($smoke.ExitCode)" }
           $browser = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 12
           if ($browser.HasExited) { throw "Installed Breeze exited unexpectedly with code $($browser.ExitCode)" }
           Stop-Process -Id $browser.Id -Force
-          Write-Host 'Installed Windows Breeze opened and stayed alive for 12 seconds.'
+          Write-Host 'Installed Windows Breeze passed packaged smoke and normal launch.'
 
-      - name: Install and launch Linux packages
+      - name: Install, smoke-test and launch Linux packages
         if: ${{ matrix.name == 'linux' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y ./shell/dist/breeze_1.0_amd64.deb
+          xvfb-run -a breeze --smoke-test --no-sandbox
           set +e
           timeout 12s xvfb-run -a breeze --no-sandbox
           deb_code=$?
@@ -115,14 +126,15 @@ jobs:
           appimage="$(find shell/dist -maxdepth 1 -name 'Breeze-1.0-*.AppImage' | head -1)"
           test -n "$appimage"
           chmod +x "$appimage"
+          xvfb-run -a env APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --smoke-test --no-sandbox
           set +e
           timeout 12s xvfb-run -a env APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --no-sandbox
           image_code=$?
           set -e
           test "$image_code" -eq 124 || { echo "Breeze AppImage exited early: $image_code" >&2; exit 1; }
-          echo 'Installed Linux Breeze packages opened and stayed alive for 12 seconds.'
+          echo 'Installed Linux Breeze packages passed packaged smoke and normal launch.'
 
-      - name: Mount, install and launch macOS package
+      - name: Mount, install, smoke-test and launch macOS package
         if: ${{ matrix.name == 'macos' }}
         run: |
           machine="$(uname -m)"
@@ -140,6 +152,7 @@ jobs:
           hdiutil detach "$mount"
           exe="$installed/Contents/MacOS/breeze"
           test -x "$exe"
+          "$exe" --smoke-test
           "$exe" >"$RUNNER_TEMP/breeze-mac-launch.log" 2>&1 &
           pid=$!
           sleep 12
@@ -150,7 +163,7 @@ jobs:
           fi
           kill "$pid" || true
           wait "$pid" || true
-          echo 'Installed macOS Breeze opened and stayed alive for 12 seconds.'
+          echo 'Installed macOS Breeze passed packaged smoke and normal launch.'
 
       - name: Collect installers
         uses: actions/upload-artifact@v4
