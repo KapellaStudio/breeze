@@ -3,7 +3,7 @@
   "productName": "Breeze",
   "version": "1.0.0",
   "description": "Breeze — the desktop shell. Real Chromium, real tabs, real search.",
-  "main": "bootstrap.js",
+  "main": "entry.js",
   "author": "Kapella — Venture Technology Studio",
   "license": "UNLICENSED",
   "scripts": {
@@ -11,6 +11,7 @@
     "smoke": "xvfb-run -a electron . --smoke-test",
     "breach": "xvfb-run -a electron shellbreach.js",
     "integration": "xvfb-run -a electron integration.js",
+    "uxjourney": "xvfb-run -a electron uxjourneytest.js --no-sandbox",
     "searchtest": "xvfb-run -a electron searchtest.js",
     "prebuild": "cd .. && python3 build.py",
     "pack": "npm run prebuild && electron-builder --dir",
