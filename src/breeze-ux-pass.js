@@ -105,7 +105,6 @@
       row.onclick=()=>{pop.dataset.on='0';toolsBtn.setAttribute('aria-expanded','false');original.click();};
       pop.append(row);
       original.classList.add('bzLegacyControl');
-      pop.append(original);
     };
     secondary.forEach(x=>addRow(...x));
     toolsBtn.onclick=e=>{e.stopPropagation();const on=pop.dataset.on==='1';pop.dataset.on=on?'0':'1';toolsBtn.setAttribute('aria-expanded',String(!on));if(!on){const r=toolsBtn.getBoundingClientRect();pop.style.top=(r.bottom+7)+'px';pop.style.left=Math.max(8,Math.min(innerWidth-pop.offsetWidth-8,r.right-250))+'px';}};
