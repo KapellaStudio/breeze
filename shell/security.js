@@ -17,7 +17,23 @@ const BLOCK_HOSTS = [
   'rubiconproject.com','casalemedia.com','bluekai.com','krxd.net','moatads.com'
 ];
 
+function browserUserAgent(ua){
+  return String(ua||'')
+    .replace(/\s+Electron\/[\d.]+/gi,'')
+    .replace(/\s+Breeze\/[\d.]+/gi,'')
+    .replace(/\s{2,}/g,' ')
+    .trim();
+}
+
 function hardenSession(ses, onBlocked, permissionBroker, permissionOptions){
+  // Websites should see the Chromium engine they are actually running in, not
+  // an Electron application token. Some major sites serve degraded or unusual
+  // compatibility paths when Electron appears in navigator.userAgent.
+  try{
+    const clean=browserUserAgent(ses.getUserAgent());
+    if(clean)ses.setUserAgent(clean);
+  }catch{}
+
   ses.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, cb) => {
     let host = '';
     try { host = new URL(details.url).hostname; } catch { return cb({}); }
@@ -27,9 +43,6 @@ function hardenSession(ses, onBlocked, permissionBroker, permissionOptions){
     }
     cb({});
   });
-  // Default-deny remains the test/security fallback. The real browser passes a
-  // permission broker that prompts the user and persists explicit per-origin
-  // decisions; no site permission is silently granted.
   if (permissionBroker && typeof permissionBroker.attach === 'function') permissionBroker.attach(ses, permissionOptions || {});
   else {
     ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
@@ -38,8 +51,6 @@ function hardenSession(ses, onBlocked, permissionBroker, permissionOptions){
   }
 }
 
-/* Applies to EVERY webContents, however it was created. The chrome may only
-   ever sit on our own file; web content may only use http(s). */
 function installGuards(app, shell, uiDir){
   const chromePrefix = pathToFileURL(path.join(uiDir, path.sep)).toString();
 
@@ -48,7 +59,7 @@ function installGuards(app, shell, uiDir){
 
     wc.on('will-navigate', (ev, url) => {
       if (isChrome){
-        if (!url.startsWith(chromePrefix)) ev.preventDefault();   // chrome stays put
+        if (!url.startsWith(chromePrefix)) ev.preventDefault();
         return;
       }
       let u; try { u = new URL(url); } catch { return ev.preventDefault(); }
@@ -57,10 +68,9 @@ function installGuards(app, shell, uiDir){
 
     wc.setWindowOpenHandler(({ url }) => {
       if (isChrome && /^https?:/i.test(url)) shell.openExternal(url);
-      return { action: 'deny' };                                  // never an uncontrolled window
+      return { action: 'deny' };
     });
 
-    // Attaching a webview tag would bypass the guards above.
     wc.on('will-attach-webview', (ev, prefs) => {
       delete prefs.preload;
       prefs.nodeIntegration = false;
@@ -71,4 +81,4 @@ function installGuards(app, shell, uiDir){
   });
 }
 
-module.exports = { BLOCK_HOSTS, hardenSession, installGuards };
+module.exports = { BLOCK_HOSTS, browserUserAgent, hardenSession, installGuards };
