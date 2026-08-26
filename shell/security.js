@@ -49,17 +49,17 @@ function hardenSession(ses, onBlocked, permissionBroker, permissionOptions){
   }
 }
 
-/* Applies to EVERY webContents, however it was created. Electron reports a
-   WebContentsView page as type "window" too, so getType() is not a safe way
-   to identify the privileged Breeze chrome. BrowserWindow.fromWebContents()
-   is the ownership boundary we actually need: it resolves the BrowserWindow's
-   own renderer, while ordinary page WebContentsViews remain page content. */
+/* Applies to EVERY webContents, however it was created. A WebContentsView may
+   still resolve back to its owning BrowserWindow, so owner existence alone is
+   not enough to identify privileged Breeze chrome. The trust boundary is the
+   BrowserWindow's exact renderer: owner.webContents.id must equal wc.id. */
 function installGuards(app, shell, uiDir){
   const chromePrefix = pathToFileURL(path.join(uiDir, path.sep)).toString();
   const isChromeRenderer = wc => {
     try{
       const owner=BrowserWindow.fromWebContents(wc);
-      if(!owner || owner.isDestroyed()) return false;
+      if(!owner || owner.isDestroyed() || !owner.webContents || owner.webContents.isDestroyed()) return false;
+      if(owner.webContents.id!==wc.id) return false;
       const current=wc.getURL();
       return !current || current==='about:blank' || current.startsWith(chromePrefix);
     }catch{return false;}
