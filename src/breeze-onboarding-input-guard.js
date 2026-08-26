@@ -8,13 +8,32 @@
   const S=window.__BREEZE_SHELL__;
   if(!S||!S.isShell||typeof S.setInternalView!=='function')return;
 
+  let enforceTimer=null;
   function internalForChrome(){
     return document.documentElement.dataset.view !== 'browse';
+  }
+  function stopEnforcing(){
+    if(enforceTimer){clearInterval(enforceTimer);enforceTimer=null;}
+  }
+  function hideNativeSurface(){
+    S.setInternalView(true).catch?.(()=>{});
   }
   function sync(){
     const setup=document.querySelector('.bzLaunch');
     const open=setup?.dataset.on==='1';
-    S.setInternalView(open ? true : internalForChrome()).catch?.(()=>{});
+    if(open){
+      hideNativeSurface();
+      // The shell adapter can perform a late initial browse-surface sync after
+      // first-run markup is mounted. Keep first-run authoritative until the
+      // dialog closes so a native page can never drift back above its buttons.
+      if(!enforceTimer) enforceTimer=setInterval(()=>{
+        if(document.querySelector('.bzLaunch')?.dataset.on==='1') hideNativeSurface();
+        else { stopEnforcing(); sync(); }
+      },25);
+    }else{
+      stopEnforcing();
+      S.setInternalView(internalForChrome()).catch?.(()=>{});
+    }
     document.documentElement.dataset.onboardingSurface=open?'hidden':'restored';
   }
 
@@ -33,10 +52,8 @@
     bodyObserver.observe(document.body,{childList:true,subtree:true});
   }
 
-  // View/layout changes can happen while setup is closed; keep the restored
-  // native page state aligned with the active Breeze view.
-  new MutationObserver(()=>{
-    const setup=document.querySelector('.bzLaunch');
-    if(setup?.dataset.on!=='1')sync();
-  }).observe(document.documentElement,{attributes:true,attributeFilter:['data-view']});
+  // Any renderer-side view change must re-check first-run. When setup is open
+  // the native surface remains hidden; when closed, normal browse/internal
+  // visibility follows the active Breeze view.
+  new MutationObserver(sync).observe(document.documentElement,{attributes:true,attributeFilter:['data-view']});
 })();
