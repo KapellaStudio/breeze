@@ -1,0 +1,110 @@
+name: windows-integration
+
+on:
+  push:
+    branches:
+      - integration/codex-audit-reconcile-2026-08-25
+    paths:
+      - 'src/**'
+      - 'shell/**'
+      - 'build.py'
+      - '.github/workflows/windows-integration.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: windows-reconciled-installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+
+      - name: Build Breeze UI
+        run: python3 build.py
+
+      - name: Install shell dependencies
+        working-directory: shell
+        run: npm install --no-audit --no-fund
+
+      - name: Verify package source contract
+        working-directory: shell
+        run: npm run packagecontracttest
+
+      - name: Render canonical installer header
+        shell: pwsh
+        run: |
+          if (-not (Get-Command magick -ErrorAction SilentlyContinue)) {
+            choco install imagemagick -y --no-progress
+          }
+          $magick = (Get-Command magick -ErrorAction Stop).Source
+          & $magick -background none shell/build/installer-header.svg -resize '150x57!' 'BMP3:shell/build/installer-header.bmp'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not render installer-header.bmp' }
+          $geometry = (& $magick identify -format '%wx%h' shell/build/installer-header.bmp)
+          if ($geometry -ne '150x57') { throw "Unexpected installer header geometry: $geometry" }
+
+      - name: Package unsigned Windows test build
+        working-directory: shell
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win --publish never
+
+      - name: Verify packaged archive contents
+        working-directory: shell
+        run: npm run packagetest
+
+      - name: Smoke-test unpacked packaged executable
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'shell/dist/win-unpacked/breeze.exe'
+          if (-not (Test-Path $exe)) { throw "Unpacked Breeze executable missing: $exe" }
+          $proc = Start-Process -FilePath $exe -ArgumentList @('--smoke-test') -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "Packaged executable smoke failed with exit code $($proc.ExitCode)" }
+
+      - name: Install exact installer and smoke-test installed copy
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem shell/dist/Breeze-Setup-*.exe | Select-Object -First 1
+          if (-not $installer) { throw 'Windows installer was not produced' }
+          $installDir = Join-Path $env:RUNNER_TEMP 'Breeze-Reconciled-Install'
+          if (Test-Path $installDir) { Remove-Item $installDir -Recurse -Force }
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDir") -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($install.ExitCode)" }
+          $exe = Join-Path $installDir 'breeze.exe'
+          if (-not (Test-Path $exe)) { throw "Installed Breeze executable missing: $exe" }
+          $smoke = Start-Process -FilePath $exe -ArgumentList @('--smoke-test') -PassThru -Wait
+          if ($smoke.ExitCode -ne 0) { throw "Installed Breeze smoke failed with exit code $($smoke.ExitCode)" }
+          $browser = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 12
+          if ($browser.HasExited) { throw "Installed Breeze exited unexpectedly with code $($browser.ExitCode)" }
+          Stop-Process -Id $browser.Id -Force
+          Write-Host 'Installed Breeze passed smoke and normal-launch checks.'
+
+      - name: Record Windows installer checksum
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem shell/dist/Breeze-Setup-*.exe | Select-Object -First 1
+          $hash = Get-FileHash $installer.FullName -Algorithm SHA256
+          Write-Host "Installer: $($installer.Name)"
+          Write-Host "Bytes: $($installer.Length)"
+          Write-Host "SHA256: $($hash.Hash)"
+
+      - name: Upload reconciled Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: breeze-windows-reconciled-${{ github.sha }}
+          retention-days: 14
+          path: |
+            shell/dist/Breeze-Setup-*.exe
+            shell/build/installer-header.bmp
