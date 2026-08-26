@@ -26,9 +26,6 @@ function browserUserAgent(ua){
 }
 
 function hardenSession(ses, onBlocked, permissionBroker, permissionOptions){
-  // Websites should see the Chromium engine they are actually running in, not
-  // an Electron application token. Some major sites serve degraded or unusual
-  // compatibility paths when Electron appears in navigator.userAgent.
   try{
     const clean=browserUserAgent(ses.getUserAgent());
     if(clean)ses.setUserAgent(clean);
@@ -51,14 +48,21 @@ function hardenSession(ses, onBlocked, permissionBroker, permissionOptions){
   }
 }
 
+/* Applies to EVERY webContents, however it was created. Chromium reports both
+   BrowserWindow renderers and WebContentsView page renderers as type "window",
+   so getType() cannot distinguish Breeze chrome from a real webpage. Classify
+   by the renderer's CURRENT trusted URL instead. This is critical: treating a
+   WebContentsView as chrome blocks user-clicked links while programmatic
+   loadURL still works, which produces a browser that appears to ignore clicks. */
 function installGuards(app, shell, uiDir){
   const chromePrefix = pathToFileURL(path.join(uiDir, path.sep)).toString();
+  const isTrustedChrome = wc => {
+    try{return wc.getURL().startsWith(chromePrefix);}catch{return false;}
+  };
 
   app.on('web-contents-created', (_e, wc) => {
-    const isChrome = wc.getType() === 'window';
-
     wc.on('will-navigate', (ev, url) => {
-      if (isChrome){
+      if (isTrustedChrome(wc)){
         if (!url.startsWith(chromePrefix)) ev.preventDefault();
         return;
       }
@@ -67,7 +71,7 @@ function installGuards(app, shell, uiDir){
     });
 
     wc.setWindowOpenHandler(({ url }) => {
-      if (isChrome && /^https?:/i.test(url)) shell.openExternal(url);
+      if (isTrustedChrome(wc) && /^https?:/i.test(url)) shell.openExternal(url);
       return { action: 'deny' };
     });
 
