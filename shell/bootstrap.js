@@ -32,6 +32,13 @@ function ensureInit(){
   if (!initialized){
     const userDataPath=app.getPath('userData');
     launch.init(userDataPath);
+    // The main-process smoke suite validates real tab visibility and renderer
+    // lifecycle, not first-run onboarding. Complete first-run only inside this
+    // isolated --smoke-test profile so the production onboarding guard cannot
+    // intentionally hide the very WebContentsView that smoke is measuring.
+    if(process.argv.includes('--smoke-test') && !launch.status().firstRunComplete){
+      launch.completeFirstRun();
+    }
     preferences.init(userDataPath);
     applyNativeTheme(preferences.get().theme);
     workspaces.init(userDataPath);
