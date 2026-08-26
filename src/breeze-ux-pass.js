@@ -7,7 +7,6 @@
   if(!S||!S.isShell)return;
   const root=document.documentElement;
   const $=s=>document.querySelector(s);
-  const $$=s=>[...document.querySelectorAll(s)];
 
   const style=document.createElement('style');
   style.textContent=`
@@ -22,8 +21,10 @@
     [data-shell="1"] .sideId{display:none!important}
     [data-shell="1"] .tabsearch .kbd{display:none!important}
 
-    /* Default toolbar = familiar browser essentials. Breeze power lives in Tools. */
-    [data-breeze-secondary="1"]{display:none!important}
+    /* Default toolbar = familiar browser essentials. Breeze power lives in Tools.
+       Original controls stay mounted/live for their existing wiring and automated
+       contracts, but are moved out of the toolbar and visually parked inside Tools. */
+    .bzLegacyControl{position:absolute!important;width:1px!important;height:1px!important;min-width:0!important;min-height:0!important;padding:0!important;margin:0!important;opacity:0!important;pointer-events:none!important;overflow:hidden!important;clip-path:inset(50%)!important}
     #breezeToolsBtn{position:relative}
     .bzToolsPop{position:fixed;z-index:140;width:250px;padding:7px;border:1px solid var(--line);border-radius:13px;background:var(--bg1);box-shadow:var(--shPop);display:none}
     .bzToolsPop[data-on="1"]{display:block}
@@ -31,7 +32,6 @@
     .bzToolsRow:hover{background:var(--bg2);color:var(--tx1)}
     .bzToolsIc{width:25px;height:25px;display:grid;place-items:center;border-radius:8px;background:var(--bg2);color:var(--accentTx);font-size:11px;font-weight:700}
     .bzToolsMain{flex:1}.bzToolsMain b{display:block;color:var(--tx1);font-size:12.5px}.bzToolsMain span{display:block;color:var(--tx3);font-size:10.5px;margin-top:1px}
-    .bzToolsSep{height:1px;background:var(--line2);margin:5px 3px}
 
     /* Familiar New Tab affordance in the tab rail. */
     .bzNewTab{margin:2px 8px 8px;width:calc(100% - 16px);height:32px;display:flex;align-items:center;gap:8px;padding:0 9px;border-radius:8px;color:var(--tx2);font-size:11.5px}
@@ -111,11 +111,12 @@
     pop.className='bzToolsPop';pop.id='breezeToolsPop';document.body.append(pop);
     const addRow=(selector,title,desc,icon)=>{
       const original=$(selector);if(!original)return;
-      original.dataset.breezeSecondary='1';
       const row=document.createElement('button');row.className='bzToolsRow';
       row.innerHTML=`<span class="bzToolsIc">${icon}</span><span class="bzToolsMain"><b>${title}</b><span>${desc}</span></span>`;
       row.onclick=()=>{pop.dataset.on='0';toolsBtn.setAttribute('aria-expanded','false');original.click();};
       pop.append(row);
+      original.classList.add('bzLegacyControl');
+      pop.append(original);
     };
     secondary.forEach(x=>addRow(...x));
     toolsBtn.onclick=e=>{e.stopPropagation();const on=pop.dataset.on==='1';pop.dataset.on=on?'0':'1';toolsBtn.setAttribute('aria-expanded',String(!on));if(!on){const r=toolsBtn.getBoundingClientRect();pop.style.top=(r.bottom+7)+'px';pop.style.left=Math.max(8,Math.min(innerWidth-pop.offsetWidth-8,r.right-250))+'px';}};
