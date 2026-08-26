@@ -13,6 +13,8 @@ directories:
 icon: build/icon.png
 
 files:
+  - entry.js
+  - ux-runtime.js
   - bootstrap.js
   - launch.js
   - preferences.js
