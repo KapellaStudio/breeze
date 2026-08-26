@@ -28,6 +28,12 @@ files:
   - search.js
   - media.js
   - extensions.js
+  - extensions-runtime.js
+  - extension-compat.js
+  - extension-page-preload.js
+  - extension-sw-preload.js
+  - extension-identity-preload.js
+  - extension-self-close.js
   - downloads.js
   - state.js
   - permissions.js
