@@ -49,7 +49,7 @@ app.whenReady().then(async () => {
     ok('browser-grade omnibox bridge is present', await exec(`typeof window.__BREEZE_SHELL__.resolveOmnibox==='function' && typeof window.__BREEZE_SHELL__.omniboxSuggestions==='function'`));
     ok('Google shortcut resolves to a real search URL', await exec(`window.__BREEZE_SHELL__.resolveOmnibox('!g breeze browser').then(x=>x.kind==='engine'&&x.engine==='Google'&&/google\\.com\\/search/.test(x.url))`));
     ok('New Tab keeps a real weather control', await exec(`!!document.querySelector('.homebar .wx') && /Weather/.test(document.querySelector('.homebar .wx').textContent)`));
-    ok('weather starts opt-in, not as a fake reading', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>p.weatherEnabled===false)`));
+    ok('weather is restored as a real toolbar feature', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>p.weatherEnabled===true)`));
     ok('real tab sleeping defaults on', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>p.sleep===true)`));
     ok('search suggestions are a real persisted preference', await exec(`window.__BREEZE_SHELL__.getPreferences().then(p=>typeof p.searchSuggestions==='boolean'&&typeof p.searchLibrary==='boolean')`));
     ok('real Split View bridge is present', await exec(`typeof window.__BREEZE_SHELL__.openSplit==='function'&&typeof window.__BREEZE_SHELL__.setSplitRatio==='function'`));
