@@ -1,9 +1,9 @@
 /* Breeze packaging source contract.
    Electron Builder uses an explicit files allowlist, so any new local require
    can silently work in development and disappear from the installer. Follow
-   the local CommonJS dependency graph from bootstrap.js and require both
-   package manifests to include every runtime source plus the extension preload
-   files that are referenced by path rather than require(). */
+   the local CommonJS dependency graph from the packaged entrypoint and require
+   both package manifests to include every runtime source plus the preload files
+   that are referenced by path rather than require(). */
 'use strict';
 
 const fs = require('node:fs');
@@ -46,7 +46,7 @@ function manifestFiles(file) {
   return new Set([...block[1].matchAll(/^\s+-\s+([^\n#]+?)\s*$/gm)].map(m => m[1].trim().replace(/^['"]|['"]$/g, '')));
 }
 
-const required = new Set([...localRequires(path.join(ROOT, 'bootstrap.js')), ...EXTRA]);
+const required = new Set([...localRequires(path.join(ROOT, 'entry.js')), ...EXTRA]);
 const manifests = ['electron-builder.yml', 'electron-builder.production.yml'];
 let failed = false;
 for (const name of manifests) {
