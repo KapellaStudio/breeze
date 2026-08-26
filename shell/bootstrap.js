@@ -2,7 +2,7 @@
    Keeps first-run/import/preferences/workspace/context/vault IPC separate from
    the browser runtime so product setup can evolve without widening page surfaces. */
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, clipboard, nativeTheme } = require('electron');
 const path = require('node:path');
 const launch = require('./launch');
 const preferences = require('./preferences');
@@ -21,12 +21,19 @@ app.userAgentFallback = /Breeze\/[\d.]+/.test(defaultUA)
   ? defaultUA.replace(/Breeze\/[\d.]+/g, 'Breeze/1.0')
   : `${defaultUA} Breeze/1.0`.trim();
 
+function applyNativeTheme(value){
+  const theme = String(value || 'auto');
+  nativeTheme.themeSource = theme === 'dark' ? 'dark' : theme === 'light' ? 'light' : 'system';
+  return nativeTheme.themeSource;
+}
+
 let initialized = false;
 function ensureInit(){
   if (!initialized){
     const userDataPath=app.getPath('userData');
     launch.init(userDataPath);
     preferences.init(userDataPath);
+    applyNativeTheme(preferences.get().theme);
     workspaces.init(userDataPath);
     workspaceData.init(userDataPath);
     vault.init(userDataPath,safeStorage,clipboard,process.platform);
@@ -72,9 +79,23 @@ handle('launch:requestDefault', () => launch.requestDefaultBrowser(app));
 handle('launch:openDefaultSettings', () => launch.openDefaultBrowserSettings(shell));
 
 handle('prefs:get', () => preferences.get());
-handle('prefs:set', (key,value) => preferences.set(String(key||''),value));
-handle('prefs:setMany', patch => preferences.setMany(patch || {}));
-handle('prefs:reset', () => preferences.reset());
+handle('prefs:set', (key,value) => {
+  const name=String(key||'');
+  const result=preferences.set(name,value);
+  if(!result?.error && name==='theme') applyNativeTheme(value);
+  return result;
+});
+handle('prefs:setMany', patch => {
+  const next=patch || {};
+  const result=preferences.setMany(next);
+  if(!result?.error && Object.prototype.hasOwnProperty.call(next,'theme')) applyNativeTheme(next.theme);
+  return result;
+});
+handle('prefs:reset', () => {
+  const result=preferences.reset();
+  applyNativeTheme(result.theme);
+  return result;
+});
 
 /* Browser-grade omnibox helpers. Remote suggestions are never persisted, can
    be disabled in preferences, and are suppressed by the preload in Private. */
