@@ -44,6 +44,9 @@ app.whenReady().then(async () => {
     ok('adapter engaged (data-shell="1")', await exec(`document.documentElement.dataset.shell === '1'`));
     ok('trusted bridge reachable', await exec(`typeof window.__BREEZE_SHELL__ === 'object'`));
     ok('packaged first-run service reachable', await exec(`window.__BREEZE_SHELL__.firstRunStatus().then(x=>typeof x.firstRunComplete==='boolean')`));
+    await exec(`(()=>{const setup=document.querySelector('.bzLaunch');if(setup?.dataset.on==='1')setup.querySelector('[data-launch-later]')?.click();})()`);
+    await wait(220);
+    ok('integration dismisses first-run before renderer geometry checks', await exec(`document.querySelector('.bzLaunch')?.dataset.on !== '1' && document.documentElement.dataset.onboardingSurface === 'restored'`));
     ok('live weather bridge is present', await exec(`typeof window.__BREEZE_SHELL__.currentWeather === 'function'`));
     ok('true tab sleep bridge is present', await exec(`typeof window.__BREEZE_SHELL__.sleepTab === 'function' && typeof window.__BREEZE_SHELL__.wakeTab === 'function'`));
     ok('browser-grade omnibox bridge is present', await exec(`typeof window.__BREEZE_SHELL__.resolveOmnibox==='function' && typeof window.__BREEZE_SHELL__.omniboxSuggestions==='function'`));
