@@ -84,6 +84,50 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder ${{ matrix.args }} --publish never
 
+      - name: Install and launch Windows package
+        if: ${{ matrix.name == 'windows' }}
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem shell/dist/Breeze-Setup-*.exe | Select-Object -First 1
+          if (-not $installer) { throw 'Windows installer was not produced' }
+          $installDir = Join-Path $env:RUNNER_TEMP 'BreezeInstall'
+          $p = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDir") -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($p.ExitCode)" }
+          $exe = Join-Path $installDir 'breeze.exe'
+          if (-not (Test-Path $exe)) { throw "Installed Breeze executable missing: $exe" }
+          $smoke = Start-Process -FilePath $exe -ArgumentList @('--smoke-test') -PassThru -Wait
+          if ($smoke.ExitCode -ne 0) { throw "Installed Breeze smoke launch failed with exit code $($smoke.ExitCode)" }
+
+      - name: Install and launch Linux packages
+        if: ${{ matrix.name == 'linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ./shell/dist/breeze_1.0_amd64.deb
+          xvfb-run -a breeze --smoke-test --no-sandbox
+          appimage="$(find shell/dist -maxdepth 1 -name 'Breeze-1.0-*.AppImage' | head -1)"
+          test -n "$appimage"
+          chmod +x "$appimage"
+          xvfb-run -a env APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --smoke-test --no-sandbox
+
+      - name: Mount, install and launch macOS package
+        if: ${{ matrix.name == 'macos' }}
+        run: |
+          machine="$(uname -m)"
+          suffix='arm64'
+          if [ "$machine" = 'x86_64' ]; then suffix='x64'; fi
+          dmg="$(find shell/dist -maxdepth 1 -name "Breeze-1.0-${suffix}.dmg" | head -1)"
+          test -n "$dmg"
+          mount="$RUNNER_TEMP/breeze-dmg"
+          installed="$RUNNER_TEMP/Breeze.app"
+          rm -rf "$mount" "$installed"
+          mkdir -p "$mount"
+          hdiutil attach "$dmg" -nobrowse -mountpoint "$mount"
+          test -d "$mount/Breeze.app"
+          cp -R "$mount/Breeze.app" "$installed"
+          hdiutil detach "$mount"
+          test -x "$installed/Contents/MacOS/breeze"
+          "$installed/Contents/MacOS/breeze" --smoke-test
+
       - name: Collect installers
         uses: actions/upload-artifact@v4
         with:
