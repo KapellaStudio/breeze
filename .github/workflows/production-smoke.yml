@@ -2,28 +2,17 @@ name: production-smoke
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'site/**'
-      - 'netlify/**'
-      - 'supabase/**'
-      - 'netlify.toml'
-      - 'RELEASE_STATUS.md'
-      - '.github/workflows/production-smoke.yml'
 
 permissions:
   contents: read
   issues: write
-  pull-requests: write
 
 concurrency:
-  group: production-smoke-main
+  group: production-smoke-manual
   cancel-in-progress: true
 
 jobs:
   smoke:
-    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[publish-1.0]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Verify live Netlify production surface
@@ -32,49 +21,38 @@ jobs:
           EXPECTED_BETA_TAG: v1.0.0-beta.1
         run: |
           set -euo pipefail
-          ok=0
-          for attempt in $(seq 1 24); do
-            health_code="$(curl --silent --show-error --max-time 15 -o /tmp/health.json -w '%{http_code}' "$BASE/api/health" || true)"
-            release_code="$(curl --silent --show-error --max-time 15 -o /tmp/releases.json -w '%{http_code}' "$BASE/api/releases?channel=beta" || true)"
-            site_code="$(curl --silent --show-error --max-time 15 -o /tmp/site.html -w '%{http_code}' "$BASE/" || true)"
-            echo "attempt=$attempt health=$health_code releases=$release_code site=$site_code"
-            if [ "$health_code" = 200 ] && [ "$release_code" = 200 ] && [ "$site_code" = 200 ]; then
-              if python3 - <<'PY'
+          health_code="$(curl --silent --show-error --max-time 15 -o /tmp/health.json -w '%{http_code}' "$BASE/api/health")"
+          release_code="$(curl --silent --show-error --max-time 15 -o /tmp/releases.json -w '%{http_code}' "$BASE/api/releases?channel=beta")"
+          site_code="$(curl --silent --show-error --max-time 15 -o /tmp/site.html -w '%{http_code}' "$BASE/")"
+          test "$health_code" = 200
+          test "$release_code" = 200
+          test "$site_code" = 200
+          python3 - <<'PY'
           import json, pathlib, sys
           health=json.loads(pathlib.Path('/tmp/health.json').read_text())
           data=json.loads(pathlib.Path('/tmp/releases.json').read_text())
           builds={b.get('platform'): b for b in data.get('builds',[])}
-          platforms={b.get('platform') for b in data.get('builds',[])}
           required={'macos-arm','macos-x64','windows-x64','linux-x64'}
           site=pathlib.Path('/tmp/site.html').read_text()
           good=(health.get('ok') is True and health.get('service')=='breeze'
                 and data.get('version')=='1.0' and data.get('codename')=='McCloskey'
-                and required.issubset(platforms)
+                and required.issubset(set(builds))
                 and 'Breeze 1.0' in site
                 and '/download?channel=beta&platform=' in site)
           if not good:
-              print({'health':health,'version':data.get('version'),'codename':data.get('codename'),'platforms':sorted(platforms)})
               sys.exit(1)
           pathlib.Path('/tmp/expected-linux-sha.txt').write_text(builds['linux-x64']['sha256'].lower())
-          print('Live Netlify Functions, beta API and Breeze 1.0 site verified:', sorted(platforms))
           PY
-              then ok=1; break; fi
-            fi
-            sleep 5
-          done
-          test "$ok" = 1
-
           curl --silent --show-error --max-time 15 -D /tmp/download-headers.txt -o /dev/null \
             "$BASE/download?channel=beta&platform=linux-x64"
-          cat /tmp/download-headers.txt
           grep -Eq '^HTTP/[^ ]+ 30[1278]' /tmp/download-headers.txt
           grep -qi "^location: https://github.com/KapellaStudio/breeze/releases/download/${EXPECTED_BETA_TAG}/" /tmp/download-headers.txt
           expected_linux_sha256="$(cat /tmp/expected-linux-sha.txt)"
           grep -qi "^x-breeze-sha256: ${expected_linux_sha256}" /tmp/download-headers.txt
 
       - name: Report production smoke result
-        if: ${{ always() && (github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[publish-1.0]')) }}
+        if: ${{ always() }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze production smoke: **${{ job.status }}** — Netlify Functions/Breeze 1.0 site/API/download redirect, run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
+          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze manual production smoke: **${{ job.status }}** — run \`${{ github.run_id }}\`."
