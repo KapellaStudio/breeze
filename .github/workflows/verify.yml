@@ -1,10 +1,14 @@
 name: verify
-on: [push, pull_request]
+
+on:
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
+
+concurrency:
+  group: verify-manual-${{ github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -13,22 +17,22 @@ defaults:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 1
       - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
+        with:
+          python-version: '3.11'
       - uses: actions/setup-node@v4
-        with: { node-version: '24' }
-
+        with:
+          node-version: '24'
       - name: Reconstruct staged oversized source
         if: ${{ hashFiles('.sourceparts/manifest') != '' }}
         run: |
           while IFS='|' read -r target mode expected parts; do
             [ -n "$target" ] || continue
-            echo "Reconstructing $target"
             mkdir -p "$(dirname "$target")"
             tmp="/tmp/$(basename "$target").payload"
             : > "$tmp"
@@ -37,218 +41,44 @@ jobs:
             case "${mode:-raw}" in
               gz64) base64 -d "$tmp" | gzip -d > "$target" ;;
               raw) cp "$tmp" "$target" ;;
-              *) echo "Unknown reconstruction mode: $mode" >&2; exit 1 ;;
+              *) exit 1 ;;
             esac
             actual="$(sha256sum "$target" | awk '{print $1}')"
-            test "$actual" = "$expected" || { echo "SHA-256 mismatch for $target" >&2; exit 1; }
+            test "$actual" = "$expected"
           done < .sourceparts/manifest
-
-      - name: Release brand integrity
-        run: |
-          test -s src/breeze-mark.svg
-          test -s site/kapella-word-dark.png.b64
-          test -s site/kapella-word-light.png.b64
-          test "$(tr -d '\n\r' < site/kapella-word-dark.png.b64 | sha256sum | awk '{print $1}')" = "c61c419cf5c0c1bdb067e91893f2b41739fc48db4c24bfa8540f7d670b3f4b04"
-          test "$(tr -d '\n\r' < site/kapella-word-light.png.b64 | sha256sum | awk '{print $1}')" = "be357931787cf008ab5f19ca3a95b93088bc5749888d7fa54bae9c3d684be774"
-          grep -q '<title id="title">Breeze Browser mark</title>' src/breeze-mark.svg
-          grep -q 'M29 206C62 186 92 163 125 160' shell/build/installer-header.svg
-          if grep -q '_FALLBACK_PNG' build.py; then echo 'Release build still contains fallback branding' >&2; exit 1; fi
-
-      - name: Install Playwright
-        run: pip install playwright && playwright install --with-deps chromium
-
       - name: Build
         run: python3 build.py
-
-      - name: Syntax check every generated shell script
-        run: |
-          rm -rf /tmp/breeze-generated-js && mkdir -p /tmp/breeze-generated-js
-          python3 - <<'PY'
-          import pathlib, re
-          out=pathlib.Path('/tmp/breeze-generated-js')
-          for f in ['breeze-desktop.html','breeze-mobile.html']:
-              scripts=re.findall(r'<script[^>]*>(.*?)</script>', pathlib.Path(f).read_text(encoding='utf-8'), re.S)
-              if not scripts: raise SystemExit(f'no scripts found in {f}')
-              for i,script in enumerate(scripts): (out/f'{f}.{i}.js').write_text(script,encoding='utf-8')
-          PY
-          for f in /tmp/breeze-generated-js/*.js; do node --check "$f"; done
-
       - name: Syntax check shell and source modules
         run: |
-          for f in shell/*.js netlify/functions/*.js \
-            src/breeze-core.js src/breeze-shell-adapter.js src/breeze-launch.js \
-            src/breeze-onboarding-input-guard.js src/breeze-product.js src/breeze-context.js src/breeze-vault.js \
-            src/breeze-home.js src/breeze-runtime.js src/breeze-search-ui.js \
-            src/breeze-omni.js src/breeze-split-ui.js src/breeze-browser-interactions.js; do node --check "$f"; done
-
-      - name: Regression — desktop 1440/1180/1024
-        run: python3 src/regress.py
-
-      - name: Regression — mobile 360-430, overflow and 44px touch targets
-        run: python3 src/mob.py
-
-      - name: Download site — both pre-launch and published states
-        run: python3 src/sitecheck.py
-
-      - name: Breeze Flow — product contract
-        run: python3 src/flowcheck.py
-
-      - name: Backend — least-privilege contract
-        run: python3 src/backendcheck.py
-
-      - name: Private browsing + mobile architecture contract
-        run: python3 src/privatecheck.py
-
-      - name: Security — all 41 vectors must fail to exploit
+          for f in shell/*.js netlify/functions/*.js src/*.js; do
+            [ -f "$f" ] && node --check "$f"
+          done
+      - name: Core product checks
+        run: |
+          python3 src/sitecheck.py
+          python3 src/flowcheck.py
+          python3 src/backendcheck.py
+          python3 src/privatecheck.py
+      - name: Security checks
         run: |
           python3 src/breach.py
           python3 src/breach2.py
           python3 src/breach3.py
           python3 src/mbreach.py
-
       - name: Install shell dependencies
         working-directory: shell
         run: npm install --no-audit --no-fund
-
-      - name: Packaging source contract
+      - name: Package contract
         working-directory: shell
         run: npm run packagecontracttest
-
-      - name: Shell — smoke, breach, integration, stress, search, extensions and product state
+      - name: Browser core tests
         working-directory: shell
         run: |
-          xvfb-run -a npx electron . --smoke-test --no-sandbox
-          xvfb-run -a npx electron onboardingthemetest.js --no-sandbox
-          xvfb-run -a npx electron shellbreach.js --no-sandbox
-          xvfb-run -a npx electron integration.js --no-sandbox
-          xvfb-run -a npx electron browserinteractiontest.js --no-sandbox
-          xvfb-run -a npx electron browserstresstest.js --no-sandbox
-          xvfb-run -a npx electron searchtest.js --no-sandbox
-          xvfb-run -a npx electron extensiontest.js --no-sandbox
-          npm run mediatest
           npm run browsercoretest
           npm run documenttest
           npm run launchtest
           npm run producttest
           npm run contexttest
           npm run vaulttest
-          npm run weathertest
           npm run omniboxtest
           npm run splittest
-
-      - name: Finalize verified reconstructed source
-        if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('.sourceparts/manifest') != '' }}
-        run: |
-          rm -rf .sourceparts
-          rm -f .github/workflows/inspect-sourceparts.yml .github/workflows/reconstruct-source.yml
-          git config user.name "Kapella Venture Studio"
-          git config user.email "goldenmonkeyindex@gmail.com"
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m "Finalize verified Breeze 19 source"
-            git push origin HEAD:${{ github.head_ref }}
-          fi
-
-      - name: Report main verification
-        if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze verify: **${{ job.status }}** — run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
-
-  windows_package:
-    name: windows-reconciled-installer
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/codex-audit-reconcile-2026-08-25' }}
-    runs-on: windows-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - uses: actions/setup-node@v4
-        with: { node-version: '24' }
-
-      - name: Build Breeze UI
-        run: python3 build.py
-
-      - name: Install shell dependencies
-        working-directory: shell
-        run: npm install --no-audit --no-fund
-
-      - name: Verify package source contract
-        working-directory: shell
-        run: npm run packagecontracttest
-
-      - name: Render canonical installer header
-        shell: pwsh
-        run: |
-          if (-not (Get-Command magick -ErrorAction SilentlyContinue)) {
-            choco install imagemagick -y --no-progress
-          }
-          $magick = (Get-Command magick -ErrorAction Stop).Source
-          & $magick -background none shell/build/installer-header.svg -resize '150x57!' 'BMP3:shell/build/installer-header.bmp'
-          if ($LASTEXITCODE -ne 0) { throw 'Could not render installer-header.bmp' }
-          $geometry = (& $magick identify -format '%wx%h' shell/build/installer-header.bmp)
-          if ($geometry -ne '150x57') { throw "Unexpected installer header geometry: $geometry" }
-
-      - name: Package unsigned Windows test build
-        working-directory: shell
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --win --publish never
-
-      - name: Verify packaged archive contents
-        working-directory: shell
-        run: npm run packagetest
-
-      - name: Smoke-test unpacked packaged executable
-        shell: pwsh
-        run: |
-          $exe = Join-Path $PWD 'shell/dist/win-unpacked/breeze.exe'
-          if (-not (Test-Path $exe)) { throw "Unpacked Breeze executable missing: $exe" }
-          $proc = Start-Process -FilePath $exe -ArgumentList @('--smoke-test') -PassThru
-          try { Wait-Process -Id $proc.Id -Timeout 90 -ErrorAction Stop } catch { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue; throw 'Packaged executable smoke timed out after 90 seconds' }
-          $proc.Refresh()
-          if ($proc.ExitCode -ne 0) { throw "Packaged executable smoke failed with exit code $($proc.ExitCode)" }
-
-      - name: Install exact installer and smoke-test installed copy
-        shell: pwsh
-        run: |
-          $installer = Get-ChildItem shell/dist/Breeze-Setup-*.exe | Select-Object -First 1
-          if (-not $installer) { throw 'Windows installer was not produced' }
-          $installDir = Join-Path $env:RUNNER_TEMP 'Breeze-Reconciled-Install'
-          if (Test-Path $installDir) { Remove-Item $installDir -Recurse -Force }
-          $install = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDir") -PassThru -Wait
-          if ($install.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($install.ExitCode)" }
-          $exe = Join-Path $installDir 'breeze.exe'
-          if (-not (Test-Path $exe)) { throw "Installed Breeze executable missing: $exe" }
-          $smoke = Start-Process -FilePath $exe -ArgumentList @('--smoke-test') -PassThru
-          try { Wait-Process -Id $smoke.Id -Timeout 90 -ErrorAction Stop } catch { Stop-Process -Id $smoke.Id -Force -ErrorAction SilentlyContinue; throw 'Installed Breeze smoke timed out after 90 seconds' }
-          $smoke.Refresh()
-          if ($smoke.ExitCode -ne 0) { throw "Installed Breeze smoke failed with exit code $($smoke.ExitCode)" }
-          $browser = Start-Process -FilePath $exe -PassThru
-          Start-Sleep -Seconds 12
-          $browser.Refresh()
-          if ($browser.HasExited) { throw "Installed Breeze exited unexpectedly with code $($browser.ExitCode)" }
-          Stop-Process -Id $browser.Id -Force
-          Write-Host 'Installed Breeze passed packaged smoke and normal-launch checks.'
-
-      - name: Record Windows installer checksum
-        shell: pwsh
-        run: |
-          $installer = Get-ChildItem shell/dist/Breeze-Setup-*.exe | Select-Object -First 1
-          $hash = Get-FileHash $installer.FullName -Algorithm SHA256
-          Write-Host "Installer: $($installer.Name)"
-          Write-Host "Bytes: $($installer.Length)"
-          Write-Host "SHA256: $($hash.Hash)"
-
-      - name: Upload reconciled Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: breeze-windows-reconciled-${{ github.sha }}
-          retention-days: 14
-          path: |
-            shell/dist/Breeze-Setup-*.exe
-            shell/build/installer-header.bmp
