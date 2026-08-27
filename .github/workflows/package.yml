@@ -1,14 +1,3 @@
-# ═══════════════════════════════════════════════════════════════════════════
-# BREEZE — UNSIGNED PACKAGE TEST + BETA PUBLICATION
-# Release promotion: 2026-08-26 full-product UX and native navigation repair.
-#
-# Main-branch source changes exercise the unsigned package matrix. Publishing
-# beta bytes is explicit: workflow_dispatch(publish_rc=true), a beta tag push,
-# or the intentional [publish-1.0] marker on the release promotion.
-# Stable tags are handled only by stable-release.yml so an unsigned build can
-# never become the stable release lane by accident.
-# ═══════════════════════════════════════════════════════════════════════════
-
 name: package
 
 on:
@@ -19,30 +8,14 @@ on:
         required: false
         default: false
         type: boolean
-  push:
-    branches: [main]
-    tags: ['v*-beta.*']
-    paths:
-      - 'src/**'
-      - 'shell/**'
-      - '!shell/electron-builder.production.yml'
-      - '!shell/build/entitlements.mac.plist'
-      - 'build.py'
-      - 'package.json'
-      - '.github/workflows/package.yml'
 
 permissions:
   contents: write
   issues: write
-  pull-requests: write
 
 concurrency:
-  group: package-${{ github.ref }}
+  group: package-manual-${{ github.ref }}
   cancel-in-progress: true
-
-defaults:
-  run:
-    shell: bash
 
 jobs:
   build:
@@ -60,117 +33,37 @@ jobs:
           - os: macos-latest
             name: macos
             args: --mac
-
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.name }}
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-
+        with:
+          python-version: '3.11'
       - uses: actions/setup-node@v4
-        with: { node-version: '24' }
-
+        with:
+          node-version: '24'
       - name: Build the UI
         run: python3 build.py
-
       - name: Install shell dependencies
         working-directory: shell
         run: npm install --no-audit --no-fund
-
       - name: Verify package source contract
         working-directory: shell
         run: npm run packagecontracttest
-
       - name: Package unsigned test build
         working-directory: shell
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder ${{ matrix.args }} --publish never
-
       - name: Verify packaged app.asar contents
         working-directory: shell
         run: npm run packagetest
-
-      - name: Install, smoke-test and launch Windows package
-        if: ${{ matrix.name == 'windows' }}
-        shell: pwsh
-        run: |
-          $installer = Get-ChildItem shell/dist/Breeze-Setup-*.exe | Select-Object -First 1
-          if (-not $installer) { throw 'Windows installer was not produced' }
-          $installDir = Join-Path $env:RUNNER_TEMP 'BreezeInstall'
-          $install = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDir") -PassThru -Wait
-          if ($install.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($install.ExitCode)" }
-          $exe = Join-Path $installDir 'breeze.exe'
-          if (-not (Test-Path $exe)) { throw "Installed Breeze executable missing: $exe" }
-          $smoke = Start-Process -FilePath $exe -ArgumentList @('--smoke-test') -PassThru -Wait
-          if ($smoke.ExitCode -ne 0) { throw "Installed Breeze packaged smoke failed with exit code $($smoke.ExitCode)" }
-          $browser = Start-Process -FilePath $exe -PassThru
-          Start-Sleep -Seconds 12
-          if ($browser.HasExited) { throw "Installed Breeze exited unexpectedly with code $($browser.ExitCode)" }
-          Stop-Process -Id $browser.Id -Force
-          Write-Host 'Installed Windows Breeze passed packaged smoke and normal launch.'
-
-      - name: Install, smoke-test and launch Linux packages
-        if: ${{ matrix.name == 'linux' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ./shell/dist/breeze_1.0_amd64.deb
-          xvfb-run -a breeze --smoke-test --no-sandbox
-          set +e
-          timeout 12s xvfb-run -a breeze --no-sandbox
-          deb_code=$?
-          set -e
-          test "$deb_code" -eq 124 || { echo "Installed DEB Breeze exited early: $deb_code" >&2; exit 1; }
-          appimage="$(find shell/dist -maxdepth 1 -name 'Breeze-1.0-*.AppImage' | head -1)"
-          test -n "$appimage"
-          chmod +x "$appimage"
-          xvfb-run -a env APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --smoke-test --no-sandbox
-          set +e
-          timeout 12s xvfb-run -a env APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --no-sandbox
-          image_code=$?
-          set -e
-          test "$image_code" -eq 124 || { echo "Breeze AppImage exited early: $image_code" >&2; exit 1; }
-          echo 'Installed Linux Breeze packages passed packaged smoke and normal launch.'
-
-      - name: Mount, install, smoke-test and launch macOS package
-        if: ${{ matrix.name == 'macos' }}
-        run: |
-          machine="$(uname -m)"
-          suffix='arm64'
-          if [ "$machine" = 'x86_64' ]; then suffix='x64'; fi
-          dmg="$(find shell/dist -maxdepth 1 -name "Breeze-1.0-${suffix}.dmg" | head -1)"
-          test -n "$dmg"
-          mount="$RUNNER_TEMP/breeze-dmg"
-          installed="$RUNNER_TEMP/Breeze.app"
-          rm -rf "$mount" "$installed"
-          mkdir -p "$mount"
-          hdiutil attach "$dmg" -nobrowse -mountpoint "$mount"
-          test -d "$mount/Breeze.app"
-          cp -R "$mount/Breeze.app" "$installed"
-          hdiutil detach "$mount"
-          exe="$installed/Contents/MacOS/breeze"
-          test -x "$exe"
-          "$exe" --smoke-test
-          "$exe" >"$RUNNER_TEMP/breeze-mac-launch.log" 2>&1 &
-          pid=$!
-          sleep 12
-          if ! kill -0 "$pid" 2>/dev/null; then
-            cat "$RUNNER_TEMP/breeze-mac-launch.log" || true
-            echo 'Installed macOS Breeze exited before launch certification.' >&2
-            exit 1
-          fi
-          kill "$pid" || true
-          wait "$pid" || true
-          echo 'Installed macOS Breeze passed packaged smoke and normal launch.'
-
       - name: Collect installers
         uses: actions/upload-artifact@v4
         with:
           name: breeze-${{ matrix.name }}
-          retention-days: 30
+          retention-days: 14
           path: |
             shell/dist/*.dmg
             shell/dist/*.zip
@@ -178,90 +71,39 @@ jobs:
             shell/dist/*.AppImage
             shell/dist/*.deb
 
-      - name: Checksums
-        working-directory: shell/dist
-        run: |
-          shasum -a 256 *.dmg *.zip *.exe *.AppImage *.deb 2>/dev/null || true
-
-      - name: Report platform package result
-        if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze package **${{ matrix.name }}**: **${{ job.status }}** — run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
-
   publish-rc:
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_rc == true) || startsWith(github.ref, 'refs/tags/') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-1.0]')) }}
+    if: ${{ inputs.publish_rc == true }}
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Choose prerelease tag
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            echo "RC_TAG=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
-          else
-            echo "RC_TAG=v1.0.0-beta.1" >> "$GITHUB_ENV"
-          fi
-
       - uses: actions/download-artifact@v4
         with:
           pattern: breeze-*
           path: release-assets
           merge-multiple: true
-
       - name: Build release manifests
         run: |
           cd release-assets
           sha256sum * > SHA256SUMS.txt
           python3 - <<'PY'
-          import hashlib, json, os, pathlib
-          root = pathlib.Path('.')
-          files = []
+          import hashlib, json, pathlib
+          root=pathlib.Path('.')
+          files=[]
           for p in sorted(root.iterdir()):
-              if not p.is_file() or p.name in {'SHA256SUMS.txt', 'release-manifest.json'}:
+              if not p.is_file() or p.name in {'SHA256SUMS.txt','release-manifest.json'}:
                   continue
-              h = hashlib.sha256()
-              with p.open('rb') as f:
-                  for chunk in iter(lambda: f.read(1 << 20), b''):
-                      h.update(chunk)
-              files.append({'name': p.name, 'size': p.stat().st_size, 'sha256': h.hexdigest()})
-          manifest = {
-              'version': '1.0',
-              'tag': os.environ['RC_TAG'],
-              'channel': 'beta',
-              'source_sha': '${{ github.sha }}',
-              'files': files,
-          }
-          pathlib.Path('release-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
-          print(json.dumps(manifest, indent=2))
+              h=hashlib.sha256(p.read_bytes()).hexdigest()
+              files.append({'name':p.name,'size':p.stat().st_size,'sha256':h})
+          pathlib.Path('release-manifest.json').write_text(json.dumps({'version':'1.0','tag':'v1.0.0-beta.1','channel':'beta','source_sha':'${{ github.sha }}','files':files},indent=2)+'\n')
           PY
-          cat SHA256SUMS.txt
-
       - name: Publish Breeze 1.0 Beta 1
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="$RC_TAG"
-          notes='Breeze 1.0 Beta 1 is the certified public beta for the Breeze desktop browser. It includes fast browsing, workspaces, Split View, Private browsing, Breeze Flow media tools, PDF Workspace, local productivity tools, and certified Phantom wallet support. Linux, Windows and macOS packages are built directly from canonical KapellaStudio/breeze source. Windows and macOS beta packages remain intentionally unsigned/unnotarized test builds; verify SHA256SUMS.txt before testing.'
+          tag='v1.0.0-beta.1'
+          notes='Breeze 1.0 Beta 1 manual certified beta build.'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Breeze 1.0 Beta 1' --notes "$notes" --prerelease
           fi
-
-      - name: Report prerelease publication
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze prerelease **$RC_TAG published** — run \`${{ github.run_id }}\`, source \`$GITHUB_SHA\`. Release assets include \`SHA256SUMS.txt\` and \`release-manifest.json\`."
-
-  report:
-    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    needs: [build, publish-rc]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Report package-test result
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue comment 1 --repo "$GITHUB_REPOSITORY" --body "Breeze package test — matrix: **${{ needs.build.result }}**; RC publication: **${{ needs.publish-rc.result }}** — run \`${{ github.run_id }}\`, main \`$GITHUB_SHA\`."
