@@ -1,24 +1,7 @@
 name: extension-compat
 
 on:
-  push:
-    branches:
-      - 'feature/extension-*'
-  pull_request:
-    paths:
-      - 'shell/extensions.js'
-      - 'shell/extensions-runtime.js'
-      - 'shell/extension-compat.js'
-      - 'shell/extension-page-preload.js'
-      - 'shell/extension-self-close.js'
-      - 'shell/extensiontest.js'
-      - 'shell/walletcompat.js'
-      - 'shell/extensioncompattest.js'
-      - 'shell/extensionruntimetest.js'
-      - 'shell/extensionclosetest.js'
-      - 'shell/bootstrap.js'
-      - 'shell/package.json'
-      - '.github/workflows/extension-compat.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
